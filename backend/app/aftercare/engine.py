@@ -41,7 +41,9 @@ ADVICE_PATTERNS = [
 ]
 _ADVICE_RX = [re.compile(p, re.I) for p in ADVICE_PATTERNS]
 
-BOOK_WORDS = ["book", "appointment", "check-up", "checkup", "check up", "vaccine", "vaccines", "vaccination", "shots", "shot", "visit", "exam", "schedule"]
+BOOK_WORDS = ["book", "appointment", "check-up", "checkup", "check up", "vaccine", "vaccines", "vaccination", "shots", "shot", "visit", "exam", "schedule",
+              "bring him in", "bring her in", "bring them in", "bring my", "come in", "be seen", "seen", "squeeze", "nail trim", "nail trims", "nails", "trim",
+              "clipped", "neuter", "spay", "microchip", "dental", "opening", "openings", "room today", "any room", "available", "anything"]
 REFILL_WORDS = ["refill", "medication", "medicine", "pills", "prescription", "food", "order", "meds", "script"]
 CANCEL_WORDS = ["cancel", "reschedule", "resched", "move my appointment", "change my appointment", "change the appointment", "postpone"]
 URGENT_WORDS = ["urgent", "emergency", "emergencies", "right now it is bad", "dying"]

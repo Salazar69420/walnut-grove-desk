@@ -13,10 +13,7 @@
 		flush_interval -1
 	}
 	log {
-		output file /var/log/caddy/walnut-access.log {
-			roll_size 20MiB
-			roll_keep 5
-		}
+		output stderr
 		format json
 	}
 }

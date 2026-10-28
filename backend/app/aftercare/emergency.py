@@ -17,6 +17,22 @@ RX_NOT_BREATHING = r"re:\b(not|isnt|isn t|stopped|cant|cannot|wont)\b.{0,12}\b(b
 RX_HIT = r"re:\bhit by (a |an |the )?(car|truck|vehicle|bike)\b"
 RX_LABOUR = r"re:\blabou?r\b.{0,25}\b(more than|over|longer than|for)\b.{0,10}\b(\d+|two|three|four|five|six)\b.{0,10}\b(hour|hours|hr|hrs)\b"
 
+def _near(a: str, b: str, gap: int = 40) -> str:
+    """Unordered proximity rule: a word from group a and a word from group b within `gap` characters."""
+    return rf"re:\b(?:{a})\b.{{0,{gap}}}\b(?:{b})\b|\b(?:{b})\b.{{0,{gap}}}\b(?:{a})\b"
+
+
+# Proximity rules catch how people actually describe things ("breathing really fast", "belly is swollen
+# and hard", "blood in her urine"), which exact phrases miss. Over-matching is the safe direction.
+RX_BREATH = _near(r"breathing|breathe|breath|breathes", r"fast|rapid|hard|heavy|heavily|laboured|labored|struggl\w*|mouth open|open mouth|noisy|wheez\w*|weird|strange|shallow")
+RX_BLOOD = _near(r"blood|bloody|bleeding|bleeds", r"urine|pee|peeing|diarrh\w*|stool|poop|vomit\w*|throw\w* up|nose|wont stop|will not stop|not stop\w*|a lot|lots|everywhere|dripping|pouring|keeps")
+RX_BELLY = _near(r"belly|stomach|abdomen|tummy", r"swollen|swelling|hard|bloated|distended|tight|huge|big")
+RX_GUMS = _near(r"gums|tongue|lips", r"blue|white|pale|grey|gray|purple", 20)
+RX_RETCH = _near(r"vomit\w*|retch\w*|throw\w* up|heav\w*|gag\w*", r"nothing (?:comes|coming|came) (?:up|out)|but nothing|cant|cannot|unproductive")
+RX_ATTACK = _near(r"attacked|bitten|mauled|fight|bit", r"dog|coyote|deep|bleeding|wound|puncture|bad", 30)
+RX_URINE = _near(r"pee|peeing|urinat\w*|litter box|litter", r"cant|cannot|straining|strain\w*|nothing comes|blocked|no urine|not peeing|unable", 30)
+RX_EYE = _near(r"eye|eyeball", r"popped|out of (?:the )?socket|bulging|hanging", 20)
+
 DEFAULT_KEYWORDS: list[str] = [
     # breathing
     "trouble breathing", "cant breathe", "can't breathe", "cannot breathe", "struggling to breathe",
@@ -53,6 +69,7 @@ DEFAULT_KEYWORDS: list[str] = [
     RX_NOT_BREATHING,
     RX_HIT,
     RX_LABOUR,
+    RX_BREATH, RX_BLOOD, RX_BELLY, RX_GUMS, RX_RETCH, RX_ATTACK, RX_URINE, RX_EYE,
 ]
 
 # One example sentence for every `re:` entry above (a test makes sure each regex has one).
@@ -62,6 +79,14 @@ EMERGENCY_REGEX_SAMPLES: dict[str, list[str]] = {
     RX_NOT_BREATHING: ["he is not breathing", "she stopped breathing", "he cant breathe at all"],
     RX_HIT: ["my puppy was hit by a car", "she got hit by a truck"],
     RX_LABOUR: ["she has been in labour for 3 hours", "labor more than 2 hours now"],
+    RX_BREATH: ["he is panting and breathing really fast", "her breathing is laboured", "breathing with her mouth open"],
+    RX_BLOOD: ["there is blood in her urine", "liquid diarrhea with blood in it", "the bleeding will not stop"],
+    RX_BELLY: ["her belly is swollen and hard", "his stomach looks bloated"],
+    RX_GUMS: ["her gums look blue", "his gums are white"],
+    RX_RETCH: ["he keeps trying to vomit but nothing comes up", "retching but nothing"],
+    RX_ATTACK: ["attacked by another dog and has a deep bite", "bitten by a coyote"],
+    RX_URINE: ["straining in the litter box", "he cant pee"],
+    RX_EYE: ["her eye popped out", "eyeball is bulging"],
 }
 
 _APOS = re.compile(r"['‘’`´]")

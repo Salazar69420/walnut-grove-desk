@@ -70,7 +70,8 @@ def load_keywords_info(db: Session, path: Path | None = None) -> dict[str, Any]:
         # a YAML file the owner has approved wins; otherwise the weaker of the two states shows
         status = y["status"] if y["status"] == "approved" and status != "approved" else (
             "draft" if status == "placeholder" else status)
-    return {"keywords": _dedupe(words), "status": status, "yaml": y is not None}
+    # The built-in safety rules are a floor: the owner's list adds to them but can never remove them.
+    return {"keywords": _dedupe(list(DEFAULT_KEYWORDS) + words), "status": status, "yaml": y is not None}
 
 
 def load_keywords(db: Session, path: Path | None = None) -> list[str]:
