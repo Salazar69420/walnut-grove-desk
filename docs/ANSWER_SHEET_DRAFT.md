@@ -34,7 +34,7 @@ Note: the exam figures conflict (30, 47, about 50). The clinic should publish on
 ## Before surgery
 
 **Q: What do I do the night before surgery?**
-- Heard: no food after midnight the night before, no breakfast that morning, water is fine. Heard in calls, needs the clinic to confirm. (20260731-135825-102-4782f7, 20260801-112142-102-4c43a6, 20260924-124306-102-549969)
+- Heard: the pet should not eat from midnight onward, should skip breakfast on the surgery day, and may drink water. Heard in calls, needs the clinic to confirm. (20260731-135825-102-4782f7, 20260801-112142-102-4c43a6, 20260924-124306-102-549969)
 
 **Q: When do I drop off?**
 - Heard: drop-off times of 9:30 or 10 am, pet stays for the day. Heard in calls, needs the clinic to confirm. (20260731-135825-102-4782f7, 20260729-150034-102-c82b66, 20261023-095410-102-a70475)
@@ -67,7 +67,7 @@ Note: the exam figures conflict (30, 47, about 50). The clinic should publish on
 
 ## Urgent calls during the day
 
-- Heard: "Is it an emergency or can you hold?" is used when lines are busy. (20260919-094919-102-d3125f, 20260911-182447-102-59bd49)
+- Heard: when lines are busy, staff first ask whether the call is an emergency before putting it on hold. (20260919-094919-102-d3125f, 20260911-182447-102-59bd49)
 - Heard: callers with severe diarrhea or a doctor away were told to go to an emergency clinic; "Animal Emergency of the Fraser Valley" was named on one call. This hospital is **not** in the app's confirmed list. The clinic must check it by phone and add it on the After-hours setup page if it wants the assistant to use it. (20260914-170829-102-9d01aa, 20260911-182711-102-cdb5ff)
 
 ## How this sheet was made
