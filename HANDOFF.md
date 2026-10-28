@@ -1,0 +1,234 @@
+# HANDOFF.md: continue the Walnut Grove Desk work
+
+This file is for a fresh Claude Code instance (or a human) picking up the project with no prior context. Read it top to bottom once, then read `docs/DECISIONS.md` and `docs/SECURITY.md` before changing anything.
+
+**This repository is PUBLIC.** Never commit passwords, API keys, the Fernet or app secret, server env files, database files, transcripts, call audio, or anything derived from real call text beyond aggregate counts. Passwords and secrets live only on the server (see section 6).
+
+---
+
+## 0. Ground rules the owner set (follow these)
+
+1. **Never read or open `/srv/walnut-private/`** (except the pipeline user, through the commands in `pipeline/README.md`, and only when the owner asks for pipeline work). Never print transcript text. Mask digits when showing any call text.
+2. **No em dashes** in any text, code comment, UI copy or document. Use commas, periods or "to".
+3. **Plain, short words in the UI.** Big click targets. One clear screen per role.
+4. **Do not invent facts about the real clinic** (prices, hours, policies, hospitals, phone numbers, staff). Everything in the app is example content and says so. Facts heard in calls are "heard in calls, needs the clinic to confirm".
+5. **Emergencies fail toward safety.** Never let the assistant give medical advice, doses, or say a pet is fine. Never name a hospital that the clinic has not confirmed.
+6. **Never send anything real.** SMS and voice adapters only log "would send" to the `outbox` table. The Retell hook stays off and in dry run.
+7. **Do not disable TLS verification. Do not expose anything beyond the app** (no database port, no debug endpoints, no `/docs` in production).
+8. The owner wants a confirmation before any hard-to-reverse or outward-facing action (pushing public content, deleting data, changing live settings) unless they have explicitly said to proceed.
+9. Commit messages: do not put model names in them (system rule). Earlier commits (`2398cbb` to `b55f8e9`) carry an older co-author line; leave history alone unless the owner asks.
+
+---
+
+## 1. What exists
+
+A staff work app for Walnut Grove Animal Hospital (British Columbia): overnight after-hours inbox, shared callbacks, lab result stages, message approvals, staff schedule, a Brief for the owner with suggestions, an after-hours assistant with a simulator, a side assistant that answers from database queries, import/export, and a Retell voice-agent hook (off).
+
+- **Live URL:** https://77-42-69-194.sslip.io (stable while the server IP `77.42.69.194` stays the same; not a tunnel)
+- **Repository:** https://github.com/Salazar69420/walnut-grove-desk (public, branch `main`)
+- **Server:** Hetzner VM named `Veto`, Ubuntu 26.04 LTS, 2 vCPU, 3.7 GiB RAM, 2 GiB swap at `/swapfile`, root login, systemd. Not a container.
+- **Working copy on server:** `/opt/walnut-desk` (git, branch `main`, clean at handoff)
+
+Read `README.md` in the repo for the architecture map and `docs/PROGRESS.md` for the milestone status with evidence.
+
+---
+
+## 2. Repository map
+
+| Path | What it is | Start here when |
+|---|---|---|
+| `README.md` | Overview, architecture, run, deploy, security, known gaps | First read |
+| `docs/PLAN.md` | Original plan, data model, permissions matrix, milestones | Changing the design |
+| `docs/CONTRACT.md`, `docs/CONTRACT_WAVE2.md` | Binding rules and API shapes the code was built to | Adding endpoints |
+| `docs/API.md` | Every endpoint, permission, response shape | Touching the API |
+| `docs/DECISIONS.md` | Every choice made on the owner's behalf, with reasons | Anything "why is it like this" |
+| `docs/SECURITY.md` | Threats, protections, gaps, what to fix before real data | Before any real data or deployment |
+| `docs/OPERATIONS.md` | Restart, update, backup, restore, users, settings | Running the server |
+| `docs/RETELL.md` | Voice-agent hook, request shapes, curl examples | Retell work |
+| `docs/DATA_AUDIT.md`, `docs/LABELER_EVAL.md` | Counts-only audit; rules labeler accuracy | Pipeline work |
+| `docs/ANSWER_SHEET_DRAFT.md` | Caller questions and answers heard in calls (draft, unconfirmed) | Assistant wording |
+| `docs/ASSISTANT_EVAL.md` | Assistant results plus an honest history note | Assistant changes |
+| `docs/SERVER_NOTES.md` | Recon and installed versions | Server changes |
+| `docs/screenshots/` | Reference screenshots and app screenshots per role | UI checks |
+| `backend/app/` | FastAPI app (see section 3) | Most logic |
+| `backend/tests/` | 136 pytest tests | Run after any backend change |
+| `backend/alembic/versions/` | Migrations `0001_initial_schema.py`, `0002_imported_calls_summary_nullable.py` | Schema changes |
+| `frontend/src/` | React + TypeScript screens; `views/` per screen; `live.ts` SSE client; `ctx.tsx` app state; `styles.css` from the reference | UI changes |
+| `e2e/` | Playwright flows (`test_flows.py`), screenshot scripts, `reference_shots.py` | Testing against a URL |
+| `pipeline/` | Private analytics pipeline code (no data). Has its own venv and 30 tests | Pipeline work |
+| `eval/` | `scenarios.jsonl` (181 scenarios) and `run_eval.py` | Assistant evaluation |
+| `config/` | `templates.yaml`, `emergency_keywords.yaml` (both DRAFT for owner approval) | Keyword and template review |
+| `samples/` | Invented sample CSV/JSON for every import kind and the PIMS adapter | Import testing |
+| `deploy/` | systemd units (`walnut-desk`, `walnut-backup`, `walnut-rules`), `Caddyfile`, journald conf, `bin/` health, backup and restore scripts | Deploying |
+| `reference/mock-reference.html` | The single-file prototype the UI was built from (fake data) | UI source of truth |
+
+### 2.1 backend/app layout
+
+- `main.py`: app factory, routers, SPA fallback, production hides docs routes
+- `config.py`: environment settings (`WALNUT_*` variables)
+- `db.py`: engine with WAL, foreign keys, busy timeout; `BEGIN IMMEDIATE` on writes
+- `models/`: SQLAlchemy models (core and ops tables)
+- `security/`: `permissions.py` (single source of truth for roles), `auth.py`, `passwords.py` (argon2id), `ratelimit.py`, `headers.py`, `crypto.py` (Fernet helpers)
+- `services/`: `events.py` (write the shared record and publish), `broadcaster.py` (SSE), `settings_store.py`, `metrics.py`, `numbercheck.py`, `importers.py`, `csvutil.py`, `timeutil.py`
+- `api/`: `auth`, `admin`, `admin_ai`, `callbacks`, `results`, `drafts`, `shifts`, `overnight`, `sim`, `afterhours`, `brief`, `feed`, `export`, `imports`, `health`, `schemas`, `serializers`
+- `aftercare/`: `engine.py` (state machine), `emergency.py` (built-in rules, proximity rules), `keywords.py` (merges settings and YAML; built-ins are a floor), `templates.py` (every client-facing string), `service.py` (context, outcomes, slots)
+- `rules/engine.py` and `rules/__main__.py`: suggestion rules, run by `walnut-rules.timer`
+- `assistant/`: handlers for the 14 side-panel questions
+- `adapters/`: `llm.py` (OpenAI-compatible client, 15 s timeout, never logs bodies), `messaging.py` (dry-run SMS and voice), `sms.py` (shim), `pims.py` (read-only CSV adapter)
+- `retell/`: `schema.py`, `mapping.py`, `verify.py` (signature check, unverified against live docs), `routes.py`
+- `seed/`: `reference_data.py` (demo data copied from the prototype), `__init__.py`, `__main__.py` (`--reset-demo`, `--create-users`)
+- `pims_sync.py`, `migrate.py`
+
+### 2.2 Important behaviour rules in the code
+
+- Permissions are declared with `require("perm")`. The walker test in `backend/tests` fails if any `/api` route has no perm tag (except its short allowlist).
+- Every state change calls `events.record(...)`, which writes the append-only `events` row and publishes to SSE after commit.
+- The settings `banner_on` and `clinic_name` come from `/api/auth/me`. The frontend reloads them on any `settings` event (fixed in `ae8c520`).
+- Emergency detection: built-in list in `aftercare/emergency.py` is always active. Settings and `config/emergency_keywords.yaml` add to it.
+- Client text comes only from `aftercare/templates.py`. A model never writes to clients.
+- `visible_calls` is a SQL view that hides rows flagged `contains_private_content`. Every metric and list must read through it.
+
+---
+
+## 3. How to run and test
+
+```bash
+# backend tests (from repo root)
+cd /opt/walnut-desk/backend && WALNUT_ENV=test ../.venv/bin/pytest -q          # expect 136 passed
+
+# pipeline tests (synthetic data only)
+cd /opt/walnut-desk && pipeline/.venv/bin/python -m pytest pipeline/tests -q   # expect 30 passed
+
+# frontend
+cd /opt/walnut-desk/frontend && npm ci && npm run build                         # zero TypeScript errors expected
+
+# end to end against the public URL (needs a TSV of test accounts, never committed)
+cd /opt/walnut-desk/e2e && WALNUT_E2E_URL=https://77-42-69-194.sslip.io \
+  WALNUT_E2E_CREDS=<path to tsv> WALNUT_E2E_NEWPASS=<new password> \
+  WALNUT_E2E_OWNER=<user> WALNUT_E2E_DESK=<user> WALNUT_E2E_NURSE=<user> \
+  WALNUT_E2E_DESK_NAME=<display name of desk user> \
+  /opt/walnut-tools/.venv/bin/pytest -q test_flows.py                            # expect 15 passed
+```
+
+Notes:
+- Playwright 1.49.1 and Chromium live in `/opt/walnut-tools/.venv`. Do not run `playwright install` again.
+- The login rate limit is 20 attempts per IP per 10 minutes. Repeated e2e runs need `delete from login_attempts;` in the app DB first.
+- The e2e suite changes data. Reset the demo afterwards (section 5).
+- Assistant evaluation: `cd backend && ../.venv/bin/python ../eval/run_eval.py --db <copy of app.db>` writes `docs/ASSISTANT_EVAL.md`. Always run it on a copy.
+
+### 3.1 Git
+
+- `origin` is `https://github.com/Salazar69420/walnut-grove-desk.git`. The `gh` CLI is signed in as `Salazar69420`. If `git push` asks for a username, run `gh auth setup-git` once.
+- Before any push: run `git status`, then check the staged files for `*.db`, `*.env`, `*.tsv`, anything under `/srv`, transcripts, and call references (date-time-extension-hash strings like `20261014-145506-103-ce6045`). Run `git grep` for the one-time passwords too. Anything you did not mean to publish stops the push.
+
+---
+
+## 4. Server: what runs and where
+
+| Thing | Where | Notes |
+|---|---|---|
+| App service | `systemctl status walnut-desk` | runs as `walnut-app`, uvicorn on `127.0.0.1:8000`, runs `alembic upgrade head` before start |
+| Web server | `systemctl status caddy` | TLS for `77-42-69-194.sslip.io`, reverse proxy, HSTS, access log to journal |
+| Backup timer | `walnut-backup.timer` (daily 10:17 UTC) | online backup to `/var/lib/walnut-desk/backups/`, 14 days kept |
+| Rules timer | `walnut-rules.timer` (every 15 min) | runs `python -m app.rules` |
+| Firewall | `ufw` | allows 22, 80, 443 only |
+| Health | `walnut-health` | service states, local and public health, cert days left, disk, last backup |
+| Restore | `walnut-restore <backup file>` | stops app, keeps old DB as `app.db.before-restore.*`, checks integrity |
+| App DB | `/var/lib/walnut-desk/app.db` (mode 600, owner `walnut-app`) | |
+| App env | `/etc/walnut-desk/app.env` (mode 600) | secret key, Fernet key, paths. Never copy into the repo |
+| LLM env | `/var/lib/walnut-desk-llm/llm.env` (written by the app, mode 0640) | group `walnut-llm` |
+| Public URL file | `/var/lib/walnut-desk/public_url.txt` | |
+| Caddy config | `/etc/caddy/Caddyfile` (copy of `deploy/Caddyfile`) | after edits: `caddy validate` then `systemctl reload caddy` |
+| Units | `/etc/systemd/system/walnut-*.service` and `.timer` (copies of `deploy/systemd/`) | after edits: `systemctl daemon-reload` |
+| Private store | `/srv/walnut-private/` (mode 700, owner `walnut-pipeline`) | contains `private.db`, `salt.bin`, `gold/`, `out/`, `inbox/`, `WIPE.sh`. The app user is denied (tested). Do not read |
+| Initial passwords | `/root/HANDOFF.md` and `/root/.walnut-initial-passwords.tsv` (root only) | Not in the repo. Shred after handing out |
+| Node, Caddy, uv, sqlite3 | system packages | Node 22.23.4, Caddy 2.11.7, uv 0.9.5, Python 3.12.12 under `/opt/uv-python` |
+
+Current health at handoff: all services active; local and public `/healthz` ok; certificate 89 days left; disk 18 percent used.
+
+Deployed code state: `main` at commit `fd887e0`, identical to `origin/main`. The app was restarted after the last backend change.
+
+---
+
+## 5. Data state (what is real and what is demo)
+
+- **Operational cards:** all invented demo data copied from the prototype. Reset with `sudo -u walnut-app bash -c 'set -a; . /etc/walnut-desk/app.env; set +a; cd /opt/walnut-desk/backend && ../.venv/bin/python -m app.seed --reset-demo'`. The reset keeps users and settings, adds a "Demo data reset" event, and puts the three after-hours toggles back to their defaults.
+- **Users:** `garg`, `priya`, `marcus`, `anita`, `jordan`, `krish` (real staff accounts, one-time passwords in `/root/HANDOFF.md`, must change at first sign-in). Three temporary accounts from the e2e run exist but are deactivated with random unknown passwords: `e2e_owner`, `e2e_desk`, `e2e_nurse`. Delete them if the owner agrees.
+- **Analytics:** 227 aggregate rows in `call_analytics` with `source = derived_from_real_calls`. Cells under 5 are removed. Used by the Brief chart's "Real recorded volume" mode.
+- **Real call data** in `/srv/walnut-private/`: 3,637 calls, 949 private-flagged calls had text deleted, 2,688 keep text (clinic work), 112 gold labels. The raw CSV was shredded after a checksum-verified move.
+- **Who saw transcript text:** the orchestrating model (Opus) read masked snippets while building the gold set, drafts and eval. Subagents never saw it. DeepSeek and other providers have seen none.
+- **Wipe everything real:** `sudo bash /srv/walnut-private/WIPE.sh` (`DRY_RUN=1` first). Tested on a copy. Also delete `/var/lib/walnut-desk/backups/*` if the aggregate rows should go.
+
+---
+
+## 6. Secrets and passwords (never in the repo)
+
+- App secret and Fernet key: `/etc/walnut-desk/app.env`. Changing the Fernet key makes saved AI and Retell keys unreadable; re-enter them after.
+- One-time passwords: `/root/HANDOFF.md`. Hand out, then `shred -u`.
+- DeepSeek key: not yet provided. The owner will enter it in Admin > Settings > AI provider. Keep all three AI switches off until the owner decides (DeepSeek processes data outside Canada; transcript labeling needs a privacy decision).
+- Retell secret: generated in Admin > Settings > Retell; shown once.
+- To sign everyone out: `sqlite3 /var/lib/walnut-desk/app.db "delete from sessions"`.
+
+---
+
+## 7. Known gaps (be honest about these)
+
+1. **Private-call detection is weak.** Rules catch 4 of 7 private calls in the gold set (target 0.95). The production policy compensates by flagging uncertain calls as private, which deleted text from about 27 percent of real work calls. A model labeler would do better, but only after a privacy decision.
+2. **Intent accuracy is 0.39** on the gold set (rules only). Gold set is 112 calls, tuned on the same calls, so figures are optimistic.
+3. **Assistant evaluation is not independent.** The first run scored emergency recall 0.756; rules were then improved while looking at the same scenarios. A fresh, independently written scenario set is the honest next test.
+4. **Retell signature check** in `backend/app/retell/verify.py` was written from memory and is not verified against Retell's live docs. The shared-secret header is the real protection. Verify before going live.
+5. **No two-factor sign-in.** Add before real data.
+6. **No off-site or encrypted backups.** Backups sit on the same disk, unencrypted.
+7. **No reboot test.** Services are enabled at boot, but run `reboot` on a planned window and then `walnut-health`.
+8. **No emergency hospital is confirmed.** The assistant says "contact the nearest emergency veterinarian" until the clinic confirms one by phone. One call named "Animal Emergency of the Fraser Valley"; it is not in the list.
+9. **Opening hours and prices conflict.** Staff on calls say open until 7 pm weekdays, 9 to 5 weekends, and the prototype example says closed after 6 pm. Exam prices heard: 30, 47 and about 50 dollars. The clinic must publish one set.
+10. **Answer sheet, templates and keyword YAML are drafts** awaiting Dr. Garg's review (`docs/ANSWER_SHEET_DRAFT.md`, `config/templates.yaml`, `config/emergency_keywords.yaml`).
+11. **The public repo already contains** call references (date, time, extension and hash of real calls) in four docs and the config, the heard prices and hours, the named third-party business, and paraphrased caller openings in `eval/scenarios.jsonl`. The owner chose to publish this as-is. If the owner later asks for a scrub, the plan is: remove those items, commit, and only rewrite history with explicit approval.
+12. **Shreds are best effort** on SSDs and copy-on-write filesystems. Provider snapshots may keep old blocks.
+13. **Retell's functions and webhook are dry-run and off.** Nothing has been connected to a real phone system.
+14. **Import and some admin flows** (add user, deactivate, reset password, Test connection for AI, Retell secret regeneration) were not run end to end in the browser; they are covered by API tests only.
+
+---
+
+## 8. What to do next (in order)
+
+1. **Owner review:** Dr. Garg approves or edits `config/emergency_keywords.yaml`, confirms (by phone) an emergency hospital with its real number and address, and sets real opening hours and one price list. Then update the answer sheet and the assistant's example hours text.
+2. **Owner decision on DeepSeek:** enter the key only if the owner accepts the data location. Turn on "Word the brief" and "Second emergency check" first; keep "Allow call transcripts to be sent for labeling" off until a privacy decision.
+3. **Independent assistant test:** write 60 to 100 new scenarios (someone other than the author), run `eval/run_eval.py` on a copy of the DB, and record results in `docs/ASSISTANT_EVAL.md`.
+4. **Verify Retell signatures** against the current Retell docs, fix `verify.py`, then run one supervised test call in dry run before any real use.
+5. **Security before real data:** two-factor sign-in, encrypted off-site backups, access review routine, audit retention period, written breach process (BC PIPA), a decision on hosting location.
+6. **Stable domain:** move from sslip.io to a clinic-owned domain. Update `Caddyfile`, `public_url.txt`, and the README.
+7. **Reboot test** in a planned window, then `walnut-health`.
+8. **Shred one-time passwords** after handout: `shred -u /root/HANDOFF.md /root/.walnut-initial-passwords.tsv`; delete the three `e2e_*` accounts if the owner agrees.
+9. **Real SMS and voice provider** only after the templates are approved. Replace `adapters/messaging.py` dry-run classes behind the same interface.
+10. **Real data load** only after step 5. Use the import API and the `calls` schema in `docs/API.md`.
+
+---
+
+## 9. Working method that worked (to keep)
+
+- Plan first in `docs/PLAN.md`, then contracts (`docs/CONTRACT*.md`) so parallel builders stayed consistent.
+- Subagents: Sonnet for code, Haiku for mechanical work, Opus for review, safety logic and anything that reads call text.
+- Each milestone: run its checks, update `docs/PROGRESS.md`, commit.
+- Before claiming done: show command output (test counts, health, leak scan).
+- Verify UI claims in a real browser against the public URL, not only localhost.
+
+---
+
+## 10. Quick reference: common tasks
+
+| Task | Command or place |
+|---|---|
+| Health | `walnut-health` |
+| Restart app | `systemctl restart walnut-desk` |
+| Restart web | `systemctl restart caddy` |
+| App logs | `journalctl -u walnut-desk -f` |
+| Backup now | `systemctl start walnut-backup` |
+| Restore | `walnut-restore /var/lib/walnut-desk/backups/app-<stamp>.db.gz` |
+| Run rules now | `systemctl start walnut-rules` |
+| Add user | Admin > Users > Add user (one-time password shown) |
+| Reset password | Admin > Users > Reset password |
+| Deactivate user | Admin > Users > Deactivate |
+| Banner off or clinic name | Admin > Settings, then Save settings |
+| Update app | `docs/OPERATIONS.md`, "Updating the app" |
+| Current URL | `cat /var/lib/walnut-desk/public_url.txt` |
