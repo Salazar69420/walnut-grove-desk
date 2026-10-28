@@ -23,7 +23,7 @@ Public URL: https://77-42-69-194.sslip.io (also in `/var/lib/walnut-desk/public_
 
 ## Settings
 
-- Prototype banner: Admin > Settings > "Show the \"Prototype, example data\" label", set it to Off, then Save.
+- Prototype banner: Admin > Settings, set the switch next to Show the "Prototype, example data" label to Off, then press Save settings.
 - Clinic name, rule thresholds, AI provider (DeepSeek key), Retell hook: Admin > Settings.
 
 ## Updating the app
