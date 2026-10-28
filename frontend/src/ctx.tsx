@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, Me, setCsrf, setHandlers } from './api/client'
-import { startLive, stopLive } from './live'
+import { startLive, stopLive, onEntity } from './live'
 
 type Theme = 'light' | 'dark' | 'auto'
 type Ctx = {
@@ -72,6 +72,8 @@ export function Provider({ children }: { children: ReactNode }) {
   }, [toast, nav, setMe])
 
   useEffect(() => { refreshMe().finally(() => setReady(true)) }, [refreshMe])
+  // clinic name and the prototype banner come with /auth/me, so reload it when any admin changes settings
+  useEffect(() => onEntity('settings', () => { refreshMe() }), [refreshMe])
   useEffect(() => { if (me && !me.user.must_change_password) startLive() }, [me])
 
   const can = useCallback((p: string) => !!me && me.perms.includes(p), [me])

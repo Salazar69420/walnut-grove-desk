@@ -30,6 +30,13 @@ function startPolling() {
   poll()
 }
 
+/** Run fn whenever the server reports a change to this entity. Returns an unsubscribe function. */
+export function onEntity(entity: string, fn: Fn): () => void {
+  if (!subs.has(entity)) subs.set(entity, new Set())
+  subs.get(entity)!.add(fn)
+  return () => { subs.get(entity)?.delete(fn) }
+}
+
 export function startLive() {
   if (started) return
   started = true
