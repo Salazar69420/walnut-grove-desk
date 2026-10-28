@@ -1,4 +1,4 @@
-# Walnut Grove Desk: backend API (as built, M2 and M3)
+# Walnut Grove Desk: backend API (as built, waves 1 and 2)
 
 All paths are under `/api` unless noted. JSON in and out, snake_case. Times in responses are UTC ISO-8601 with a `Z` (`2026-10-27T16:31:00.000Z`); `*_display` fields are America/Vancouver wall clock. See `docs/CONTRACT.md` for the rules this implements.
 
@@ -113,7 +113,7 @@ shift: `{id, weekday, person_label, user_id, role: desk|nurse|doc|open, start_mi
 SSE entities: `callbacks, results, drafts, shifts, suggestions, overnight, events, settings, hospitals, visit_types, users, analytics`. `entity_type` to entity: `callback`, `result`, `draft`, `shift`, `suggestion`, `conversation` (to `overnight`), `hospital`, `visit_type`, `user`, `setting`, `analytics`. Reset demo sends one message per operational entity.
 
 ### Export
-`GET /api/export/{name}.csv`, perm `export.use` plus the list's own view perm: `callbacks` (`callbacks.view`), `results` (`results.view`), `drafts` (`drafts.view`), `shifts` (`schedule.view`), `events` (`tools.view`, feed tools only), `audit` (`admin.audit`). Unknown name 404, missing list perm 403. Response `text/csv` with `Content-Disposition: attachment; filename="walnut-<name>.csv"`, CRLF rows. String cells starting with `=`, `+`, `-`, `@`, tab or CR get a leading `'`. Each export writes an `Admin` event (`export`). `overnight` and `analytics` exports arrive with their milestones.
+`GET /api/export/{name}.csv`, perm `export.use` plus the list's own view perm: `callbacks` (`callbacks.view`), `results` (`results.view`), `drafts` (`drafts.view`), `shifts` (`schedule.view`), `events` (`tools.view`, feed tools only), `audit` (`admin.audit`). Unknown name 404, missing list perm 403. Response `text/csv` with `Content-Disposition: attachment; filename="walnut-<name>.csv"`, CRLF rows. String cells starting with `=`, `+`, `-`, `@`, tab or CR get a leading `'`. Each export writes an `Admin` event (`export`). Wave 2 adds `overnight` (`overnight.view`) and `analytics` (`brief.view`: columns source, metric, dim1, dim2, value, n).
 
 ## Code map for the next milestones
 
@@ -130,3 +130,60 @@ SSE entities: `callbacks, results, drafts, shifts, suggestions, overnight, event
 ## Seeded demo data (after `--reset-demo`)
 
 Callbacks 1 to 7 (c1..c7), lab results 1 to 5, drafts 1 to 3, suggestions 1 to 4, 24 shifts (Mon to Sat, none on Sunday), 5 overnight conversations with 2 appointment requests and 2 emergency routings, visit types (5), hospitals (Boundary Bay row unconfirmed with empty phone and address, and "Backup hospital" placeholder), 3 open slots (next Thursday 9:30 am, Friday 2:00 pm, Monday 3:30 pm), and `call_log_demo` rows for the two previous calendar weeks (41 and 32 unanswered calls, 28 and 22 of those callers rang again within the hour; answered calls follow the example hourly volume on weekdays). Clock strings from the reference land on today in Vancouver; overnight `pm` times land on yesterday; lab results are `age` days before today at 8:47 am. All of it is invented example data.
+
+
+---
+
+# Wave 2
+
+Specs: `docs/CONTRACT_WAVE2.md`. Retell: `docs/RETELL.md`. Migration `0002` makes `imported_calls.summary` nullable (private rows keep no summary); the `visible_calls` view is recreated.
+
+## Overnight (tool `After-hours assistant`)
+| Method | Path | Perm | Notes |
+|---|---|---|---|
+| GET | `/api/overnight` | `overnight.view` | `{"items":[{id, client_label, pet_label, channel:"Text"|"Call", at_display, created_at, kind, status, preferred_slot, summary, messages:[{who,text}], is_test, source}],"summary":{total, booking, callback, emergency, pending, emergency_pending}}`. Order: status new first, then emergency, booking, callback, newest first. |
+| POST | `/api/overnight/{id}/confirm` | `overnight.manage` | booking new to confirmed; marks the slot taken; outbox sms `would_send`; event `Priya confirmed Tran for Thu Oct 29, 9:30 am`. |
+| POST | `/api/overnight/{id}/entered` | `overnight.manage` | confirmed to entered; event `Tran: booking entered in ImproMed`. |
+| POST | `/api/overnight/{id}/to-callback` | `overnight.manage` | booking new to called; creates a callback (kind Booking, `Wants to book. <summary>`); event in `Callback list`: `Priya moved Tran to callbacks`. |
+| POST | `/api/overnight/{id}/followed-up` | `overnight.followup` | emergency new to handled; event `Anita followed up with Pereira after an emergency routing`. |
+| POST | `/api/overnight/{id}/ack` | `overnight.manage` | callback new to handled. |
+
+Wrong item kind: 400. Wrong status: 409 `Already confirmed` and similar. Unknown id: 404.
+
+## Simulator (`sim.use`)
+`POST /api/sim/start {"channel":"text"|"call"}` returns `{"session":{id, channel, node, messages:[{who,text}], options:[{index,label}], done, accepts_text}}`. `POST /api/sim/{id}/reply` with `{"option_index":n}` or `{"text":"..."}` (exactly one, text <= 500) returns the same shape, plus `"outcome":{"kind","conversation_id"}` when the conversation ends. Other users' sessions: 404. Finished session: 409. Bad index or empty text: 400. State lives in `sim_sessions` (`picks_json` holds picks and outcome). Outcomes write a conversation (source `sim`, `is_test`, client `You (test)`), an appointment request, callback (`Taken overnight by the assistant.`) or emergency routing, and an event: `New appointment request|callback|emergency routing from a test client`.
+
+Engine (`app/aftercare/`): `templates.py` (every client-facing string, returned as a `Tpl` str so tests can prove provenance), `emergency.py` (`detect`, `normalize`, `DEFAULT_KEYWORDS`, `re:` entries, layer 2 hook), `keywords.py` (`load_keywords(db)` merges settings key `emergency_keywords` with `config/emergency_keywords.yaml`; YAML `status` plus `groups` as lists or `{phrases, heard_in}`), `engine.py` (`start`, `step`, `view`, `Ctx`, `State`), `service.py` (`build_ctx`, `persist_outcome`, slot generation). Client free text is never echoed except a pet name that passes a strict check. Layer 2 runs on free text only, and only when a provider is set and "Second emergency check" is on; unsure or error means emergency. Layer 1 also checks option labels.
+
+## After-hours setup (`afterhours.view` to read, `afterhours.edit` to change)
+`GET /api/afterhours/settings` returns `{toggles:{req,msg,missed}, hours_note, visit_types:[{id,name,minutes,bookable}], keywords, keywords_status, hospitals:[{id,name,place,phone,address,hours_claim,confirmed,is_placeholder}], wording:{opening_line,urgent_line,never_line}}`.
+`PUT /api/afterhours/toggles {req?,msg?,missed?}`, `PUT /api/visit-types/{id} {bookable}` (returns `{"item"}`), `PUT /api/afterhours/keywords {keywords:[...], status}` (regexes validated, never empty, `re:` entries allowed), `PUT /api/afterhours/wording {opening_line?,urgent_line?,never_line?}` (the opening line must contain "automated assistant"), `POST /api/hospitals`, `PUT /api/hospitals/{id}` (resets `confirmed`), `POST /api/hospitals/{id}/confirm` (400 for a placeholder; event `Dr. Garg confirmed the emergency hospital list`), `POST /api/hospitals/{id}/unconfirm`. Settings keys used: `tog_req`, `tog_msg`, `tog_missed`, `emergency_keywords`, `wording`, `answer_sheet`, `rules`, `hours_note`. A demo reset now also puts the three toggles back (req on, msg on, missed off) and inserts missing wave 2 settings; it still does not touch other settings.
+
+Seed: 14 days of open slots from tomorrow on Monday to Friday at 9:30, 11:00, 2:00 pm and 3:30 pm (40 rows); the seeded overnight bookings now point at the next real Thursday 9:30 and Monday 3:30 pm. The shifts endpoint counts `open` shifts as desk cover.
+
+## Brief (`brief.view`) and suggestions (`suggestions.decide`)
+`GET /api/brief?chart=real|example` returns `{greeting, date_line, kpis:[{key,value,label,alert}], overnight, suggestions:[{id,rule_key,title,why,status,evidence,decided_by,decided_at}], chart:{mode, available_modes, hours, calls, cover, per_person, limit, calls_label, cover_label}, text:{source:"template"|"model", paragraph}}`. KPI keys: `callbacks_open`, `results_waiting`, `missed_last_week` (label ends `(example)` when it comes from `call_log_demo`; otherwise counts `no_answer` or `voicemail` rows of `visible_calls` in the last 7 days), `overnight_pending`. Chart real mode reads `call_analytics` metric `weekday_avg_calls_by_hour` (dim1 = hour 8 to 17); cover per hour is the Monday to Friday average of desk or open shifts. `services/metrics.py` holds every query; `services/numbercheck.py: check(text, allowed) -> (ok, bad)` rejects model text with a number that is not in the record (digits, decimals, percents, clock times, number words zero to one hundred).
+The paragraph is a template. With "Word the brief" on and a key saved, the model rewrites it (only the templated sentence is sent, no names); if the result fails `numbercheck` the template is used and the event `Brief wording rejected: number not in the record` is written. The result is cached per metric set in the internal `brief_cache` setting, so one model call per change.
+`POST /api/suggestions/{id}/approve` (409 if not open) runs the reference effect: `desk_shift` adds five `open` proposed desk shifts (hours from the suggestion's evidence, default 08:00-10:00) and event `Dr. Garg approved an open desk shift, 08:00-10:00, Monday to Friday`; `missed_texts` sets `tog_missed` (event `... turned on texts to missed callers`); `recall_batch` adds the two extra recall drafts (event `Recall batch started: first drafts sent to the front desk for approval`); `old_results` moves stage 0 results with age >= `results_age_days` to stage 1 (event `... marked older results as reviewed, nurses can call clients`). The actor name is the signed-in user. `POST /api/suggestions/{id}/dismiss`. `POST /api/suggestions/run` runs the rules once and returns `{"created":[...]}`; `python -m app.rules` does the same for a systemd timer. Rules (`rules/engine.py`) are idempotent per `rule_key` while one is open, and also for 7 days after one was approved or dismissed (dismissed is included so a 15 minute timer does not nag).
+
+## Assistant (`assistant.use`)
+`GET /api/assistant/chips` returns `{greeting, chips:[{key,question}]}` for the caller's role. `POST /api/assistant/ask {key?|text?}` returns `{"answer":{paragraphs, bullets, after, link:{label,view}|null, source:"record"|"answer_sheet"|"fallback"}}` (plain text). A `key` outside the caller's role chips is 403. Free text uses the reference keyword table and takes the first matching key the role has; no match gives the fallback listing the role's questions. Keys: night, emerg, first, missed, recall, saturday, week, urgent, records, hours, pickup (creates a pending "Ready for pickup" draft for Pepper only if none is pending), waiting, script (`[what Dr. Garg wants said]`), flags. All figures come from queries; `records` and `hours` come from the `answer_sheet` setting (example content).
+
+## Admin: AI provider (`admin.settings`)
+`GET /api/admin/settings/ai`, `PUT /api/admin/settings/ai {provider?: off|deepseek|openrouter, base_url?, model?, api_key?, word_brief?, emergency_check?, allow_transcript_labeling?}`, `POST /api/admin/settings/ai/test`. The key is stored Fernet-encrypted (`WALNUT_FERNET_KEY`; dev and test derive one from the secret key, production requires it) in the internal `ai_config` setting and is never returned, logged or put in an event (only the last 4 characters are shown). Each save rewrites `WALNUT_LLM_ENV_PATH` with mode 0640 (`PROVIDER=`, `BASE_URL=`, `MODEL=`, `API_KEY=`, `ALLOW_TRANSCRIPT_LABELING=0|1`; `API_KEY` is empty when the provider is off); the PUT response has `llm_env_written` (false if the folder is not writable). Base URLs must be https (localhost allowed outside production). `adapters/llm.py`: `LlmClient.from_settings(db)`, `chat`, `complete_json`; 15 second timeout, errors carry no request or response body. The test endpoint returns `{"ok":bool,"detail":str}`.
+
+## Admin: Retell (`admin.settings`)
+`GET/PUT /api/admin/settings/retell {enabled?, dry_run?, regenerate_secret?, retell_api_key?}`; see `docs/RETELL.md`. Routes: `POST /api/retell/functions/{check_emergency|get_open_slots|create_appointment_request|create_callback|get_emergency_hospital}` and `POST /api/retell/webhook`; 404 while disabled, 401 without the right `X-Walnut-Secret`; session cookie and CSRF are not used. Code: `retell/schema.py`, `mapping.py`, `verify.py`, `routes.py`.
+
+## Import (`admin.import`) and PIMS
+`POST /api/admin/import/{calls|appointments|clients|pets|lab_results|analytics}` multipart `file` (`.csv` or `.jsonl`, 10 MB max, `.json` also for analytics as a list or `{"meta","rows"}`). Response `{"kind","accepted","rejected":[{"row","error"}] (first 50),"rejected_total"}`; good rows load even if others are rejected (row numbers are 1-based data rows). Bad file: 400, too large: 413, unknown kind: 404. Naive timestamps are read as Vancouver time.
+- `calls`: `call_id, timestamp, caller_type, intent, outcome, urgency, red_flags (JSON list or ;-separated), promised_followup, contains_private_content, summary`. Rows are upserted by `call_id`. Private rows are stored with `summary` NULL and are hidden by the `visible_calls` view, which every metric reads. Event (tool `Call logger`): `Imported 4 calls`.
+- `appointments` (`id, start, client_id, patient_id, provider, visit_type, status`), `clients` (`id, name, last_visit, recall_overdue`), `pets` (`id, client_id, name, species, breed, last_exam`), `lab_results` (`id, patient_id, test, resulted_at, status`) load the read-only `pims_*` tables by external id; event (tool `ImproMed sync`): `Imported 2 appointments (read only)`. Overdue recalls count `pims_patients.last_exam` older than 13 months (the example 120 is used only when no patients are loaded).
+- `analytics`: `source` (`derived_from_real_calls` or `demo`), `metric, dim1, dim2, value, n`; importing replaces all existing rows of the sources present in the file.
+`adapters/pims.py`: `PimsAdapter` protocol (`appointments(day)`, `clients()`, `patients()`, `lab_results(since)`) and `CsvExportAdapter(dir)` reading `appointments.csv, clients.csv, patients.csv, lab_results.csv`. `python -m app.pims_sync --dir samples/pims` loads a folder. Sample files (all invented): `samples/calls.csv`, `samples/calls.jsonl`, `samples/analytics.json`, `samples/pims/*.csv`. Shared validators: `services/importers.py`.
+
+## Adapters
+`adapters/messaging.py`: `SmsAdapter` / `VoiceAdapter` protocols, `DryRunSms(db).send(to_label, body)` and `DryRunVoice(db).call(to_label, script)` write `outbox` rows (`would_send`) and log `would send ...`. `queue_sms()` and `adapters/sms.py` remain as wave 1 compatible entry points.
+
+## Tests
+`tests/test_engine.py` (paths, every keyword from the list and `config/emergency_keywords.yaml` from the start node and mid-booking, 32 adversarial texts, hospitals, slots, toggles, template provenance) and `tests/test_wave2_api.py` (everything above). `tests/test_permissions.py` treats `/api/retell/*` as secret-protected routes.

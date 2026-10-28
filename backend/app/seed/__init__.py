@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
+from app.aftercare import service as svc
 from app.models import (
     AppointmentRequest,
     Callback,
@@ -24,6 +25,7 @@ from app.models import (
     LabResult,
     OpenSlot,
     Outbox,
+    Setting,
     Shift,
     SimSession,
     Suggestion,
@@ -76,6 +78,16 @@ def _call_log_rows(now: datetime) -> list[CallLogDemo]:
     return rows
 
 
+def _retime(text: str, prefs: dict[str, str]) -> str:
+    """Swap the reference's example dates for the real next openings."""
+    for old, new in prefs.items():
+        text = text.replace(old, new)
+    # "Thu Oct 29 at 9:30 am" style
+    for old, new in prefs.items():
+        text = text.replace(old.replace(", ", " at "), new.replace(", ", " at "))
+    return text
+
+
 def _next_weekday(today, weekday: int):
     delta = (weekday - today.weekday()) % 7 or 7
     return today + timedelta(days=delta)
@@ -106,13 +118,15 @@ def reset_demo(db: Session, actor=None, now: datetime | None = None) -> dict[str
         hospitals.append(row)
     db.flush()
 
-    # open slots: the next Thursday 9:30, Friday 2:00 pm and Monday 3:30 pm (as in the reference)
+    # open slots: 9:30, 11:00, 2:00 pm and 3:30 pm on clinic weekdays for the next 14 days (future only)
     slots: dict[str, OpenSlot] = {}
-    for wd, h, m in ((3, 9, 30), (4, 14, 0), (0, 15, 30)):
-        start = timeutil.at_local(_next_weekday(today, wd), h, m)
-        slot = OpenSlot(start=start, provider="Dr. Garg", taken=False)
+    for slot in svc.generate_slots(today):
         db.add(slot)
-        slots[timeutil.slot_display(start)] = slot
+        slots[timeutil.slot_display(slot.start)] = slot
+    ref_prefs = {
+        "Thu Oct 29, 9:30 am": timeutil.slot_display(timeutil.at_local(_next_weekday(today, 3), 9, 30)),
+        "Mon Nov 2, 3:30 pm": timeutil.slot_display(timeutil.at_local(_next_weekday(today, 0), 15, 30)),
+    }
 
     # suggestions, drafts, results
     suggestion_rows = {}
@@ -141,10 +155,12 @@ def reset_demo(db: Session, actor=None, now: datetime | None = None) -> dict[str
     conv_rows: dict[str, Conversation] = {}
     for o in ref.OVERNIGHT:
         created = timeutil.anchor(o["at"], now, pm_is_yesterday=True)
+        pref = ref_prefs.get(o.get("pref") or "", o.get("pref"))
+        msgs = [{"who": w, "text": _retime(t, ref_prefs)} for w, t in o["conv"]]
         conv = Conversation(
             id=_num(o["id"]), channel=o["channel"].lower(), client_label=o["who"], pet_label=o["pet"],
-            kind=o["kind"], status=o["status"], preferred_slot=o.get("pref"), summary=o["summary"],
-            messages_json=json.dumps([{"who": w, "text": t} for w, t in o["conv"]]),
+            kind=o["kind"], status=o["status"], preferred_slot=pref, summary=o["summary"],
+            messages_json=json.dumps(msgs),
             source="seed", is_test=False, created_at=created,
         )
         db.add(conv)
@@ -154,7 +170,7 @@ def reset_demo(db: Session, actor=None, now: datetime | None = None) -> dict[str
         conv = conv_rows[o["id"]]
         if o["kind"] == "booking":
             vt = vt_by_name.get("Vaccines" if "vaccine" in o["summary"].lower() else "Yearly check-up")
-            slot = slots.get(o.get("pref") or "")
+            slot = slots.get(conv.preferred_slot or "")
             db.add(AppointmentRequest(conversation_id=conv.id, visit_type_id=vt.id if vt else None,
                                       slot_start=slot.start if slot else None, status="requested", created_at=conv.created_at))
         elif o["kind"] == "emergency":
@@ -179,6 +195,8 @@ def reset_demo(db: Session, actor=None, now: datetime | None = None) -> dict[str
         db.add(row)
     db.flush()
 
+    ensure_settings(db, reset_toggles=True)
+
     # events: the reference feed once (first seeding only), plus one reset line every time
     if not db.scalar(select(Event.id).where(Event.action == "seed_log").limit(1)):
         for line in reversed(ref.EVENT_LOG):
@@ -191,6 +209,26 @@ def reset_demo(db: Session, actor=None, now: datetime | None = None) -> dict[str
     for model in RESET_TABLES:
         counts[model.__tablename__] = db.scalar(select(func.count()).select_from(model)) or 0
     return counts
+
+
+def ensure_settings(db: Session, reset_toggles: bool = False) -> None:
+    """Insert wave 2 setting defaults when missing. A demo reset also puts the three toggles back."""
+    from app.aftercare.emergency import DEFAULT_KEYWORDS
+    from app.services import settings_store as ss
+
+    defaults = {
+        "emergency_keywords": {"keywords": list(DEFAULT_KEYWORDS), "status": "placeholder"},
+        "answer_sheet": ref.ANSWER_SHEET,
+        "wording": dict(ref.WORDING),
+        "rules": dict(ref.RULES_DEFAULT),
+        "hours_note": ref.HOURS_NOTE,
+    }
+    for k, v in defaults.items():
+        if db.get(Setting, k) is None:
+            ss.put_raw(db, k, v, by="seed")
+    if reset_toggles:
+        for k, v in (("tog_req", True), ("tog_msg", True), ("tog_missed", False)):
+            ss.put_raw(db, k, v, by="seed")
 
 
 def create_users(db: Session) -> list[tuple[str, str]]:

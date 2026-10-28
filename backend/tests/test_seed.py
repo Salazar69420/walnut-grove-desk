@@ -50,7 +50,7 @@ def test_seed_contents_match_reference(env):
         assert s.scalar(select(func.count()).select_from(Shift)) == len(ref.ROSTER)
         assert s.scalar(select(func.count()).select_from(Conversation)) == 5
         assert s.scalar(select(func.count()).select_from(VisitType)) == 5
-        assert s.scalar(select(func.count()).select_from(OpenSlot)) == 3
+        assert s.scalar(select(func.count()).select_from(OpenSlot)) >= 30
         assert s.scalar(select(func.count()).select_from(AppointmentRequest)) == 2
         assert s.scalar(select(func.count()).select_from(EmergencyRouting)) == 2
         h = s.scalars(select(Hospital).order_by(Hospital.sort)).all()

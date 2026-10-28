@@ -16,6 +16,8 @@ UNTAGGED_OK = {
     ("POST", "/api/auth/change-password"),
     ("GET", "/api/stream"),  # any signed-in user
 }
+# Retell routes use their own shared secret, not a session
+RETELL_PREFIX = "/api/retell/"
 
 
 def _perm_of(dependant) -> str | None:
@@ -60,7 +62,7 @@ def fill(path: str) -> str:
 def test_every_api_route_is_tagged_or_listed(env):
     for method, path, perm in api_routes(env.app):
         if perm is None:
-            assert (method, path) in UNTAGGED_OK, f"{method} {path} has no require(perm)"
+            assert (method, path) in UNTAGGED_OK or path.startswith(RETELL_PREFIX), f"{method} {path} has no require(perm)"
         else:
             assert perm in PERMS or perm in ADMIN_PERMS
 
@@ -120,6 +122,8 @@ def test_anonymous_gets_401_everywhere(env):
             continue
         if (method, path) == ("POST", "/api/auth/logout"):
             continue  # logging out when not signed in is a harmless no-op
+        if path.startswith(RETELL_PREFIX):
+            continue  # own secret, 404 while disabled
         r = api.c.request(method, fill(path), json={})
         assert r.status_code == 401, f"{method} {path} -> {r.status_code}"
 

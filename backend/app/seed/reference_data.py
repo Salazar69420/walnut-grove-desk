@@ -237,3 +237,28 @@ PEOPLE = [
     {"username": "jordan", "display_name": "Jordan", "title": "Registered vet tech", "initials": "J", "role": "nurse", "is_admin": False},
     {"username": "krish", "display_name": "Krish", "title": "Admin", "initials": "K", "role": "owner", "is_admin": True},
 ]
+
+
+# ---- wave 2 additions (example content, invented) ----
+RULES_DEFAULT = {"load_limit": 12, "min_weekdays": 3, "missed_min": 20, "recall_min": 50, "recall_batch": 10, "results_age_days": 2}
+
+HOURS_NOTE = "Example hours: closed after 6 pm on weekdays, and after 2 pm on Saturdays."
+
+ANSWER_SHEET = {
+    "example": True,
+    "records": {
+        "intro": "For a records request from another clinic:",
+        "steps": [
+            "Confirm the pet and the owner name with the requesting clinic.",
+            "Check that the owner has agreed to the transfer.",
+            "Send from the practice system and log it in the callback.",
+        ],
+        "footer": "This sheet is written by the clinic, and I only repeat it.",
+    },
+    "hours": {
+        "paragraphs": [
+            "Saturday: 9 am to 2 pm, with Dr. Garg and one receptionist. Phones go to voicemail after 2 pm.",
+            "This is example content. In the real version the clinic writes its own answer sheet.",
+        ],
+    },
+}

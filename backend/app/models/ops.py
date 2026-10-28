@@ -265,7 +265,7 @@ class ImportedCall(Base):
     red_flags: Mapped[str] = mapped_column(String(300), default="")
     promised_followup: Mapped[bool] = mapped_column(Boolean, default=False)
     contains_private_content: Mapped[bool] = mapped_column(Boolean, default=True)
-    summary: Mapped[str] = mapped_column(Text, default="")
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     source: Mapped[str] = mapped_column(String(40), default="import")
     imported_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 

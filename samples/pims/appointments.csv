@@ -1,0 +1,3 @@
+id,start,client_id,patient_id,provider,visit_type,status
+A1,2026-10-29T09:30:00,C2,P2,Dr. Garg,Yearly check-up,booked
+A2,2026-10-29T11:00:00,C1,P1,Dr. Garg,Vaccines,booked

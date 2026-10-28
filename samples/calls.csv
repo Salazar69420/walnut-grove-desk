@@ -1,0 +1,13 @@
+call_id,timestamp,caller_type,intent,outcome,urgency,red_flags,promised_followup,contains_private_content,summary
+sample-001,2026-10-19T08:30:00-07:00,client,booking,answered,low,not_eating;lethargy,false,false,"Invented sample call 1, booking question."
+sample-002,2026-10-19T16:30:00-07:00,courier,refill,voicemail,normal,,false,false,"Invented sample call 2, refill question."
+sample-003,2026-10-20T00:30:00-07:00,vendor,results,no_answer,high,,false,false,"Invented sample call 3, results question."
+sample-004,2026-10-20T08:30:00-07:00,client,records,answered,low,,false,false,"Invented sample call 4, records question."
+sample-005,2026-10-20T16:30:00-07:00,courier,other,callback_promised,normal,not_eating;lethargy,true,false,"Invented sample call 5, other question."
+sample-006,2026-10-21T00:30:00-07:00,vendor,booking,answered,high,,false,true,"Invented sample call 6, booking question."
+sample-007,2026-10-21T08:30:00-07:00,client,refill,voicemail,low,,false,false,"Invented sample call 7, refill question."
+sample-008,2026-10-21T16:30:00-07:00,courier,results,no_answer,normal,,false,false,"Invented sample call 8, results question."
+sample-009,2026-10-22T00:30:00-07:00,vendor,records,answered,high,not_eating;lethargy,false,false,"Invented sample call 9, records question."
+sample-010,2026-10-22T08:30:00-07:00,client,other,callback_promised,low,,true,true,"Invented sample call 10, other question."
+sample-011,2026-10-22T16:30:00-07:00,courier,booking,answered,normal,,false,false,"Invented sample call 11, booking question."
+sample-012,2026-10-23T00:30:00-07:00,vendor,refill,voicemail,high,,false,false,"Invented sample call 12, refill question."

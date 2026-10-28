@@ -85,6 +85,28 @@ def get(db: Session, key: str, default: Any = None) -> Any:
         return DEFAULTS.get(key, default)
 
 
+def put_raw(db: Session, key: str, value: Any, by: str = "") -> None:
+    """Write without the admin-endpoint checks (internal callers: AI, Retell, keywords, seed)."""
+    row = db.get(Setting, key)
+    enc = json.dumps(value)
+    if row is None:
+        db.add(Setting(key=key, value_json=enc, updated_at=timeutil.now_utc(), updated_by=by))
+    else:
+        row.value_json = enc
+        row.updated_at = timeutil.now_utc()
+        row.updated_by = by
+
+
+def get_raw(db: Session, key: str, default: Any = None) -> Any:
+    row = db.get(Setting, key)
+    if row is None:
+        return default
+    try:
+        return json.loads(row.value_json)
+    except ValueError:
+        return default
+
+
 def put(db: Session, key: str, value: Any, by: str = "") -> None:
     value = validate(key, value)
     row = db.get(Setting, key)

@@ -17,7 +17,7 @@ NINE_AM = 9 * 60
 
 def desk_at_9(shifts: list[Shift]) -> int:
     """People on the phones at 9:00: desk shifts with start <= 9:00 < end (reference deskAt9)."""
-    return sum(1 for s in shifts if s.role == "desk" and s.start_min <= NINE_AM < s.end_min)
+    return sum(1 for s in shifts if s.role in ("desk", "open") and s.start_min <= NINE_AM < s.end_min)
 
 
 @router.get("")

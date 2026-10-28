@@ -26,6 +26,8 @@ LIST_PERM = {
     "shifts": "schedule.view",
     "events": "tools.view",
     "audit": "admin.audit",
+    "overnight": "overnight.view",
+    "analytics": "brief.view",
 }
 
 
@@ -82,7 +84,26 @@ def _audit(db: Session, user: User):
     return header, data
 
 
-BUILDERS = {"callbacks": _callbacks, "results": _results, "drafts": _drafts, "shifts": _shifts, "events": _events, "audit": _audit}
+def _overnight(db: Session, user: User):
+    from app.api import overnight as ov
+
+    now = timeutil.now_utc()
+    header = ["id", "client", "pet", "channel", "time", "kind", "status", "preferred_slot", "summary", "is_test", "source"]
+    data = [[c["id"], c["client_label"], c["pet_label"], c["channel"], c["created_at"], c["kind"], c["status"],
+             c["preferred_slot"] or "", c["summary"], c["is_test"], c["source"]]
+            for c in (ov.item(r, now) for r in ov.ordered(db))]
+    return header, data
+
+
+def _analytics(db: Session, user: User):
+    from app.models import CallAnalytic
+
+    rows = db.scalars(select(CallAnalytic).order_by(CallAnalytic.metric, CallAnalytic.dim1, CallAnalytic.dim2, CallAnalytic.id)).all()
+    header = ["source", "metric", "dim1", "dim2", "value", "n"]
+    return header, [[r.source, r.metric, r.dim1, r.dim2, r.value, r.n] for r in rows]
+
+
+BUILDERS = {"overnight": _overnight, "analytics": _analytics, "callbacks": _callbacks, "results": _results, "drafts": _drafts, "shifts": _shifts, "events": _events, "audit": _audit}
 
 
 @router.get("/{name}.csv")

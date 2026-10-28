@@ -1,0 +1,88 @@
+{
+ "meta": {
+  "note": "Invented example numbers, not real clinic data",
+  "source": "demo"
+ },
+ "rows": [
+  {
+   "source": "demo",
+   "metric": "weekday_avg_calls_by_hour",
+   "dim1": "8",
+   "dim2": "",
+   "value": 9,
+   "n": 20
+  },
+  {
+   "source": "demo",
+   "metric": "weekday_avg_calls_by_hour",
+   "dim1": "9",
+   "dim2": "",
+   "value": 14,
+   "n": 20
+  },
+  {
+   "source": "demo",
+   "metric": "weekday_avg_calls_by_hour",
+   "dim1": "10",
+   "dim2": "",
+   "value": 12,
+   "n": 20
+  },
+  {
+   "source": "demo",
+   "metric": "weekday_avg_calls_by_hour",
+   "dim1": "11",
+   "dim2": "",
+   "value": 10,
+   "n": 20
+  },
+  {
+   "source": "demo",
+   "metric": "weekday_avg_calls_by_hour",
+   "dim1": "12",
+   "dim2": "",
+   "value": 6,
+   "n": 20
+  },
+  {
+   "source": "demo",
+   "metric": "weekday_avg_calls_by_hour",
+   "dim1": "13",
+   "dim2": "",
+   "value": 8,
+   "n": 20
+  },
+  {
+   "source": "demo",
+   "metric": "weekday_avg_calls_by_hour",
+   "dim1": "14",
+   "dim2": "",
+   "value": 11,
+   "n": 20
+  },
+  {
+   "source": "demo",
+   "metric": "weekday_avg_calls_by_hour",
+   "dim1": "15",
+   "dim2": "",
+   "value": 12,
+   "n": 20
+  },
+  {
+   "source": "demo",
+   "metric": "weekday_avg_calls_by_hour",
+   "dim1": "16",
+   "dim2": "",
+   "value": 9,
+   "n": 20
+  },
+  {
+   "source": "demo",
+   "metric": "weekday_avg_calls_by_hour",
+   "dim1": "17",
+   "dim2": "",
+   "value": 4,
+   "n": 20
+  }
+ ]
+}
