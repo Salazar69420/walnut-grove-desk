@@ -119,7 +119,7 @@ Notes:
 ### 3.1 Git
 
 - `origin` is `https://github.com/Salazar69420/walnut-grove-desk.git`. The `gh` CLI is signed in as `Salazar69420`. If `git push` asks for a username, run `gh auth setup-git` once.
-- Before any push: run `git status`, then check the staged files for `*.db`, `*.env`, `*.tsv`, anything under `/srv`, transcripts, and call references (date-time-extension-hash strings like `20261014-145506-103-ce6045`). Run `git grep` for the one-time passwords too. Anything you did not mean to publish stops the push.
+- Before any push: run `git status`, then check the staged files for `*.db`, `*.env`, `*.tsv`, anything under `/srv`, transcripts, and call references (date-time-extension-hash strings shaped like `YYYYMMDD-HHMMSS-EXT-HASH`). Run `git grep` for the one-time passwords too. Anything you did not mean to publish stops the push.
 
 ---
 
@@ -146,7 +146,7 @@ Notes:
 
 Current health at handoff: all services active; local and public `/healthz` ok; certificate 89 days left; disk 18 percent used.
 
-Deployed code state: `main` at commit `fd887e0`, identical to `origin/main`. The app was restarted after the last backend change.
+Deployed code state at original handoff: code at `fd887e0`; `2fc9119` only added this file. For the current state see section 11 (live journal).
 
 ---
 
@@ -232,3 +232,44 @@ Deployed code state: `main` at commit `fd887e0`, identical to `origin/main`. The
 | Banner off or clinic name | Admin > Settings, then Save settings |
 | Update app | `docs/OPERATIONS.md`, "Updating the app" |
 | Current URL | `cat /var/lib/walnut-desk/public_url.txt` |
+
+---
+
+## 11. Live journal and shared-work protocol
+
+Two people (each with their own fresh Claude Code session) work in this repo. This section is the shared memory between them. Sections 0 to 10 are the stable reference; this section is what changes every session.
+
+### 11.1 Protocol (every session, both people)
+
+1. **Start:** read this whole file, then `git fetch && git status -sb && git log --oneline -10`. Compare with "Current state" below. If `origin/main` is ahead of the recorded commit, read the new commits and journal entries first.
+2. **Claim work** in "Open work / who is doing what" before starting, so the other session does not duplicate or collide. Name the files or areas you will touch.
+3. **While working:** append a journal entry (11.4) after each meaningful step: what changed, why, which files, how it was verified (paste test counts or health output), and anything half-finished.
+4. **Before ending or handing over:** update "Current state", move finished items out of "Open work", record decisions in `docs/DECISIONS.md`, commit, and say clearly in the final journal entry what the next session should do first.
+5. **Never put secrets here.** This repo is public (see the warning at the top). No passwords, keys, env values, transcript text or call references. Point to where a secret lives instead.
+6. **Server is shared and live.** Both sessions edit `/opt/walnut-desk` on the same server unless told otherwise. Check `git status` before editing (the other session may have uncommitted changes), do not `git reset --hard` or `git checkout .` over work you did not make, and commit small and often. Pushing to the public repo needs the owner's go-ahead (rule 8 in section 0).
+7. **Entry format:** newest entry at the top of 11.4. Use `YYYY-MM-DD HH:MM UTC`, the person or session label, and a short title. Get the time with `date -u '+%F %H:%M'`.
+
+### 11.2 Current state (update at every handoff)
+
+- **Last updated:** 2026-10-28 (session 1)
+- **Branch / commit:** `main` at `2fc9119`, equal to `origin/main`, working tree clean at start of session 1
+- **Services:** `walnut-desk` and `caddy` active; public `/healthz` returned HTTP 200
+- **Live URL:** https://77-42-69-194.sslip.io (also in `/var/lib/walnut-desk/public_url.txt`)
+- **Tests last run:** not run this session yet (expected baseline: 136 backend, 30 pipeline, 15 e2e)
+- **Uncommitted work:** none
+
+### 11.3 Open work / who is doing what
+
+| Item | Owner (session) | Status | Files or area | Notes |
+|---|---|---|---|---|
+| (none claimed yet) | | | | |
+
+Backlog lives in section 7 (known gaps) and section 8 (next steps).
+
+### 11.4 Journal (newest first)
+
+**2026-10-28, session 1: Journal started**
+- Added section 11 (protocol, current state, work table, journal) and corrected the stale "deployed commit" line in section 4.
+- Confirmed live URL https://77-42-69-194.sslip.io answers `/healthz` with 200; both services active; repo clean at `2fc9119`.
+- Note for next session: this file lives in a public repo; the edit is local and uncommitted until the owner approves a commit and push.
+- Next: wait for the owner's first task for this session, then claim it in 11.3.
