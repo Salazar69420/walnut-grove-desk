@@ -1,0 +1,11 @@
+[Unit]
+Description=Walnut Grove Desk daily database backup
+[Service]
+Type=oneshot
+User=walnut-app
+EnvironmentFile=/etc/walnut-desk/app.env
+ExecStart=/opt/walnut-desk/deploy/bin/walnut-backup.py
+ProtectSystem=strict
+ReadWritePaths=/var/lib/walnut-desk
+InaccessiblePaths=/srv/walnut-private
+NoNewPrivileges=true

@@ -1,0 +1,7 @@
+[Unit]
+Description=Daily backup of Walnut Grove Desk
+[Timer]
+OnCalendar=*-*-* 10:17:00 UTC
+Persistent=true
+[Install]
+WantedBy=timers.target

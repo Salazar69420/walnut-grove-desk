@@ -1,0 +1,12 @@
+[Unit]
+Description=Walnut Grove Desk suggestion rules
+[Service]
+Type=oneshot
+User=walnut-app
+EnvironmentFile=/etc/walnut-desk/app.env
+WorkingDirectory=/opt/walnut-desk/backend
+ExecStart=/opt/walnut-desk/.venv/bin/python -m app.rules
+ProtectSystem=strict
+ReadWritePaths=/var/lib/walnut-desk /var/lib/walnut-desk-llm
+InaccessiblePaths=/srv/walnut-private
+NoNewPrivileges=true
