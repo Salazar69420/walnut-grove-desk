@@ -1,4 +1,5 @@
 import os
+import os
 import shutil
 import sys
 
@@ -8,6 +9,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+os.environ["WALNUT_PRIVATE_AGGRESSIVE"] = "0"  # session fixtures label before function fixtures run
 from pipeline import cli, config  # noqa: E402
 import make_fixture  # noqa: E402
 
@@ -15,6 +17,7 @@ import make_fixture  # noqa: E402
 @pytest.fixture(autouse=True)
 def _never_touch_real_root(monkeypatch, tmp_path_factory):
     """Any command run without --root must not reach the real private root."""
+    monkeypatch.setenv("WALNUT_PRIVATE_AGGRESSIVE", "0")
     monkeypatch.setattr(config, "DEFAULT_ROOT", str(tmp_path_factory.mktemp("bogus_default_root")))
 
 

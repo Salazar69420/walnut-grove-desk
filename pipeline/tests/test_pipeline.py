@@ -312,7 +312,8 @@ def test_purge_respects_gold_override(env, capsys):
     lab["contains_private_content"] = False
     cli.main(["gold-label", "--root", root, ref, json.dumps(lab)])
     code, out = run(["purge-private", "--root", root], capsys)
-    assert "purged: 2" in out.out
+    n_private = sum(1 for t in env["info"]["truth"].values() if t.get("private"))
+    assert f"purged: {n_private - 1}" in out.out
     assert env["info"]["marker"].encode() in _db_bytes(root)  # gold said not private => kept
 
 
@@ -368,7 +369,7 @@ def test_analytics_with_all_private_excluded(env, capsys):
     capsys.readouterr()
     cli.main(["analytics", "--root", root])
     res = json.load(open(f"{root}/out/analytics.json"))
-    assert res["metadata"]["calls_in_mix"] == 57  # purged rows keep metadata and labels but stay excluded
+    assert res["metadata"]["calls_in_mix"] == 60 - sum(1 for t in env["info"]["truth"].values() if t.get("private"))  # purged rows keep metadata and labels but stay excluded
 
 
 # ------------------------------------------------------------------ verify-no-leak -------------------------

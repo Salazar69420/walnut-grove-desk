@@ -103,6 +103,13 @@ def build(conn, labeler: str, min_cell: int = MIN_CELL) -> dict:
         add("avg_weekday_inbound_client_calls_per_hour", f"{h:02d}", None,
             round(n / weekdays_in_range, 3) if weekdays_in_range else None, n)
 
+    # what the app's Brief chart reads: every non-private recorded call (in and out), average weekday, 8 am to 5 pm
+    allwd = Counter(c["hour"] for c, _ in rows_in if c["weekday"] <= 4)
+    for h in range(8, 18):
+        n = allwd[h]
+        add("weekday_avg_calls_by_hour", str(h), None,
+            round(n / weekdays_in_range, 3) if weekdays_in_range else None, n)
+
     add("private_or_personal_total", None, None, private, private)
 
     meta = {

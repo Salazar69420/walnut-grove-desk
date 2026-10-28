@@ -12,6 +12,7 @@ thresholds:
   dead_air_min_chars: 40
   low_diversity_min_words: 12      # repeated-word hallucinations (hold music etc.)
   low_diversity_ratio: 0.25        # distinct words / total words below this => dead air
+  private_aggressive: true        # gold set showed rules miss private calls; flag uncertain ones too
   private_min_seconds: 20          # "no clinic work signal" rule only applies above this
   greeting_window_chars: 350       # clinic greeting must appear this early
   head_window_chars: 600           # where outbound/inbound opening phrases are searched
@@ -439,6 +440,9 @@ symptoms:
     - '(?:this|it).?s an emergency|is an emergency|\bemergency\b.{0,30}(?:please|right now|help|hurry)'
     - '\bdying\b|going to die|might die|think (?:he|she).?s dead'
     - 'need help right now|come in right now|right away please'
+    - '(?:take|bring|go|went|going) (?:her|him|them|it|the dog|the cat)? ?to (?:the |an )?emergency'
+    - 'animal emergency|emergency (?:clinic|hospital|vet)'
+    - '(?:should|need to|have to) go to (?:the |an )?emergency'
 
 soon:   # urgency "soon" (no emergency flag)
   - 'vomit|throwing up|puking|threw up'
@@ -477,6 +481,11 @@ private:
   # strong marker: a single hit fires
   strong:
     - '\bi love you\b|\blove you (?:too|so much|lots)\b|\bluv you\b'
+    - '\blove you\b'
+    - '\bhow was (?:school|class|practice|your test)\b'
+    - '\b(?:do|did) (?:the|your) (?:dishes|homework|laundry)\b|\bdishwasher\b'
+    - '\bsee you (?:after work|at home|tonight at home)\b|\bwhen i get home\b'
+    - '\byour (?:locker|binder|backpack|teacher)\b'
     - '\b(?:babe|honey|sweetheart|sweetie|darling|hun)\b'
     - '\bpick(?:ing)? up the kids\b|\bthe kids (?:from|at) school\b|\bafter school\b'
     - '\bwhat.?s for dinner\b|\bfor dinner (?:tonight|later)\b|\bdinner (?:tonight|plans|reservation)'

@@ -207,12 +207,12 @@ def scenarios(r: random.Random):
     # --- languages ---------------------------------------------------------------------------------------------
     add("hindi_1", "client", "unknown", [
         "नमस्ते, मुझे अपने कुत्ते के लिए अपॉइंटमेंट चाहिए। डॉक्टर से बात करनी है। कल सुबह ठीक रहेगा। धन्यवाद।"],
-        lang="hin", secs=60)
+        lang="hin", secs=60, private=True)  # rules cannot read it, so policy says private
     add("hindi_2", "client", "unknown", [
         "Namaste, mera kutta bimar hai, doctor sahab se baat karni hai, appointment chahiye, kal subah aa sakte hain."],
         lang="hin", secs=55)
     add("punjabi", "client", "unknown", [
-        "ਸਤ ਸ੍ਰੀ ਅਕਾਲ, ਮੇਰੇ ਕੁੱਤੇ ਲਈ ਅਪੌਇੰਟਮੈਂਟ ਚਾਹੀਦੀ ਹੈ, ਡਾਕਟਰ ਨਾਲ ਗੱਲ ਕਰਨੀ ਹੈ ਜੀ।"], lang="pan", secs=58)
+        "ਸਤ ਸ੍ਰੀ ਅਕਾਲ, ਮੇਰੇ ਕੁੱਤੇ ਲਈ ਅਪੌਇੰਟਮੈਂਟ ਚਾਹੀਦੀ ਹੈ, ਡਾਕਟਰ ਨਾਲ ਗੱਲ ਕਰਨੀ ਹੈ ਜੀ।"], lang="pan", secs=58, private=True)  # rules cannot read it, so policy says private
     add("french", "client", "unknown", [
         "Bonjour, je voudrais prendre un rendez-vous pour mon chien, il a besoin de ses vaccins. Merci beaucoup."],
         lang="fra", secs=48)

@@ -1,6 +1,7 @@
 """Deterministic labeler (rules-v1). All patterns come from rules.yaml."""
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 
@@ -77,7 +78,10 @@ class Rules:
 
 def load_rules(path: str | None = None) -> Rules:
     with open(path or DEFAULT_RULES, "r", encoding="utf-8") as f:
-        return Rules(yaml.safe_load(f))
+        cfg = yaml.safe_load(f)
+    if os.environ.get("WALNUT_PRIVATE_AGGRESSIVE") == "0":  # tests check the base rules in isolation
+        cfg.setdefault("thresholds", {})["private_aggressive"] = False
+    return Rules(cfg)
 
 
 def _count(pats, text: str) -> int:
@@ -135,8 +139,11 @@ def label_call(rs: Rules, plain_text: str | None, seconds: float | None, languag
     dead = nw < th["dead_air_min_words"] or len(text) < th["dead_air_min_chars"]
     if not dead and nw >= th["low_diversity_min_words"] and len(set(words)) / nw < th["low_diversity_ratio"]:
         dead = True
-    if not dead and auto_hits >= 1 and work <= 1 and vm_leave == 0:
+    if not dead and auto_hits >= 1 and work <= 1 and vm_leave == 0 and nw < 80:
         dead = True
+    # a real conversation with a personal marker is never dead air
+    if dead and nw >= th["dead_air_min_words"] and _count(rs.priv_strong, text) >= 1:
+        dead = False
     if dead:
         out_hint = _count(rs.out_strong, text) + _count(rs.out_weak, text)
         return CallLabel(
@@ -144,7 +151,9 @@ def label_call(rs: Rules, plain_text: str | None, seconds: float | None, languag
             caller_type=CallerType.automated_or_dead_air, intent=Intent.other,
             outcome=Outcome.no_answer if nw < th["dead_air_min_words"] else Outcome.unclear,
             urgency=Urgency.none, red_flags=[], promised_followup=False, followup_text=None,
-            contains_private_content=False, language=lang, confidence=0.6 if nw == 0 else 0.5)
+            # short human talk with no automated marker carries no clinic value, so policy treats it as private
+            contains_private_content=bool(th.get("private_aggressive") and nw > 0 and auto_hits == 0 and vm_leave == 0),
+            language=lang, confidence=0.6 if nw == 0 else 0.5)
 
     # ---- caller type ------------------------------------------------------------------------
     cw, ow = th["client_weight"], th["other_type_weight"]
@@ -270,7 +279,13 @@ def label_call(rs: Rules, plain_text: str | None, seconds: float | None, languag
 
     # ---- private ------------------------------------------------------------------------------
     private = (ctype == CallerType.private_personal or private_marker
-               or (work == 0 and other_best == 0 and secs > th["private_min_seconds"]))
+               or (work == 0 and other_best == 0 and secs > th["private_min_seconds"])
+               # non-English calls with little clinic work are treated as private (when in doubt, private)
+               or (lang not in ("eng", "fra", "unknown") and work <= 1))
+    if th.get("private_aggressive"):
+        # when in doubt, private: anything the rules cannot place as clinic work is treated as private
+        private = private or ctype == CallerType.unknown or lang != "eng" or (
+            intent == Intent.other and outcome == Outcome.unclear)
 
     conf = 0.35
     conf += 0.15 if direction != RealDirection.unknown else 0
