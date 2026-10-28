@@ -66,3 +66,37 @@ Each entry gives what was chosen and why.
 
 - **Chose:** The figures from the reference, including 41 missed calls last week, are kept as example data and labeled as such in the UI.
 - **Why:** Real call logs do not exist yet. Showing example numbers as if they were measured would mislead staff, so they stay labeled until the call logger produces real data.
+
+## Decisions made during the build
+
+### "When in doubt, private" for call text
+- **Chose:** a call is flagged private if the rules find personal markers, or cannot place it as clinic work (unknown caller type, non-English, no clear intent and no clear outcome), or it is short human talk. Gold-labeled calls follow the gold label.
+- **Why:** on the gold set the rules alone caught only 2 of 5 private calls. The aggressive policy reaches 4 of 7 at the cost of deleting text from about 27 percent of real work calls (949 of 3,637 in total). The brief says when in doubt, true.
+
+### Built-in emergency rules are a floor
+- **Chose:** the code's emergency list, including proximity rules such as "breathing" near "fast", is always active. The owner's list and the YAML draft add to it but cannot remove from it.
+- **Why:** the first evaluation run missed 10 of 41 emergencies that exact phrases cannot catch. A missed emergency is the worst outcome this app can produce.
+
+### Private calls are excluded from every metric, including hourly volume
+- **Chose:** the Brief chart uses only non-private recorded calls.
+- **Why:** the brief says private-flagged rows never feed metrics. The hourly shape is still clear (peak at 9 am), but the totals undercount real phone load.
+
+### Temporary accounts for the public end-to-end test
+- **Chose:** `e2e_owner`, `e2e_desk` and `e2e_nurse` were created for the test run, then deactivated with random unknown passwords.
+- **Why:** running the suite as the real accounts would have used up their one-time passwords. They stay in the user list, deactivated, because events refer to them.
+
+### Caddy access logs go to the journal
+- **Chose:** `output stderr`, kept by journald (capped at 500 MB, 30 days).
+- **Why:** Caddy's sandbox could not open a log file in /var/log/caddy, and the journal is already capped and rotated.
+
+### No reboot test
+- **Chose:** tested `kill -9` of the app and a Caddy restart, and checked that every unit is enabled at boot.
+- **Why:** the build agent runs on this VM, and a reboot would have ended the session mid-handoff.
+
+### Evaluation set has 41 emergencies, not 40
+- **Chose:** kept the extra scenario.
+- **Why:** 11 come from real calls and 30 are synthetic; trimming one would only lose coverage.
+
+### Analytics small cells suppressed
+- **Chose:** any count under 5 is dropped before it reaches the app (196 of 423 rows).
+- **Why:** reduces the chance of singling out a caller from a rare combination of hour, weekday and intent.
