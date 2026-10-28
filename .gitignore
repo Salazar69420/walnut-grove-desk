@@ -1,0 +1,25 @@
+# real data must never enter the repo
+*.csv
+!samples/**/*.csv
+!backend/tests/fixtures/**/*.csv
+all_transcripts*
+transcripts/
+*.mp3
+/srv/
+# databases and secrets
+*.db
+*.db-*
+*.sqlite*
+.env
+.env.*
+*.env
+# build and caches
+node_modules/
+frontend/dist/
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+test-results/
+playwright-report/
+screenshots/private/

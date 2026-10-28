@@ -1,0 +1,499 @@
+# Deterministic labeler rules (labeler id: rules-v1).
+# ALL regexes and keyword lists live here so they can be tuned without code changes.
+# Conventions:
+#   * every pattern is a Python regex matched case-insensitively against LOWERCASED, whitespace-collapsed text
+#   * the token {CLINIC} expands to the union of clinic.name_patterns
+#   * use .? for apostrophes (ASR drops them): don.?t, can.?t
+#   * lists are scored by the number of DISTINCT patterns that match, not by occurrences
+version: 1
+
+thresholds:
+  dead_air_min_words: 8            # fewer words than this => automated_or_dead_air
+  dead_air_min_chars: 40
+  low_diversity_min_words: 12      # repeated-word hallucinations (hold music etc.)
+  low_diversity_ratio: 0.25        # distinct words / total words below this => dead air
+  private_min_seconds: 20          # "no clinic work signal" rule only applies above this
+  greeting_window_chars: 350       # clinic greeting must appear this early
+  head_window_chars: 600           # where outbound/inbound opening phrases are searched
+  vm_message_max_words: 120        # clinic_message_markers only count in messages this short
+  hold_tail_chars: 160             # hold phrase must be near the end for hold_then_dropped
+  weak_private_min_hits: 2         # weak private markers needed to fire
+  private_max_work_signals: 2      # strong private marker + <= this many work signals => private_personal
+  negation_window_chars: 30        # look-behind for no/not/never before a symptom phrase
+  client_weight: 1
+  other_type_weight: 2             # non-client caller types count double
+
+clinic:
+  # fuzzy variants of "Walnut Grove" (ASR garbles it)
+  name_patterns:
+    - 'wal+\s?n[aou]?t+s?\s?gr[oa]+w?v?e?s?'
+    - 'wal+\s?n[aou]?t+s?\s?gro'
+    - 'wal+\s?not\s?gr'
+    - 'wall?\s?nuts?\b'
+    - 'wal+nut'
+    - '(?:whole|one|won|war|well|all)\s?nut\s?gro'
+    - 'wal+\s?n[a-z]{1,3}\s+gro[a-z]{0,3}\b'
+    - 'grove\s+(?:animal|vet)'
+  # clinic answering the phone (inbound evidence)
+  greeting_patterns:
+    - '(?:thank you for calling|thanks for calling|you.?ve reached|you have reached|welcome to|good (?:morning|afternoon|evening),?) (?:the )?{CLINIC}'
+    - '{CLINIC}.{0,50}(?:how can i|how may i|can i help|how do i)'
+    - '(?:animal hospital|veterinary (?:clinic|hospital)|vet clinic).{0,40}(?:how can i|how may i|can i help)'
+  generic_patterns:
+    - 'animal hospital'
+    - 'veterinar'
+    - 'vet clinic'
+
+automated:
+  patterns:
+    - 'press (?:one|1|two|2|three|3|\d)'
+    - 'this call (?:may be|is being) (?:recorded|monitored)'
+    - 'the number you have (?:dialed|called)'
+    - 'is not in service'
+    - 'has been disconnected'
+    - 'automated (?:message|system|voice|call)'
+    - 'your call has been forwarded'
+    - 'the subscriber you'
+    - 'please stay on the line'
+    - 'para espa.ol'
+
+voicemail:
+  markers:
+    - 'leave (?:us |me )?(?:a|your) (?:message|name)'
+    - 'after the (?:tone|beep)'
+    - 'at the (?:tone|beep)'
+    - 'voice ?mail'
+    - 'mail ?box'
+    - 'not available (?:to take|right now|at the moment)'
+    - 'unable to (?:take|answer) your call'
+    - 'can.?t (?:come|get) to the phone'
+    - 'record your message'
+  # clinic leaving a message (outbound voicemail)
+  clinic_message_markers:
+    - 'calling from .{0,30}please (?:give us a )?call (?:us )?back'
+    - 'please (?:give us a )?call (?:us |the clinic )?back'
+    - 'give us a call back'
+    - 'returning your call'
+
+outbound:
+  strong:
+    - '(?:this is|it.?s|my name is|i.?m) [a-z]+\.?(?: [a-z]+){0,2},? (?:and i.?m )?(?:calling |phoning )?(?:from|with|at) (?:the )?{CLINIC}'
+    - 'calling from (?:the )?{CLINIC}'
+    - 'calling from (?:the )?(?:clinic|animal hospital|vet clinic|vet office|veterinary)\b'
+    - 'we.?re calling (?:from|about|to let you know)'
+    - 'this is (?:the )?(?:clinic|animal hospital|vet) calling'
+  weak:
+    - 'wanted to (?:let you know|give you an update|touch base)'
+    - 'i.?m calling (?:to|about) (?:let you know|check|see how|remind)'
+    - 'just calling to'
+    - 'returning your call'
+    - 'your (?:dog|cat|pet|puppy|kitten|rabbit)\b.{0,40}\bis (?:ready|doing)'
+    - 'a reminder'
+    - 'we have (?:the )?results'
+
+inbound:
+  strong:
+    - 'how (?:can|may) i (?:help|assist)'
+    - 'what can i do for you'
+    - 'can i help you'
+  weak:
+    - 'i.?d like to'
+    - 'i need to'
+    - 'i was wondering'
+    - 'do you have'
+    - 'can i (?:get|book|bring|come)'
+    - 'how much'
+    - '\bmy (?:dog|cat|puppy|kitten|pet|rabbit|bird)'
+    - 'i.?m calling (?:about|because|to)'
+
+outcome:
+  transfer:
+    - 'transfer (?:you|your call)'
+    - 'put you through'
+    - 'let me (?:connect|put you)'
+    - 'connect you (?:to|with)'
+  hold:
+    - 'please hold'
+    - 'can you hold'
+    - 'hold on (?:a |for a )?(?:moment|second|minute|one)'
+    - 'one moment'
+    - 'bear with me'
+  callback_promised_followups:    # followup vocabulary entries that count as the clinic promising a call back
+    - 'call back with results'
+    - 'call back to confirm'
+    - 'clinic to call client back'
+    - 'doctor to review and call back'
+    - 'check stock and call back'
+  resolved:
+    - 'thank you so much'
+    - 'see you (?:then|soon|at|tomorrow|on)'
+    - 'sounds good'
+    - 'have a (?:good|great|nice) (?:day|one|weekend|evening)'
+    - 'you.?re all (?:set|booked)'
+    - 'perfect'
+    - 'we.?ll see you'
+    - 'that works'
+
+followups:
+  # first matching vocabulary entry wins; values come from schema.FOLLOWUP_VOCAB only
+  "call back with results":
+    - '(?:call|get back to|let) you (?:back )?(?:with|know).{0,40}result'
+    - 'call you (?:back )?(?:when|once|as soon as).{0,40}(?:result|back from|in)'
+  "doctor to review and call back":
+    - '(?:doctor|dr\.?|vet).{0,50}(?:call you|call back|get back|review|approve)'
+    - '(?:have|ask) the (?:doctor|vet).{0,40}(?:call|review|approve)'
+  "check stock and call back":
+    - 'check (?:our |the )?(?:stock|inventory|if we have).{0,50}(?:call|back|let you know)'
+  "call back to confirm":
+    - 'call (?:us )?back to (?:book|schedule|confirm|make)'
+  "clinic to call client back":
+    - '(?:call|ring) me (?:back|when|once)|get back to me|give me a (?:call|ring)'
+    - '(?:call you back|give you a call back|call you tomorrow|someone will call|we.?ll call you|i.?ll call you|get back to you|give you a call|call you (?:later|today|monday|tomorrow))'
+  "client to call clinic back":
+    - 'please (?:give us a )?(?:call|ring)(?: us| the clinic)? back'
+    - 'call us back'
+    - 'give us a call'
+    - 'return (?:our|my) call'
+  "send records":
+    - '(?:send|email|fax) (?:over )?(?:the |his |her )?(?:records|file|history|chart)'
+
+caller_types:
+  priority: [lab_or_courier, other_clinic, vendor_or_sales, staff_internal, client]
+  lab_or_courier:
+    - '\bidexx\b'
+    - '\bantech\b'
+    - 'vet(?:erinary)? lab(?:oratory)?\b'
+    - '\bcourier\b'
+    - '\bpurolator\b'
+    - '\bfedex\b|\bfed ex\b'
+    - '\bups\b (?:driver|delivery|truck)'
+    - '\bdhl\b'
+    - 'canada post'
+    - 'sample (?:pick ?up|pickup|courier)'
+    - 'specimens?\b'
+    - 'samples? (?:are|is) ready'
+    - 'lab (?:pick ?up|pickup|courier|driver)'
+    - 'diagnostics?\b.{0,40}(?:pick ?up|driver|courier|samples)'
+    - 'here (?:for|to pick up) the (?:pick ?up|samples?|specimens?|package)'
+    - 'delivery for (?:the )?(?:clinic|hospital)'
+  other_clinic:
+    - 'from [a-z ]{3,40}(?:veterinary|animal hospital|vet clinic|pet hospital|veterinary clinic|vet hospital|emergency hospital|specialty|referral)'
+    - '\breferr(?:al|ed|ing)\b'
+    - 'transfer(?:ring)? (?:his|her|their|the) (?:records|file|chart|care)'
+    - '\bour patient\b|\byour patient\b'
+    - 'another (?:clinic|hospital|practice)'
+    - 'the owner (?:brought|took|is bringing|is coming)'
+    - 'specialist'
+    - 'emergency (?:hospital|clinic) (?:here|called|calling)'
+    - 'records for (?:the )?(?:dog|cat|patient)'
+  vendor_or_sales:
+    - '\bsales\b'
+    - 'representative'
+    - '\bspecial offer\b|\bpromotion\b|\bpromo\b'
+    - 'our products?\b'
+    - 'distributor|distribution'
+    - 'supply (?:company|rep|representative)|vet supply'
+    - 'account (?:manager|rep)|territory manager'
+    - 'software|support ticket|your (?:system|portal|license|subscription)'
+    - 'free trial|extended warranty|catalog'
+    - 'practice manager|office manager|decision maker|person in charge of (?:purchasing|ordering)'
+    - 'marketing|advertis|seo\b|website'
+    - 'merchant|credit card processing|payroll'
+  staff_internal:
+    - '\bfrom the back\b'
+    - '\bin room (?:one|two|three|four|\d)\b'
+    - '\broom (?:one|two|three|four|\d)\b'
+    - 'send (?:the next|him|her|them|that) (?:client|patient|one) (?:to|in|back)'
+    - 'the doctor needs (?:you|a|the)'
+    - 'at the front desk'
+    - 'can you (?:grab|cover|bring|come to|come back)'
+    - 'surgery (?:list|schedule|is ready)'
+    - '\bwho.?s covering\b'
+    - 'on my way (?:in|to the clinic)|i.?ll be (?:in|late)'
+    - 'lunch (?:break|run)'
+    - 'need to swap shifts?'
+  private_personal: []            # handled by the private section below
+  client:
+    - '\bmy (?:dog|cat|puppy|kitten|pet|rabbit|bird|guinea pig|ferret|horse|hamster|lizard)'
+    - '\bour (?:dog|cat|puppy|kitten|pet|rabbit)'
+    - 'his name is|her name is|their name is|\bhe.?s a \d|\bshe.?s a \d'
+    - 'bring (?:him|her|them|the (?:dog|cat|puppy|kitten)) in'
+    - 'appointment for'
+    - 'your (?:dog|cat|pet|puppy|kitten|rabbit)\b'
+    - 'is ready (?:for|to be) pick'
+    - 'due for (?:his|her|their)'
+    - 'vaccin'
+    - 'pick (?:him|her) up'
+    - '\b[a-z]+.?s (?:results|blood ?work|medication|appointment|surgery|x-?ray)'
+    # Hindi / Punjabi / French client cues
+    - 'कुत्त|बिल्ली|पालतू|डॉक्टर साहब'
+    - 'ਕੁੱਤ|ਬਿੱਲੀ|ਪਾਲਤੂ'
+    - '\bmon (?:chien|chat)\b|\bmon petit\b|\bmes animaux\b'
+    - '\bkutta\b|\bbilli\b|\bkutte\b'
+
+intent_order:   # tie-break order when scores are equal (earlier wins)
+  - triage_symptom
+  - pickup_ready
+  - results
+  - recall_or_reminder
+  - check_in
+  - refill
+  - reschedule_or_cancel
+  - records_request
+  - billing_or_insurance
+  - complaint
+  - food_or_supply_order
+  - pricing_or_policy_question
+  - booking
+  - vendor_support
+  - internal_logistics
+  - courier_or_lab_logistics
+
+intents:
+  # group "results" becomes results_call_out when outbound, results_question otherwise
+  booking:
+    - '\bbook(?:ing)?\b'
+    - '\bappointment\b'
+    - '\bschedul'
+    - 'any (?:openings?|availability|time)|\bavailab'
+    - 'come in\b'
+    - 'see the (?:doctor|vet)'
+    - 'time slot|\bslot\b'
+    - 'new (?:puppy|kitten|patient)'
+    - '\bexam\b|check.?up|vaccin|shots?\b|\bspay|\bneuter|dental'
+    - 'अपॉइंटमेंट|अपाइंटमेंट|appointment chahiye'
+    - 'ਅਪੌਇੰਟਮੈਂਟ|ਅਪਾਇੰਟਮੈਂਟ'
+    - 'rendez.?vous'
+  reschedule_or_cancel:
+    - 'reschedul'
+    - '\bcancel'
+    - '(?:change|move|push) (?:my|the|our) appointment'
+    - 'can.?t make it'
+    - 'need to (?:change|move)'
+  refill:
+    - '\brefill'
+    - 'repeat prescription|renew'
+    - 'run(?:ning)? (?:out|low)'
+    - 'more of (?:his|her|the) (?:medication|meds|pills|tablets)'
+    - '\bprescription\b'
+    - 'ordonnance'
+  food_or_supply_order:
+    - '\bfood\b|\bdiet\b|kibble'
+    - 'order(?:ing)?\b'
+    - 'flea|heartworm|tick (?:and|prevent)|prevent(?:a|i)tive'
+    - 'treats?\b|litter|supplement'
+    - 'in stock|do you carry'
+  pickup_ready:
+    - 'ready (?:for|to be) pick'
+    - 'ready to (?:go home|be picked)'
+    - 'can (?:pick|come get) (?:him|her|them) up'
+    - 'pick(?:ing)? (?:him|her|them|up)\b'
+    - 'pick ?up'
+  results:
+    - '\bresults?\b'
+    - 'blood ?work|bloodwork|lab ?work'
+    - 'x-?ray|radiograph|ultrasound'
+    - 'biops'
+    - 'test(?:s)? (?:came|come) back|came back'
+    - 'urine test|fecal'
+  recall_or_reminder:
+    - 'reminder|remind'
+    - 'due for\b'
+    - 'overdue'
+    - 'it.?s time for'
+    - 'recall'
+    - 'annual'
+  check_in:
+    - 'check(?:ing)? in\b|checking on'
+    - 'how (?:is|are) (?:he|she|they|[a-z]+) doing|how.?s (?:he|she|[a-z]+) doing'
+    - 'follow.?up'
+    - 'after (?:the )?surgery|since (?:the )?surgery'
+    - 'recover'
+  records_request:
+    - '\brecords?\b'
+    - 'medical history|vaccin\w* (?:record|certificate|proof)'
+    - 'send (?:over )?(?:the )?(?:file|chart|history)'
+    - '\bfax'
+    - 'copy of'
+  courier_or_lab_logistics:
+    - 'courier|pick ?up the samples?|specimens?'
+    - 'drop ?off|delivery|shipment|package'
+    - 'requisition|lab slip|sample'
+  pricing_or_policy_question:
+    - 'how much'
+    - '\bcost\b|\bprice|\bpricing|estimate|\bquote\b'
+    - 'do you (?:take|accept|do|offer|see)\b'
+    - 'what are your hours|are you open|\bhours\b|open (?:on|until|today)'
+    - 'policy|walk.?ins?\b|deposit'
+  billing_or_insurance:
+    - 'invoice|\bbill(?:ing|ed)?\b'
+    - 'insurance|\bclaim\b|reimburs'
+    - 'payment|\bcharge[ds]?\b|\brefund|balance'
+  complaint:
+    - 'complain'
+    - 'not happy|unhappy|unacceptable|terrible|disappointed|upset|\brude\b'
+    - 'waited (?:for )?(?:over|more than|too|\d)|waiting too long'
+    - 'speak (?:to|with) (?:the )?(?:manager|owner)'
+  vendor_support:
+    - 'support ticket|ticket number'
+    - 'software|login|password|your (?:system|portal)|\bupdate\b'
+    - 'printer|network|internet|\bit support'
+    - 'invoice for your account|your account with'
+  internal_logistics:
+    - 'room (?:one|two|three|four|\d)'
+    - 'next (?:client|patient)'
+    - 'front desk|from the back'
+    - 'surgery (?:list|schedule)|covering|\bshift'
+    - 'lunch|break room|\bstaff\b'
+
+symptoms:
+  # Each group yields one red flag (name must exist in schema.RED_FLAG_VOCAB). Any hit => urgency emergency_signs.
+  # A hit is ignored when negated within thresholds.negation_window_chars before the match.
+  trouble_breathing:
+    - 'trou?ble (?:with )?(?:breath|breeth|breeding)'
+    - 'difficult\w* (?:with )?breath'
+    - 'can.?t (?:breathe|breath|catch (?:his|her|its) breath)'
+    - 'struggl\w+ to breath'
+    - 'gasping'
+    - 'breath\w* (?:really |very )?(?:hard|heavy|heavily|fast|rapid|funny|weird|labou?red)'
+    - 'labou?red breath'
+    - 'not breathing|stopped breathing'
+    - 'short of breath'
+    - 'chok(?:e|ing|ed)\b'
+    - 'blue (?:tongue|lips)'
+  bleeding:
+    - '\bbleed(?:ing|s)? (?:a lot|badly|heavily|profusely|everywhere|won.?t stop|so much|really bad)'
+    - 'won.?t stop bleeding'
+    - 'lot of blood|lots of blood|blood everywhere|so much blood|pool of blood'
+    - '\bhemorrhag|\bhaemorrhag'
+    - '\bbleeding\b'
+  seizure:
+    - 'seizure|seizing|siezure|seisure|seizing'
+    - 'convuls'
+    - 'having a fit|fitting\b'
+    - 'shaking uncontrollably|twitching uncontrollably'
+    - 'epilep'
+  collapse:
+    - 'collaps'
+    - 'passed out|fainted|unconscious|unresponsive'
+    - 'won.?t wake up|not waking up|can.?t wake'
+    - 'can.?t (?:stand|walk|get up)|fell over|keeps falling'
+    - 'not moving|isn.?t moving|barely moving'
+  very_sleepy_after_surgery:
+    - '(?:sleepy|groggy|lethargic|drowsy|won.?t wake|not waking|barely awake|unresponsive).{0,70}(?:surgery|spay|neuter|anesthe|anaesthe|operation|dental)'
+    - '(?:surgery|spay|neuter|anesthe|anaesthe|operation|dental).{0,90}(?:sleepy|groggy|lethargic|drowsy|won.?t wake|not waking|barely awake|unresponsive)'
+  hit_by_car:
+    - 'hit by (?:a |the )?(?:car|truck|vehicle|van|bus|cart|bike)'
+    - 'got hit\b|was hit\b'
+    - 'run over|ran over|struck by'
+  toxin_chocolate:
+    - '(?:ate|eaten|eating|swallowed|got into|chewed|consumed|licked|ingested|snuck|stole).{0,60}(?:choc[a-z]*|cocoa|brownies?|cacao)'
+    - '(?:choc[a-z]*|cocoa|brownies?|cacao).{0,50}(?:ate|eaten|swallowed|got into|ingested|chewed|wrapper)'
+  toxin_xylitol:
+    - 'xy?l[iy]t[oa]l|zylitol|zylatol|sylitol|xylatol|xilitol'
+    - '(?:ate|eaten|swallowed|got into|chewed).{0,50}sugar.?free (?:gum|candy|candies|mints?|peanut butter)'
+  toxin_rat_poison:
+    - '(?:rat|mouse|mice|rodent|gopher|mole) (?:poison|bait|killer|pellets|trap bait)'
+    - 'rodenticide|brodifacoum|bromadiolone|warfarin|d.?con\b'
+  toxin_grapes:
+    - '(?:ate|eaten|swallowed|got into|chewed|consumed|stole).{0,60}(?:grapes?|raisins?|sultanas?|currants?)'
+    - '(?:grapes?|raisins?|sultanas?).{0,40}(?:ate|eaten|swallowed|got into)'
+  toxin_medication:
+    - '(?:ate|eaten|swallowed|got into|chewed|ingested|got a hold of|got ahold of|knocked over).{0,60}(?:pills?|tablets?|capsules?|medicat\w+|meds\b|ibuprofen|tylenol|advil|aspirin|acetaminophen|naproxen|antidepressants?|adderall|sleeping pills|painkillers?|opioids?|cannabis|marijuana|edibles?|prescription|blood pressure)'
+    - '(?:pill|medication|medicine|prescription) bottle.{0,40}(?:ate|eaten|empty|got into|chewed)'
+    - 'overdos'
+  cannot_pass_urine:
+    - '(?:can.?t|cannot|unable to|not able to|straining to|trying to|hasn.?t|has not|haven.?t|won.?t|not able).{0,30}(?:pee|urinat|pass urine|passing urine|peed|go pee|urine)'
+    - 'no urine|blocked (?:cat|tom|bladder)|urinary (?:blockage|obstruction)'
+    - 'straining (?:in|at) (?:the )?litter'
+  swollen_hard_belly:
+    - '(?:swollen|bloated|distended|hard|tight|big|bloat\w*).{0,25}(?:belly|abdomen|stomach|tummy)'
+    - '(?:belly|abdomen|stomach|tummy).{0,25}(?:swollen|bloated|distended|hard|tight|huge)'
+    - '\bbloat\b|\bgdv\b'
+    - 'retching.{0,30}nothing|trying to vomit.{0,30}nothing'
+  vomiting_blood:
+    - '(?:vomit\w*|throwing up|threw up|puking|puked|throw up).{0,40}blood'
+    - 'blood.{0,25}(?:vomit|throw|puke)'
+    - 'coffee ground|bloody vomit'
+  pale_gums:
+    - 'pale (?:gums?|in the gums?)|pail gums'
+    - 'white gums?|grey gums?|gray gums?|blue gums?'
+    - 'gums?.{0,25}(?:pale|white|grey|gray|blue)'
+  heatstroke:
+    - 'heat ?stroke|heat exhaustion'
+    - 'overheat|over heated|too hot'
+    - 'hot car|left in (?:a |the )?(?:hot )?car'
+    - 'panting (?:a lot|heavily|excessively|so hard|really hard|non.?stop)'
+  eye_injury:
+    - '(?:scratched|poked|punctured|injured|hurt|cut|ruptured|popped) (?:his |her |the |its |their )?eye'
+    - 'eye (?:is |looks |was )?(?:injur|scratch|punctur|popped|bulging|bulged|out of|hanging|swollen shut|bleeding|ruptur|cut)'
+    - 'eyeball|proptos'
+  difficult_birth:
+    - 'whelping|queening|dystocia'
+    - 'in labou?r\b'
+    - 'stuck (?:puppy|kitten|baby)|(?:puppy|kitten|baby).{0,20}stuck'
+    - '(?:trouble|difficulty|problems?) (?:giving birth|delivering|whelping)'
+    - 'straining to (?:give birth|deliver)'
+    - 'giving birth'
+  emergency_stated:
+    - '(?:this|it).?s an emergency|is an emergency|\bemergency\b.{0,30}(?:please|right now|help|hurry)'
+    - '\bdying\b|going to die|might die|think (?:he|she).?s dead'
+    - 'need help right now|come in right now|right away please'
+
+soon:   # urgency "soon" (no emergency flag)
+  - 'vomit|throwing up|puking|threw up'
+  - 'diarrh'
+  - 'limp(?:ing|s)?\b'
+  - 'not eating|won.?t eat|stopped eating|off (?:his|her) food'
+  - 'lethargic|not (?:himself|herself)|very tired'
+  - '\burgent\b|\basap\b|as soon as possible'
+  - 'itch|scratching|ear infection|hot spot'
+  - 'swollen|\blump\b|\bcough'
+  - 'in pain|painful|yelp'
+  - 'today if (?:possible|you can)'
+
+triage_extra:   # extra triage_symptom evidence (not red flags)
+  - 'vomit|throwing up|diarrh|limp|not eating|lethargic|itch|cough|sneez|swollen|lump|symptom|sick|ill\b|injur|wound|infection'
+
+work_signals:   # clinic-work evidence (distinct pattern hits counted)
+  - '\b(?:dog|cat|puppy|kitten|pet|rabbit|bird|animal|horse)s?\b'
+  - 'appointment|rendez.?vous'
+  - 'vaccin|shots?\b'
+  - '\bvet\b|veterinar|animal hospital|clinic'
+  - '\bdoctor\b|\bdr\.? [a-z]+|\bdr\b'
+  - 'surgery|spay|neuter|dental'
+  - 'medicat|prescription|refill|\bpills?\b|\bmeds\b'
+  - 'blood ?work|results?|x-?ray|test\b'
+  - 'invoice|insurance|\bbill\b'
+  - 'samples?|courier|specimen|lab\b'
+  - '{CLINIC}'
+  - '\bgrooming|boarding|microchip'
+  - 'records?\b'
+  - 'कुत्त|बिल्ली|डॉक्टर|क्लिनिक|अपॉइंटमेंट|अपाइंटमेंट|पालतू'
+  - 'ਕੁੱਤ|ਬਿੱਲੀ|ਡਾਕਟਰ|ਕਲੀਨਿਕ|ਅਪੌਇੰਟਮੈਂਟ|ਪਾਲਤੂ'
+  - '\bchien|\bchat\b|v.t.rinaire|clinique|\bkutta\b|\bbilli\b'
+
+private:
+  # strong marker: a single hit fires
+  strong:
+    - '\bi love you\b|\blove you (?:too|so much|lots)\b|\bluv you\b'
+    - '\b(?:babe|honey|sweetheart|sweetie|darling|hun)\b'
+    - '\bpick(?:ing)? up the kids\b|\bthe kids (?:from|at) school\b|\bafter school\b'
+    - '\bwhat.?s for dinner\b|\bfor dinner (?:tonight|later)\b|\bdinner (?:tonight|plans|reservation)'
+    - '\bmy (?:husband|wife|boyfriend|girlfriend|fianc\w+|mom|mum|dad|mother|father|sister|brother|son|daughter)\b.{0,40}\b(?:birthday|wedding|funeral|hospital|divorce|mortgage)'
+    - '\bhappy birthday\b'
+    - '\bmy (?:therapist|lawyer|accountant|landlord|mortgage|divorce)'
+    - '\bmy own (?:doctor|appointment|prescription)'
+    - 'family (?:dinner|emergency|matter)'
+    - 'ਮੈਂ ਤੈਨੂੰ ਪਿਆਰ|मैं तुमसे प्यार|मुझे तुमसे प्यार'
+  # weak markers: need thresholds.weak_private_min_hits and to outnumber work signals
+  weak:
+    - '\bdinner\b|\blunch plans\b|\bgroceries\b|\bgrocery\b'
+    - '\bthe kids\b|\bmy kids\b|\bkids\b'
+    - '\bmy (?:husband|wife|mom|mum|dad|mother|father|sister|brother)\b'
+    - '\bbirthday\b|\bweekend plans\b|\bvacation\b|\bholiday\b'
+    - '\bhockey\b|\bsoccer\b|\bgame tonight\b|\bnetflix\b'
+    - '\brent\b|\bmortgage\b|\bbank\b|\bloan\b'
+    - '\bchurch\b|\btemple\b|\bgurdwara\b'
+    - 'how was your day|how.?s your day'
+    - 'ਰਾਤ ਦਾ ਖਾਣਾ|खाना बना|खाने में'

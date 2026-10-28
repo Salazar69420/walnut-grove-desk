@@ -1,0 +1,31 @@
+[Unit]
+Description=Walnut Grove Desk web app
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=walnut-app
+Group=walnut-app
+EnvironmentFile=/etc/walnut-desk/app.env
+WorkingDirectory=/opt/walnut-desk/backend
+ExecStartPre=/opt/walnut-desk/.venv/bin/alembic upgrade head
+ExecStart=/opt/walnut-desk/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips 127.0.0.1 --no-server-header
+Restart=always
+RestartSec=3
+# hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/walnut-desk /var/lib/walnut-desk-llm
+InaccessiblePaths=/srv/walnut-private
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

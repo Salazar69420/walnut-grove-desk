@@ -1,0 +1,42 @@
+"""Single source of truth for who may do what (docs/CONTRACT.md)."""
+from __future__ import annotations
+
+PERMS: dict[str, set[str]] = {
+    "overnight.view": {"desk", "nurse", "owner"},
+    "overnight.manage": {"desk", "owner"},  # confirm, entered, to-callback, ack
+    "overnight.followup": {"desk", "nurse", "owner"},  # mark emergency followed up
+    "callbacks.view": {"desk", "nurse", "owner"},
+    "callbacks.work": {"desk", "nurse", "owner"},  # claim, done
+    "drafts.view": {"desk", "owner"},
+    "drafts.approve": {"desk", "owner"},  # edit, approve
+    "results.view": {"desk", "nurse", "owner"},
+    "results.advance": {"nurse", "owner"},
+    "schedule.view": {"desk", "nurse", "owner"},
+    "brief.view": {"owner"},
+    "suggestions.decide": {"owner"},
+    "afterhours.view": {"owner"},
+    "afterhours.edit": {"owner"},
+    "sim.use": {"desk", "nurse", "owner"},
+    "tools.view": {"desk", "nurse", "owner"},
+    "assistant.use": {"desk", "nurse", "owner"},
+    "export.use": {"desk", "nurse", "owner"},  # each export also checks the list's view perm
+}
+ADMIN_PERMS: set[str] = {"admin.users", "admin.audit", "admin.settings", "admin.import", "admin.reset_demo"}  # require is_admin
+
+ROLES = ("owner", "desk", "nurse")
+
+
+def has_perm(user, perm: str) -> bool:
+    if perm in ADMIN_PERMS:
+        return bool(user.is_admin)
+    allowed = PERMS.get(perm)
+    if allowed is None:
+        raise KeyError(f"unknown permission {perm!r}")
+    return user.role in allowed
+
+
+def perms_for(user) -> list[str]:
+    out = [p for p, roles in PERMS.items() if user.role in roles]
+    if user.is_admin:
+        out.extend(ADMIN_PERMS)
+    return sorted(out)

@@ -1,0 +1,135 @@
+"""Command line entry point: python -m pipeline <command>."""
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+
+from . import config
+
+
+def _common() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(add_help=False)
+    g = p.add_argument_group("paths")
+    g.add_argument("--root", default=argparse.SUPPRESS, help=f"data root (default {config.DEFAULT_ROOT})")
+    g.add_argument("--db", default=argparse.SUPPRESS, help="default <root>/private.db")
+    g.add_argument("--salt", default=argparse.SUPPRESS, help="default <root>/salt.bin")
+    g.add_argument("--csv", default=argparse.SUPPRESS, help="default <root>/inbox/all_transcripts.csv")
+    g.add_argument("--out-dir", dest="out_dir", default=argparse.SUPPRESS, help="default <root>/out")
+    g.add_argument("--gold-dir", dest="gold_dir", default=argparse.SUPPRESS, help="default <root>/gold")
+    return p
+
+
+def build_parser() -> argparse.ArgumentParser:
+    common = _common()
+    ap = argparse.ArgumentParser(prog="python -m pipeline", parents=[common],
+                                 description="Private call-transcript pipeline (counts only output).")
+    sub = ap.add_subparsers(dest="command", required=True)
+
+    def add(name, help_):
+        return sub.add_parser(name, parents=[common], help=help_)
+
+    s = add("load", "parse the inbox CSV into private.db")
+    s.add_argument("--force", action="store_true", help="reload even if calls table is not empty")
+
+    s = add("audit", "counts-only data audit (markdown + JSON)")
+    s.add_argument("--out", help="markdown path (default <root>/out/DATA_AUDIT.md); JSON beside it")
+
+    s = add("label-rules", "run the deterministic rules labeler (rules-v1)")
+    s.add_argument("--rules", default=config.DEFAULT_RULES, help="rules.yaml path")
+
+    s = add("gold-sample", "stratified seeded sample of call_refs")
+    s.add_argument("-n", type=int, default=100)
+    s.add_argument("--seed", type=int, default=1234)
+    s.add_argument("--min-chars", type=int, default=0, help="only calls with at least this much text")
+
+    s = add("gold-candidates", "call_refs matching an FTS query")
+    s.add_argument("--query", required=True)
+    s.add_argument("--limit", type=int, default=20)
+
+    s = add("gold-show", "show a masked chunk of one call's text")
+    s.add_argument("call_ref")
+    s.add_argument("--chars", type=int, default=700)
+    s.add_argument("--offset", type=int, default=0)
+
+    s = add("gold-label", "validate and store a gold label")
+    s.add_argument("call_ref")
+    s.add_argument("json")
+
+    s = add("evaluate", "compare a labeler to gold")
+    s.add_argument("--labeler", default="rules-v1")
+
+    s = add("purge-private", "irreversibly purge text of private-flagged calls")
+    s.add_argument("--conservative", action="store_true",
+                   help="purge if ANY labeler (not just the latest) says private; gold still overrides")
+    s.add_argument("--shred-csv", action="store_true", help="overwrite and delete the inbox CSV afterwards")
+
+    s = add("analytics", "aggregate-only analytics JSON for the web app")
+    s.add_argument("--labeler", default="rules-v1")
+    s.add_argument("--out", help="default <root>/out/analytics.json")
+
+    s = add("label-llm", "label calls with an OpenAI-compatible LLM (gated)")
+    s.add_argument("--env-file", default=config.DEFAULT_LLM_ENV)
+    s.add_argument("--limit", type=int)
+    s.add_argument("--concurrency", type=int, default=4)
+
+    s = add("verify-no-leak", "scan paths for numbers, hashes and transcript shingles")
+    s.add_argument("--paths", nargs="+", required=True)
+    s.add_argument("--ignore-regex", help="ignore phone-like matches that match this regex")
+    s.add_argument("--list-files", action="store_true", help="also print matching file paths")
+    s.add_argument("--seed", type=int, default=0)
+
+    s = add("wipe-script", "write <root>/WIPE.sh")
+    s.add_argument("--out", help="default <root>/WIPE.sh")
+    return ap
+
+
+def main(argv: list[str] | None = None) -> int:
+    os.umask(0o077)
+    args = build_parser().parse_args(argv)
+    paths = config.resolve_paths(args)
+    cmd = args.command
+    if cmd == "load":
+        from . import load
+        return load.load(paths, force=args.force)
+    if cmd == "audit":
+        from . import audit
+        return audit.run(paths, args.out)
+    if cmd == "label-rules":
+        from . import labeling
+        return labeling.run(paths, args.rules)
+    if cmd == "gold-sample":
+        from . import gold
+        return gold.sample(paths, args.n, args.seed, args.min_chars)
+    if cmd == "gold-candidates":
+        from . import gold
+        return gold.candidates(paths, args.query, args.limit)
+    if cmd == "gold-show":
+        from . import gold
+        return gold.show(paths, args.call_ref, args.chars, args.offset)
+    if cmd == "gold-label":
+        from . import gold
+        return gold.label(paths, args.call_ref, args.json)
+    if cmd == "evaluate":
+        from . import evaluate
+        return evaluate.run(paths, args.labeler)
+    if cmd == "purge-private":
+        from . import purge
+        return purge.run(paths, args.conservative, args.shred_csv)
+    if cmd == "analytics":
+        from . import analytics
+        return analytics.run(paths, args.labeler, args.out)
+    if cmd == "label-llm":
+        from . import llm
+        return llm.run(paths, args.env_file, args.limit, args.concurrency)
+    if cmd == "verify-no-leak":
+        from . import leak
+        return leak.run(paths, args.paths, args.ignore_regex, args.list_files, args.seed)
+    if cmd == "wipe-script":
+        from . import wipe
+        return wipe.run(paths, args.out)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

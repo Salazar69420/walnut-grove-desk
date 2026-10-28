@@ -1,0 +1,637 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Walnut Grove Desk</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: three columns like a desktop work app. Role sidebar | working area | assistant panel. */
+:root{
+  --bg:#eef2f3; --panel:#ffffff; --panel2:#f5f8f8; --line:#d7e0e2;
+  --ink:#14262b; --mute:#5a6e74;
+  --accent:#1c7c6e; --accent-ink:#ffffff; --accent-soft:#dcf0ec;
+  --warn:#9a6212; --warn-soft:#fbefd5; --crit:#b23a3a; --crit-soft:#f8e0df;
+  --ok:#2b7a4b; --ok-soft:#ddf0e4; --bar:#b9c6c9;
+  --ui:'Figtree',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --mono:'IBM Plex Mono',ui-monospace,'SFMono-Regular',Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0e191c; --panel:#15242a; --panel2:#1a2d33; --line:#2a3f47;
+  --ink:#e5eff0; --mute:#93a9ae;
+  --accent:#4cc2ad; --accent-ink:#06201b; --accent-soft:#1a3b38;
+  --warn:#e3b05a; --warn-soft:#3a2f17; --crit:#f08585; --crit-soft:#3d2224;
+  --ok:#6fcb92; --ok-soft:#1c3a28; --bar:#3c555d; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0e191c; --panel:#15242a; --panel2:#1a2d33; --line:#2a3f47;
+  --ink:#e5eff0; --mute:#93a9ae;
+  --accent:#4cc2ad; --accent-ink:#06201b; --accent-soft:#1a3b38;
+  --warn:#e3b05a; --warn-soft:#3a2f17; --crit:#f08585; --crit-soft:#3d2224;
+  --ok:#6fcb92; --ok-soft:#1c3a28; --bar:#3c555d; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--ui);font-size:14px;line-height:1.45;
+  padding-left:max(12px,env(safe-area-inset-left,0px));padding-right:max(12px,env(safe-area-inset-right,0px));padding-block:12px}
+button{font:inherit;color:inherit;cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.app{max-width:1500px;margin:0 auto;display:grid;gap:12px}
+.top{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 14px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px;letter-spacing:.1px}
+.logo{width:28px;height:28px;border-radius:8px;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;font-weight:700;font-size:14px}
+.pill{font-size:11px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;padding:3px 8px;border-radius:999px;background:var(--warn-soft);color:var(--warn)}
+.spacer{flex:1}
+.seg{display:flex;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:3px;gap:2px;flex-wrap:wrap}
+.seg button{border:0;background:transparent;padding:6px 12px;border-radius:7px;font-weight:600;color:var(--mute)}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
+.link{border:0;background:none;color:var(--mute);text-decoration:underline;padding:4px}
+.main-grid{display:grid;gap:12px;grid-template-columns:200px minmax(0,1fr) 340px;align-items:start}
+.side{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:4px;position:sticky;top:12px}
+.me{display:flex;gap:10px;align-items:center;padding:6px 6px 12px;border-bottom:1px solid var(--line);margin-bottom:6px}
+.av{width:34px;height:34px;border-radius:50%;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;font-weight:700}
+.me b{display:block;line-height:1.2}.me span{font-size:12px;color:var(--mute)}
+.nav{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;text-align:left;border:0;background:transparent;padding:8px 10px;border-radius:8px;font-weight:500;color:var(--mute)}
+.nav:hover{background:var(--panel2)}
+.nav[aria-current="page"]{background:var(--accent-soft);color:var(--accent);font-weight:700}
+.count{font-size:11px;font-weight:700;min-width:20px;text-align:center;padding:1px 6px;border-radius:999px;background:var(--panel2);color:var(--mute)}
+.count.hot{background:var(--crit-soft);color:var(--crit)}
+.work{display:flex;flex-direction:column;gap:12px;min-width:0}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;min-width:0}
+.card h2{margin:0 0 2px;font-size:15px}
+.card .sub{margin:0 0 12px;color:var(--mute);font-size:13px}
+h1{margin:0;font-size:22px;line-height:1.2;text-wrap:balance}
+.lead{margin:4px 0 0;color:var(--mute)}
+.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.kpi .n{font-size:26px;font-weight:700;line-height:1.1}
+.kpi .l{font-size:12px;color:var(--mute);margin-top:2px}
+.kpi.alert .n{color:var(--crit)}
+.rec{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 16px;padding:12px 0;border-top:1px solid var(--line)}
+.rec:first-of-type{border-top:0;padding-top:0}
+.rec b{display:block}
+.rec p{margin:2px 0 0;color:var(--mute);font-size:13px}
+.rec .acts{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.btn{border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:6px 12px;font-weight:600}
+.btn:hover{background:var(--panel2)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.primary:hover{filter:brightness(1.06)}
+.btn.small{padding:4px 10px;font-size:13px}
+.tag{display:inline-block;font-size:12px;font-weight:600;padding:2px 8px;border-radius:6px;background:var(--panel2);color:var(--mute);white-space:nowrap}
+.tag.high{background:var(--crit-soft);color:var(--crit)}
+.tag.ok{background:var(--ok-soft);color:var(--ok)}
+.tag.warn{background:var(--warn-soft);color:var(--warn)}
+.tag.acc{background:var(--accent-soft);color:var(--accent)}
+.status-done{color:var(--ok);font-weight:600}
+.chart{width:100%;height:auto;display:block}
+.chart text{font-family:var(--ui);fill:var(--mute);font-size:11px}
+.chart .val{fill:var(--ink);font-weight:600}
+.note{font-size:12px;color:var(--mute);margin:8px 0 0}
+.row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 12px;align-items:center;padding:11px 0;border-top:1px solid var(--line)}
+.row:first-of-type{border-top:0}
+.row.done{opacity:.55}
+.row .who{font-weight:600}
+.row .what{color:var(--mute);font-size:13px;margin-top:1px}
+.meta{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:5px}
+.filters{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+.filters button{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:4px 12px;font-weight:600;color:var(--mute)}
+.filters button[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+.draft{border:1px solid var(--line);border-radius:10px;padding:12px;margin-top:10px;background:var(--panel2)}
+.draft .to{font-size:12px;color:var(--mute);margin-bottom:6px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.draft p{margin:0 0 10px}
+.draft textarea{width:100%;min-height:76px;font:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px;margin-bottom:10px;resize:vertical}
+.stages{display:flex;gap:4px;align-items:center;font-size:12px;flex-wrap:wrap}
+.stages span{padding:2px 8px;border-radius:6px;background:var(--panel2);color:var(--mute)}
+.stages span.on{background:var(--accent-soft);color:var(--accent);font-weight:700}
+.tablewrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;min-width:640px}
+th,td{text-align:left;padding:8px 8px;border-top:1px solid var(--line);vertical-align:top}
+th{font-size:12px;color:var(--mute);font-weight:600;border-top:0}
+.shift{display:inline-block;margin:0 6px 4px 0;padding:2px 8px;border-radius:6px;font-size:12px;background:var(--panel2);border:1px solid var(--line);white-space:nowrap}
+.shift.desk{background:var(--accent-soft);border-color:transparent;color:var(--accent)}
+.shift.nurse{background:var(--ok-soft);border-color:transparent;color:var(--ok)}
+.shift.doc{background:var(--warn-soft);border-color:transparent;color:var(--warn)}
+.shift.new{border:1px dashed var(--accent);font-weight:700}
+.org{display:flex;flex-direction:column;align-items:stretch;gap:0}
+.senior{border:1px solid var(--accent);background:var(--accent-soft);border-radius:12px;padding:12px 14px}
+.senior b{color:var(--accent)}
+.link-line{height:18px;margin:0 auto;border-left:2px dashed var(--line)}
+.juniors{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.junior{border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--panel2);display:flex;flex-direction:column;gap:6px}
+.junior b{display:flex;justify-content:space-between;gap:8px}
+.junior small{color:var(--mute);font-size:12px}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ok);margin-right:6px}
+.dot.off{background:var(--bar)}
+.feed{list-style:none;padding:0;margin:0}
+.feed li{display:grid;grid-template-columns:64px 110px minmax(0,1fr);gap:8px;padding:7px 0;border-top:1px solid var(--line);font-size:13px}
+.feed li:first-child{border-top:0}
+.feed .t{color:var(--mute)}
+.feed .tool{font-weight:600;color:var(--accent)}
+.feed li.fresh{animation:flash 1.6s ease-out}
+@keyframes flash{from{background:var(--accent-soft)}to{background:transparent}}
+.assist{background:var(--panel);border:1px solid var(--line);border-radius:12px;display:flex;flex-direction:column;position:sticky;top:12px;height:calc(100vh - 24px);min-height:460px;max-height:820px}
+.assist header{padding:12px 14px;border-bottom:1px solid var(--line)}
+.assist header b{display:flex;align-items:center;gap:8px}
+.assist header span{font-size:12px;color:var(--mute)}
+.msgs{flex:1;overflow-y:auto;padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+.msg{max-width:92%;padding:9px 12px;border-radius:12px;background:var(--panel2);border:1px solid var(--line)}
+.msg.me{align-self:flex-end;background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.msg p{margin:0 0 6px}.msg p:last-child{margin:0}
+.msg ul{margin:4px 0 6px;padding-left:18px}
+.msg .btn{margin-top:6px}
+.typing{display:inline-flex;gap:4px;padding:4px 2px}
+.typing i{width:6px;height:6px;border-radius:50%;background:var(--mute);animation:blink 1s infinite}
+.typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}
+@keyframes blink{0%,80%,100%{opacity:.25}40%{opacity:1}}
+.chips{padding:8px 14px;display:flex;flex-wrap:wrap;gap:6px;border-top:1px solid var(--line)}
+.chips button{border:1px solid var(--accent);background:transparent;color:var(--accent);border-radius:999px;padding:5px 11px;font-weight:600;font-size:13px;text-align:left}
+.chips button:hover{background:var(--accent-soft)}
+.send{display:flex;gap:8px;padding:10px 14px 14px}
+.send input{flex:1;min-width:0;font:inherit;color:var(--ink);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.toast{position:fixed;left:50%;bottom:max(18px,env(safe-area-inset-bottom,0px));transform:translate(-50%,20px);background:var(--ink);color:var(--bg);padding:9px 16px;border-radius:10px;font-weight:600;opacity:0;pointer-events:none;transition:.25s;z-index:20;max-width:90vw}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+.banner{background:var(--crit-soft);color:var(--crit);border-radius:10px;padding:10px 14px;font-weight:600}
+.conv{margin-top:8px;display:flex;flex-direction:column;gap:5px;border-left:3px solid var(--line);padding-left:10px}
+.conv div{font-size:13px}.conv b{color:var(--mute);font-weight:600}
+.acts{display:flex;flex-direction:column;gap:6px;align-items:flex-end}
+.phone{border:2px solid var(--line);border-radius:22px;background:var(--panel2);padding:10px;display:flex;flex-direction:column;gap:8px;min-height:360px}
+.phone .hd{text-align:center;font-size:12px;color:var(--mute);font-weight:600}
+.bubs{flex:1;display:flex;flex-direction:column;gap:6px}
+.bub{max-width:88%;padding:8px 11px;border-radius:14px;font-size:13px;background:var(--panel);border:1px solid var(--line)}
+.bub.client{align-self:flex-end;background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.bub small{display:block;font-size:11px;opacity:.7;margin-bottom:2px}
+.quick{display:flex;flex-wrap:wrap;gap:6px}
+.quick .btn{border-color:var(--accent);color:var(--accent);background:transparent}
+.tog{border:1px solid var(--line);background:var(--panel2);border-radius:999px;padding:3px 12px;font-weight:600;color:var(--mute);white-space:nowrap}
+.tog[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.setrow{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.setrow:first-of-type{border-top:0}
+#sim .seg{width:fit-content;max-width:100%}
+.hd2{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-start}
+@media (max-width:1180px){
+  .main-grid{grid-template-columns:200px minmax(0,1fr)}
+  .assist{grid-column:1/-1;position:static;height:520px}
+}
+@media (max-width:780px){
+  .main-grid{grid-template-columns:minmax(0,1fr)}
+  .side{position:static;flex-direction:row;flex-wrap:wrap;align-items:center}
+  .me{border:0;margin:0;padding:4px 8px 4px 4px;width:100%}
+  .nav{width:auto}
+  .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .juniors{grid-template-columns:minmax(0,1fr)}
+  .rec{grid-template-columns:minmax(0,1fr)}
+  .feed li{grid-template-columns:60px minmax(0,1fr)}
+  .feed .tool{grid-column:2}
+  .feed li span:last-child{grid-column:1/-1}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+
+<div class="app">
+  <div class="top">
+    <div class="brand"><div class="logo">W</div>Walnut Grove Desk</div>
+    <span class="pill">Prototype, example data</span>
+    <div class="spacer"></div>
+    <span style="color:var(--mute);font-size:13px">Viewing as</span>
+    <div class="seg" id="roles" role="group" aria-label="Viewing as"></div>
+    <button class="link" data-act="reset">Reset demo</button>
+  </div>
+  <div class="main-grid">
+    <nav class="side" id="side" aria-label="Sections"></nav>
+    <main class="work" id="work"></main>
+    <aside class="assist" aria-label="Assistant">
+      <header><b><span class="dot" style="margin:0"></span>Assistant</b><span>Reports to Dr. Garg. Answers come from the shared clinic record.</span></header>
+      <div class="msgs" id="msgs" aria-live="polite"></div>
+      <div class="chips" id="chips"></div>
+      <form class="send" id="sendForm"><input id="q" type="text" placeholder="Ask, or tap a question above" autocomplete="off"><button class="btn primary" type="submit">Send</button></form>
+    </aside>
+  </div>
+</div>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+(function(){
+var PEOPLE={
+  garg:{name:'Dr. Garg',title:'Veterinarian and owner',ini:'G',view:'brief'},
+  desk:{name:'Priya',title:'Front desk',ini:'P',view:'overnight'},
+  nurse:{name:'Anita',title:'Registered vet tech',ini:'A',view:'results'}
+};
+var DAYS=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+var HOURS=['8a','9a','10a','11a','12p','1p','2p','3p','4p','5p'];
+var CALLS=[14,21,18,15,9,12,16,17,13,6];
+var COVER=[1,1,2,2,1,2,2,2,2,1];
+var LOAD_LIMIT=12;
+var S;
+
+function init(role){
+  S={
+    role:role||'garg', view:(PEOPLE[role||'garg']).view, clock:9*60+41, cbFilter:'all', edit:{}, missedText:false, chat:[],
+    callbacks:[
+      {id:'c1',who:'Dhillon',pet:'Simba (cat)',what:'Asking about blood test results',kind:'Results',at:'9:31 am',via:'Voicemail',prio:'high',owner:null,status:'new'},
+      {id:'c5',who:'Nguyen',pet:'Mochi (rabbit)',what:'Not eating since last night, asks if she should come in',kind:'Triage',at:'9:20 am',via:'Voicemail',prio:'high',flag:true,owner:null,status:'new'},
+      {id:'c3',who:'Walker',pet:'Pepper (dog)',what:'Missed call, no message. Food order arrived.',kind:'Pickup',at:'9:38 am',via:'Missed call',prio:'normal',owner:null,status:'new'},
+      {id:'c2',who:'Chen',pet:'Biscuit (Labrador)',what:'Needs a carprofen refill before the weekend',kind:'Refill',at:'8:12 am',via:'Voicemail',prio:'normal',owner:null,status:'new'},
+      {id:'c4',who:'Langley Referral Clinic',pet:'Maple (spaniel)',what:'Asking for records to be sent',kind:'Records',at:'8:55 am',via:'Voicemail',prio:'normal',owner:'Priya',status:'claimed'},
+      {id:'c7',who:'Fraser',pet:'Luna (Husky)',what:'Needs a refill. Taken overnight by the assistant.',kind:'Refill',at:'6:55 am',via:'Call',prio:'normal',owner:null,status:'new'},
+      {id:'c6',who:'Lab courier',pet:'',what:'Confirm tomorrow pickup time',kind:'Courier',at:'8:02 am',via:'Call',prio:'normal',owner:'Marcus',status:'done'}
+    ],
+    results:[
+      {id:'r1',pet:'Maple (spaniel)',owner:'Singh',test:'Blood panel',age:3,stage:0},
+      {id:'r2',pet:'Simba (cat)',owner:'Dhillon',test:'Thyroid panel',age:2,stage:1},
+      {id:'r4',pet:'Luna (Husky)',owner:'Fraser',test:'Cytology',age:2,stage:0},
+      {id:'r3',pet:'Rocky (Boxer)',owner:'Ali',test:'Urinalysis',age:1,stage:1},
+      {id:'r5',pet:'Oscar (beagle)',owner:'Pereira',test:'Fecal test',age:0,stage:2}
+    ],
+    drafts:[
+      {id:'d1',kind:'Annual exam recall',to:'Ms. Chen, for Biscuit',body:'Hi Ms. Chen, it is Walnut Grove Animal Hospital. Biscuit is due for her annual exam. Would you like us to book a time this week? Reply YES and we will call you.',status:'pending'},
+      {id:'d2',kind:'Ready for pickup',to:'Mr. Walker, for Pepper',body:'Hi Mr. Walker, Pepper\'s food order is in and ready for pickup at the front desk. We are open until 6 pm today.',status:'pending'},
+      {id:'d3',kind:'Post-surgery check-in',to:'Mr. Ali, for Rocky',body:'Hi Mr. Ali, how is Rocky doing after his dental yesterday? If he is not eating, or the gums look red or swollen, please call us today.',status:'pending'}
+    ],
+    recs:[
+      {id:'r1',title:'Add an open desk shift, 8:00 to 10:00, Monday to Friday',why:'Calls peak at 9 am (about 21 an hour in this example) with one person on the phones. Add a second person and each person\'s load drops by half.',status:'open'},
+      {id:'r2',title:'Turn on automatic texts to missed callers',why:'41 calls went unanswered last week and 13 of those callers never rang again. A text with a booking link reaches them.',status:'open'},
+      {id:'r3',title:'Start the annual exam recall batch (120 clients overdue)',why:'Drafts go to the front desk for approval, 10 at a time, so no one is overloaded.',status:'open'},
+      {id:'r4',title:'Review lab results older than two days',why:'Three results are waiting for a doctor review or a client call. Nurses can call once you mark them reviewed.',status:'open'}
+    ],
+    roster:buildRoster(), rosterNew:false, conv:{}, tog:{req:true,msg:true,missed:false},
+    sim:newSim('text'),
+    hospitals:[
+      {id:'h1',name:'Boundary Bay Veterinary Specialty Hospital',place:'Surrey',claim:'Says it is open 24 hours a day, 7 days a week',confirmed:false},
+      {id:'h2',name:'Backup hospital',place:'',claim:'',ph:true}
+    ],
+    visitTypes:[{n:'Yearly check-up',min:30,on:true},{n:'Vaccines',min:20,on:true},{n:'Sick visit',min:30,on:true},{n:'Dental consult',min:30,on:false},{n:'Surgery drop-off',min:15,on:false}],
+    overnight:[
+      {id:'o3',who:'Pereira',pet:'Oscar (beagle)',channel:'Text',at:'11:40 pm',kind:'emergency',status:'new',summary:'Says Oscar ate a whole bar of dark chocolate. Pointed to Boundary Bay Veterinary Specialty Hospital.',conv:[['client','Oscar just ate a whole bar of dark chocolate'],['bot','That sounds like it needs a vet tonight. Boundary Bay Veterinary Specialty Hospital in Surrey is on the clinic emergency list as open 24 hours. I am texting you their address and phone number now. The clinic will check in with you this morning.']]},
+      {id:'o5',who:'Ali',pet:'Rocky (Boxer)',channel:'Text',at:'5:30 am',kind:'emergency',status:'new',summary:'Says Rocky has not eaten since his dental and is very sleepy. Pointed to the emergency list.',conv:[['client','Rocky has not eaten since his dental yesterday and he is very sleepy'],['bot','I cannot tell you what is wrong, but a pet that is not eating and is very sleepy after surgery should be seen by a vet. Boundary Bay Veterinary Specialty Hospital in Surrey is on the clinic emergency list as open 24 hours. The clinic will check in with you this morning.']]},
+      {id:'o1',who:'Tran',pet:'Willow (dog)',channel:'Text',at:'9:12 pm',kind:'booking',status:'new',pref:'Thu Oct 29, 9:30 am',summary:'Wants vaccines. Asked for Thursday morning.',conv:[['client','Hi, can I book Willow in for her vaccines?'],['bot','Of course. Dr. Garg has Thu Oct 29 at 9:30 am or Fri Oct 30 at 2:00 pm. Which works?'],['client','Thursday morning please'],['bot','Done. I have asked for Thu Oct 29, 9:30 am. The front desk will confirm by text after 8 am.']]},
+      {id:'o2',who:'Okafor',pet:'Teddy (dog)',channel:'Call',at:'10:47 pm',kind:'booking',status:'new',pref:'Mon Nov 2, 3:30 pm',summary:'Wants a yearly check-up. Free after 3 pm next week.',conv:[['bot','Hi, this is the automated assistant for Walnut Grove Animal Hospital. The clinic is closed until 8 am. How can I help?'],['client','I want to book Teddy for a check-up, sometime after three next week'],['bot','Dr. Garg has Mon Nov 2 at 3:30 pm. Shall I ask for that?'],['client','Yes please'],['bot','Done. The front desk will text you to confirm after 8 am.']]},
+      {id:'o4',who:'Fraser',pet:'Luna (Husky)',channel:'Call',at:'6:55 am',kind:'callback',status:'new',summary:'Needs a refill. Added to callbacks.',conv:[['bot','Hi, this is the automated assistant for Walnut Grove Animal Hospital. The clinic opens at 8 am. How can I help?'],['client','I need to refill Luna\'s medicine'],['bot','Thanks. I have passed that to the front desk and they will call you after 8 am. A vet has to approve any medicine refill.']]}
+    ],
+    log:[
+      {t:'9:38 am',tool:'Call logger',text:'Missed call from Walker, no voicemail'},
+      {t:'9:31 am',tool:'Call logger',text:'Voicemail from Dhillon tagged: results question, high priority'},
+      {t:'9:12 am',tool:'Recall sender',text:'Draft ready for Biscuit annual exam recall'},
+      {t:'8:47 am',tool:'Results tracker',text:'Lab result received for Maple (blood panel)'},
+      {t:'8:02 am',tool:'Call logger',text:'Courier call, pickup confirmed'},
+      {t:'8:00 am',tool:'After-hours assistant',text:'Sorted 5 overnight conversations: 2 appointment requests, 1 callback, 2 sent to an emergency hospital'},
+      {t:'6:00 am',tool:'ImproMed sync',text:'Imported 64 appointments for today (read only)'}
+    ]
+  };
+  say('bot',greeting());
+  renderAll();
+}
+
+function buildRoster(){
+  var r={Mon:[],Tue:[],Wed:[],Thu:[],Fri:[],Sat:[],Sun:[]};
+  function add(d,who,role,s,e){r[d].push({who:who,role:role,s:s,e:e})}
+  ['Mon','Tue','Thu'].forEach(function(d){add(d,'Marcus','desk',480,990);add(d,'Priya','desk',600,1080)});
+  ['Wed','Fri'].forEach(function(d){add(d,'Priya','desk',480,990);add(d,'Marcus','desk',600,1080)});
+  add('Sat','Marcus','desk',510,960);
+  ['Mon','Tue','Thu','Fri'].forEach(function(d){add(d,'Anita','nurse',510,1020)});
+  add('Wed','Jordan','nurse',510,1020);add('Fri','Jordan','nurse',510,960);add('Sat','Jordan','nurse',510,960);
+  ['Mon','Tue','Wed','Thu','Fri'].forEach(function(d){add(d,'Dr. Garg','doc',510,1050)});
+  add('Sat','Dr. Garg','doc',540,840);
+  return r;
+}
+function hhmm(m){var h=Math.floor(m/60),mm=m%60;return (h<10?'0':'')+h+':'+(mm<10?'0':'')+mm}
+function fmt(m){var h=Math.floor(m/60),mm=m%60;return (h%12||12)+':'+(mm<10?'0':'')+mm+' '+(h<12?'am':'pm')}
+function deskAt9(day){var n=0;S.roster[day].forEach(function(x){if(x.role==='desk'&&x.s<=540&&x.e>540)n++});return n}
+function coverage(){return COVER.map(function(c,i){return c+((S.recs[0].status==='approved'&&i<2)?1:0)})}
+function openCbs(){return S.callbacks.filter(function(c){return c.status!=='done'})}
+function waitingOld(){return S.results.filter(function(r){return r.stage<2&&r.age>=2})}
+function me(){return PEOPLE[S.role].name}
+function addLog(tool,text){S.clock+=2;S.log.unshift({t:fmt(S.clock),tool:tool,text:text,fresh:true})}
+function toast(t){var el=document.getElementById('toast');el.textContent=t;el.classList.add('show');clearTimeout(toast.h);toast.h=setTimeout(function(){el.classList.remove('show')},2600)}
+
+/* ---------- views ---------- */
+function viewBrief(){
+  var cov=coverage();
+  var recs=S.recs.map(function(r){
+    var acts=r.status==='open'?'<button class="btn primary small" data-act="rec-yes" data-id="'+r.id+'">Approve</button><button class="btn small" data-act="rec-no" data-id="'+r.id+'">Not now</button>':
+      (r.status==='approved'?'<span class="tag ok">Approved</span>':'<span class="tag">Dismissed</span>');
+    return '<div class="rec"><div><b>'+r.title+'</b><p>'+r.why+'</p></div><div class="acts">'+acts+'</div></div>';
+  }).join('');
+  return '<div><h1>Good morning, Dr. Garg</h1><p class="lead">Tuesday, October 27. Here is what the front desk and nurses logged since yesterday.</p></div>'+
+  '<div class="kpis">'+
+    kpi(openCbs().length,'Callbacks still open',openCbs().some(function(c){return c.prio==='high'}))+
+    kpi(waitingOld().length,'Results waiting 2+ days',waitingOld().length>0)+
+    kpi(41,'Missed calls last week',false)+
+    kpi(pendingOvernight().length,'Overnight items to review',pendingOvernight().length>0)+
+  '</div>'+
+  overnightSummary()+'<section class="card"><h2>Needs your decision</h2><p class="sub">Suggestions from the assistant. Nothing happens until you approve it.</p>'+recs+'</section>'+
+  '<section class="card"><h2>Calls per person on the phones, typical weekday</h2><p class="sub">Bars above the line mean the desk is stretched. Approve the extra shift above and watch the first two bars drop.</p>'+chart(cov)+
+  '<p class="note">Example numbers. In the real version these come from the call logger and the staff roster.</p></section>';
+}
+function kpi(n,l,alert){return '<div class="kpi'+(alert?' alert':'')+'"><div class="n mono">'+n+'</div><div class="l">'+l+'</div></div>'}
+
+function chart(cov){
+  var W=640,H=230,L=34,B=28,T=16,R=8,pw=W-L-R,ph=H-B-T,max=24,n=CALLS.length,bw=pw/n;
+  var s='<svg class="chart" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Calls per person on the phones by hour">';
+  [0,8,16,24].forEach(function(v){var y=T+ph-(v/max)*ph;
+    s+='<line x1="'+L+'" x2="'+(W-R)+'" y1="'+y+'" y2="'+y+'" stroke="var(--line)" stroke-width="1"/><text x="'+(L-6)+'" y="'+(y+4)+'" text-anchor="end">'+v+'</text>'});
+  CALLS.forEach(function(c,i){
+    var v=c/cov[i],h=(v/max)*ph,x=L+i*bw+bw*0.18,w=bw*0.64,y=T+ph-h,hot=v>LOAD_LIMIT;
+    s+='<rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="3" fill="'+(hot?'var(--warn)':'var(--bar)')+'"/>';
+    s+='<text class="val" x="'+(x+w/2)+'" y="'+(y-4)+'" text-anchor="middle">'+(Math.round(v*10)/10)+'</text>';
+    s+='<text x="'+(x+w/2)+'" y="'+(H-10)+'" text-anchor="middle">'+HOURS[i]+'</text>';
+  });
+  var ly=T+ph-(LOAD_LIMIT/max)*ph;
+  s+='<line x1="'+L+'" x2="'+(W-R)+'" y1="'+ly+'" y2="'+ly+'" stroke="var(--crit)" stroke-width="1.5" stroke-dasharray="5 4"/>';
+  s+='<text x="'+(W-R-2)+'" y="'+(ly-5)+'" text-anchor="end" style="fill:var(--crit)">Stretched above '+LOAD_LIMIT+' calls an hour per person</text>';
+  return s+'</svg>';
+}
+
+function viewCallbacks(){
+  var f=S.cbFilter,list=S.callbacks.filter(function(c){
+    if(f==='mine')return c.owner===me();
+    if(f==='high')return c.prio==='high'&&c.status!=='done';
+    return true});
+  var order={new:0,claimed:1,done:2};
+  list=list.slice().sort(function(a,b){return order[a.status]-order[b.status]||(a.prio==='high'?-1:0)-(b.prio==='high'?-1:0)});
+  var rows=list.map(function(c){
+    var acts=c.status==='done'?'<span class="status-done">Done</span>':
+      (c.status==='new'?'<button class="btn primary small" data-act="claim" data-id="'+c.id+'">I will call back</button>':
+       '<button class="btn small" data-act="cb-done" data-id="'+c.id+'">Mark done</button>');
+    var tags='<span class="tag">'+c.kind+'</span><span class="tag">'+c.via+', '+c.at+'</span>'+
+      (c.prio==='high'?'<span class="tag high">High priority</span>':'')+(c.flag?'<span class="tag high">Possible red flag</span>':'')+
+      (c.owner&&c.status!=='done'?'<span class="tag acc">With '+c.owner+'</span>':'');
+    return '<div class="row'+(c.status==='done'?' done':'')+'"><div><div class="who">'+c.who+(c.pet?' <span style="font-weight:400;color:var(--mute)">for '+c.pet+'</span>':'')+'</div><div class="what">'+c.what+'</div><div class="meta">'+tags+'</div></div><div>'+acts+'</div></div>';
+  }).join('')||'<p class="sub">Nothing here.</p>';
+  var pend=S.drafts.filter(function(d){return d.status==='pending'});
+  var drafts=S.drafts.map(function(d){
+    if(d.status==='sent')return '<div class="draft"><div class="to"><span class="tag ok">Sent (mock)</span> '+d.kind+' to '+d.to+'</div></div>';
+    var editing=S.edit[d.id];
+    return '<div class="draft"><div class="to"><span class="tag acc">'+d.kind+'</span> To '+d.to+', by text</div>'+
+      (editing?'<textarea id="ta-'+d.id+'">'+d.body+'</textarea><button class="btn primary small" data-act="save" data-id="'+d.id+'">Save</button>':
+      '<p>'+d.body+'</p><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary small" data-act="send" data-id="'+d.id+'">Approve and send</button><button class="btn small" data-act="edit" data-id="'+d.id+'">Edit</button></div>')+'</div>';
+  }).join('');
+  return '<div><h1>Callbacks</h1><p class="lead">Everything clients asked for by voicemail, missed call or text. Shared by everyone at the desk, so no one calls the same person twice.</p></div>'+
+  '<section class="card"><div class="filters" role="group" aria-label="Filter">'+
+    fbtn('all','All')+fbtn('mine','Mine')+fbtn('high','High priority')+'</div>'+rows+'</section>'+
+  '<section class="card"><h2>Messages to approve</h2><p class="sub">Drafted by the assistant from your own clinic wording. Nothing is sent until you approve it. '+(pend.length?pend.length+' waiting.':'All caught up.')+'</p>'+drafts+'</section>';
+}
+function fbtn(k,l){return '<button data-act="filter" data-k="'+k+'" aria-pressed="'+(S.cbFilter===k)+'">'+l+'</button>'}
+
+function viewResults(){
+  var names=['Received','Doctor reviewed','Client told'];
+  var rows=S.results.slice().sort(function(a,b){return (a.stage===2)-(b.stage===2)||b.age-a.age}).map(function(r){
+    var st=names.map(function(n,i){return '<span class="'+(i<=r.stage?'on':'')+'">'+n+'</span>'}).join('');
+    var late=r.stage<2&&r.age>=2;
+    var act=r.stage===0?'<button class="btn primary small" data-act="adv" data-id="'+r.id+'">Mark reviewed</button>':
+            r.stage===1?'<button class="btn primary small" data-act="adv" data-id="'+r.id+'">Client told</button>':'<span class="status-done">Closed</span>';
+    return '<div class="row'+(r.stage===2?' done':'')+'"><div><div class="who">'+r.pet+' <span style="font-weight:400;color:var(--mute)">'+r.owner+'</span></div><div class="what">'+r.test+'</div><div class="meta"><div class="stages">'+st+'</div>'+
+      (r.stage<2?'<span class="tag '+(late?'warn':'')+'">'+(r.age===0?'Arrived today':'Waiting '+r.age+(r.age===1?' day':' days'))+'</span>':'')+'</div></div><div>'+act+'</div></div>';
+  }).join('');
+  return '<div><h1>Lab results</h1><p class="lead">From the lab to the client, one step at a time. Anything waiting two days or more turns amber and shows up in Dr. Garg\'s brief.</p></div>'+
+  '<section class="card">'+rows+'</section>';
+}
+
+function viewSchedule(){
+  var rows=DAYS.map(function(d){
+    var sh=S.roster[d].map(function(x){
+      var cls=x.role==='desk'?'desk':x.role==='nurse'?'nurse':'doc';
+      return '<span class="shift '+cls+(x.added?' new':'')+'">'+x.who+' '+hhmm(x.s)+'-'+hhmm(x.e)+'</span>';
+    }).join('')||'<span class="tag">Closed, voicemail only</span>';
+    var c=deskAt9(d),cl=d==='Sun'?'':(c>=2?'ok':(c===1?'warn':'high'));
+    var note=d==='Sat'?' <span class="tag high">Busiest hour of the week</span>':'';
+    return '<tr><td><b>'+d+'</b></td><td>'+sh+'</td><td>'+(d==='Sun'?'<span class="tag">None</span>':'<span class="tag '+cl+'">'+c+' on phones at 9 am</span>')+note+'</td></tr>';
+  }).join('');
+  return '<div><h1>Staff schedule</h1><p class="lead">Who is in, and whether the phones are covered when the calls come.</p></div>'+
+  '<section class="card"><div class="tablewrap"><table><thead><tr><th>Day</th><th>Shifts</th><th>Phone cover</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
+  '<p class="note">Receptionists in green-blue, nurses in green, doctor in amber. A dashed shift is new, from an approved suggestion. In the real version time off and swaps live here too.</p></section>';
+}
+
+/* ---------- overnight, simulator, setup ---------- */
+function pendingOvernight(){return S.overnight.filter(function(o){return o.status==='new'})}
+function ovCounts(){var c={booking:0,emergency:0,callback:0};S.overnight.forEach(function(o){c[o.kind]++});return c}
+function hosp(){return S.hospitals[0].name}
+function overnightSummary(){
+  var c=ovCounts();
+  return '<section class="card"><div class="hd2"><div><h2>Overnight, since 6 pm</h2><p class="sub" style="margin:0">The after-hours assistant handled '+S.overnight.length+' conversations: '+c.booking+' appointment requests, '+c.callback+' for callbacks, and '+c.emergency+' sent to an emergency hospital.</p></div><button class="btn small" data-act="nav" data-v="overnight">Open overnight</button></div></section>';
+}
+var SIM={
+  start:{say:'Hi, this is the automated assistant for Walnut Grove Animal Hospital. The clinic is closed until 8 am. I can take an appointment request or pass on a message. What do you need?',opts:[['Book a visit','book1'],['Refill or food order','refill1'],['Something urgent','urgent1']]},
+  book1:{say:'Happy to help. Which pet, and what is the visit for?',opts:[['Biscuit, yearly check-up','time'],['Willow, vaccines','time'],['Teddy, he seems unwell','sick']]},
+  sick:{say:'Is this an emergency? For example trouble breathing, bleeding, a seizure, or something he ate.',opts:[['Yes, it is urgent','urgent1'],['No, it can wait','time']]},
+  time:{say:'Dr. Garg has these openings. Which works best?',opts:[['Thu Oct 29, 9:30 am','done_book'],['Fri Oct 30, 2:00 pm','done_book'],['Another day, please call me','done_cb']]},
+  done_book:{say:function(p){return 'Done. I have asked for '+p.time+' for '+p.book1.split(',')[0]+'. The front desk will confirm by text after 8 am. Reply here if anything changes.'},end:'booking'},
+  done_cb:{say:'No problem. I have noted that you would like a call, and the front desk will phone you after 8 am.',end:'callback'},
+  refill1:{say:'Which pet, and what do you need?',opts:[['Biscuit, carprofen refill','refill2'],['Pepper, food order','refill2']]},
+  refill2:{say:'Thanks, I have passed that to the front desk. They will call you after 8 am. A vet has to approve any medicine refill.',end:'refill'},
+  urgent1:{say:function(){return 'That sounds like it needs a vet tonight. '+hosp()+' in Surrey is on the clinic emergency list as open 24 hours. Shall I text you their address and phone number?'},opts:[['Yes, text it to me','done_em'],['No thanks','done_em2']]},
+  done_em:{say:'Sent. Please go now, and call them on the way if you can. The clinic will check in with you this morning.',end:'emergency'},
+  done_em2:{say:'Okay. If your pet gets worse, please go to an emergency vet straight away. The clinic will check in with you this morning.',end:'emergency'}
+};
+function newSim(chan){return {chan:chan,node:'start',picks:{},msgs:[{who:'bot',text:SIM.start.say}],wait:false,done:false}}
+function finishSim(end,sm){
+  var p=sm.picks,chan=sm.chan==='call'?'Call':'Text';
+  var petName=p.book1?p.book1.split(',')[0]:(p.refill1?p.refill1.split(',')[0]:'Pet not named');
+  var o={id:'o'+(S.overnight.length+1)+'s',who:'You (test)',pet:petName,channel:chan,at:'Just now',status:'new',conv:sm.msgs.map(function(m){return [m.who,m.text]})};
+  if(end==='booking'){o.kind='booking';o.pref=p.time;o.summary='Wants '+(p.book1.split(',')[1]||' a visit').trim()+'. Asked for '+p.time+'.'}
+  else if(end==='emergency'){o.kind='emergency';o.summary='Said it was urgent. Pointed to '+hosp()+'.'}
+  else{o.kind='callback';o.summary=end==='refill'?'Asked for: '+p.refill1+'.':'Wants a call about an appointment.';
+    S.callbacks.push({id:'c'+o.id,who:'You (test)',pet:petName,what:o.summary+' Taken overnight by the assistant.',kind:end==='refill'?'Refill':'Booking',at:'Just now',via:chan,prio:'normal',owner:null,status:'new'})}
+  S.overnight.push(o);sm.done=true;
+  addLog('After-hours assistant','New '+(o.kind==='booking'?'appointment request':o.kind==='emergency'?'emergency routing':'callback')+' from a test client');
+}
+function viewOvernight(){
+  var order={emergency:0,booking:1,callback:2};
+  var list=S.overnight.slice().sort(function(a,b){return (a.status==='new'?0:1)-(b.status==='new'?0:1)||order[a.kind]-order[b.kind]});
+  var em=S.overnight.filter(function(o){return o.kind==='emergency'&&o.status==='new'}).length;
+  var rows=list.map(function(o){
+    var kt=o.kind==='booking'?'<span class="tag acc">Appointment request</span>':o.kind==='emergency'?'<span class="tag high">Sent to emergency hospital</span>':'<span class="tag">Added to callbacks</span>';
+    var acts='';
+    if(o.kind==='booking'){
+      acts=o.status==='new'?'<button class="btn primary small" data-act="ov-confirm" data-id="'+o.id+'">Confirm '+o.pref+'</button><button class="btn small" data-act="ov-call" data-id="'+o.id+'">Call to arrange</button>':
+        o.status==='confirmed'?'<span class="tag ok">Confirmed by text (mock)</span><button class="btn small" data-act="ov-entered" data-id="'+o.id+'">Done in ImproMed</button>':
+        o.status==='entered'?'<span class="tag ok">In ImproMed</span>':'<span class="tag">Moved to callbacks</span>';
+    }else if(o.kind==='emergency'){
+      acts=o.status==='new'?'<button class="btn primary small" data-act="ov-follow" data-id="'+o.id+'">Mark followed up</button>':'<span class="tag ok">Followed up</span>';
+    }else{
+      acts=o.status==='new'?'<button class="btn small" data-act="ov-ack" data-id="'+o.id+'">Got it</button><button class="btn small" data-act="nav" data-v="callbacks">Open callbacks</button>':'<span class="tag ok">Seen</span>';
+    }
+    var conv=S.conv[o.id]?'<div class="conv">'+o.conv.map(function(l){return '<div><b>'+(l[0]==='bot'?'Assistant':'Client')+':</b> '+l[1]+'</div>'}).join('')+'</div>':'';
+    return '<div class="row'+(o.status!=='new'?' done':'')+'"><div><div class="who">'+o.who+' <span style="font-weight:400;color:var(--mute)">for '+o.pet+'</span></div><div class="what">'+o.summary+'</div><div class="meta">'+kt+'<span class="tag">'+o.channel+', '+o.at+'</span>'+(o.sim?'<span class="tag warn">From your test</span>':'')+'<button class="link" data-act="conv" data-id="'+o.id+'">'+(S.conv[o.id]?'Hide conversation':'Show conversation')+'</button></div>'+conv+'</div><div class="acts">'+acts+'</div></div>';
+  }).join('');
+  return '<div class="hd2"><div><h1>Overnight</h1><p class="lead">Every call and text that came in after closing, already sorted by the assistant. Confirm the bookings, check the emergencies, and the rest is waiting in callbacks.</p></div><button class="btn" data-act="goto-sim">Try it as a client</button></div>'+
+  (em?'<div class="banner">'+em+(em===1?' conversation was':' conversations were')+' sent to an emergency hospital. Call these clients first.</div>':'')+
+  '<section class="card">'+rows+'<p class="note">Confirming a booking texts the client. For now someone also enters it in ImproMed, because there is no connection to its schedule yet.</p></section>'+viewSim();
+}
+function viewSim(){
+  var s=S.sim,nd=SIM[s.node];
+  var seg='<div class="seg" role="group" aria-label="Channel"><button data-act="sim-chan" data-c="text" aria-pressed="'+(s.chan==='text')+'">Text message</button><button data-act="sim-chan" data-c="call" aria-pressed="'+(s.chan==='call')+'">Phone call</button></div>';
+  var msgs=s.msgs.map(function(m){var lab=s.chan==='call'?(m.who==='bot'?'Assistant, voice':'Caller'):(m.who==='bot'?'Clinic assistant':'You');return '<div class="bub '+m.who+'"><small>'+lab+'</small>'+m.text+'</div>'}).join('');
+  if(s.wait)msgs+='<div class="bub bot"><span class="typing"><i></i><i></i><i></i></span></div>';
+  var opts=(!s.wait&&nd.opts)?nd.opts.map(function(o,i){return '<button class="btn small" data-act="sim-pick" data-i="'+i+'">'+o[0]+'</button>'}).join(''):'';
+  var foot=s.done?'<p class="note" style="margin:10px 0 0">This conversation was added to the overnight list above. <button class="link" data-act="sim-restart">Start over</button></p>':'';
+  return '<section class="card" id="sim"><h2>Try it as a client</h2><p class="sub">This is what a client sees after hours. Tap the answers to play a conversation. What you pick lands in the lists above, the same way a real one would.</p>'+seg+
+    '<div class="phone" style="max-width:380px;margin-top:12px"><div class="hd">'+(s.chan==='call'?'Phone call, live transcript':'Text message')+'</div><div class="bubs">'+msgs+'</div><div class="quick">'+opts+'</div></div>'+foot+'</section>';
+}
+function viewSetup(){
+  var hs=S.hospitals.map(function(x){
+    if(x.ph)return '<tr><td>'+x.name+'</td><td>To be added</td><td colspan="2"><span class="tag">The clinic chooses one</span></td></tr>';
+    return '<tr><td>'+x.name+'</td><td>'+x.place+'</td><td>'+x.claim+'</td><td>'+(x.confirmed?'<span class="tag ok">Confirmed by clinic</span>':'<button class="btn small" data-act="hosp-ok" data-id="'+x.id+'">Mark confirmed</button>')+'</td></tr>';
+  }).join('');
+  var vt=S.visitTypes.map(function(v,i){return '<tr><td>'+v.n+'</td><td class="mono">'+v.min+' min</td><td><button class="tog" data-act="vt" data-i="'+i+'" aria-pressed="'+v.on+'">'+(v.on?'Assistant can book':'Front desk only')+'</button></td></tr>'}).join('');
+  function tg(k,l,d){return '<div class="setrow"><div><b>'+l+'</b><div style="color:var(--mute);font-size:13px">'+d+'</div></div><button class="tog" data-act="tg" data-k="'+k+'" aria-pressed="'+S.tog[k]+'">'+(S.tog[k]?'On':'Off')+'</button></div>'}
+  var words=['trouble breathing','bleeding that will not stop','seizure','collapse or very sleepy','hit by a car','ate chocolate, xylitol or rat poison','not eating after surgery','cannot pass urine','swollen, hard belly'].map(function(w){return '<span class="tag high" style="margin:0 6px 6px 0">'+w+'</span>'}).join('');
+  return '<div><h1>After-hours setup</h1><p class="lead">What the assistant may do when the clinic is closed, what it can book, and where it sends emergencies. Dr. Garg owns every word on this page.</p></div>'+
+  '<section class="card"><h2>What it may do</h2><p class="sub">Example hours: closed after 6 pm on weekdays, and after 2 pm on Saturdays.</p>'+
+    tg('req','Take appointment requests','For future dates only. Staff confirm each one in the morning.')+
+    tg('msg','Take refill and message requests','Becomes a callback card. It never approves medicine.')+
+    tg('missed','Text back missed callers','A short text with a way to book.')+'</section>'+
+  '<section class="card"><h2>Visit types it can book</h2><p class="sub">Anything switched to front desk only is passed on as a callback.</p><div class="tablewrap"><table style="min-width:480px"><thead><tr><th>Visit</th><th>Length</th><th>Who books it</th></tr></thead><tbody>'+vt+'</tbody></table></div></section>'+
+  '<section class="card"><h2>Emergency routing</h2><p class="sub">If a client mentions any of these, the assistant stops booking and points them to an emergency hospital. This list is a placeholder. Dr. Garg writes the real one.</p><div>'+words+'</div>'+
+    '<div class="tablewrap" style="margin-top:10px"><table style="min-width:600px"><thead><tr><th>Emergency hospital</th><th>Where</th><th>Hours, as the hospital states them</th><th>Status</th></tr></thead><tbody>'+hs+'</tbody></table></div>'+
+    '<p class="note">The assistant only names hospitals marked confirmed and open at that moment. Someone at the clinic has to check the hours by phone and add a backup.</p></section>'+
+  '<section class="card"><h2>What it says</h2><div class="draft"><div class="to">Opening line</div><p style="margin:0">Hi, this is the automated assistant for Walnut Grove Animal Hospital. The clinic is closed until 8 am. I can take an appointment request or pass on a message.</p></div><div class="draft"><div class="to">When something sounds urgent</div><p style="margin:0">That sounds like it needs a vet tonight. [Hospital name] is open now. I can text you their address and phone number.</p></div><p class="note">It never diagnoses, never says a pet is fine, and always says it is an automated assistant.</p></section>';
+}
+
+var TOOLS=[
+  {n:'Call logger',who:'Front desk, Dr. Garg',w:'Call, time, type, outcome'},
+  {n:'Callback list',who:'Front desk, nurses',w:'Callback, owner, status'},
+  {n:'Results tracker',who:'Nurses, Dr. Garg',w:'Result, stage, days waiting'},
+  {n:'Recall sender',who:'Front desk',w:'Message, approved by, sent'},
+  {n:'After-hours assistant',who:'Clients at night, front desk in the morning',w:'Conversation, request, outcome'},
+  {n:'Staff roster',who:'Everyone',w:'Shift, role, phone cover'},
+  {n:'ImproMed sync',who:'Read only, runs by itself',w:'Appointments, clients'}
+];
+function viewTools(){
+  var cards=TOOLS.map(function(t){
+    var cnt=S.log.filter(function(l){return l.tool===t.n}).length;
+    return '<div class="junior"><b><span><span class="dot"></span>'+t.n+'</span><span class="tag">'+cnt+(cnt===1?' event':' events')+'</span></b><small>Used by: '+t.who+'</small><small>Writes: '+t.w+'</small></div>';
+  }).join('');
+  var feed=S.log.slice(0,12).map(function(l){return '<li class="'+(l.fresh?'fresh':'')+'"><span class="t mono">'+l.t+'</span><span class="tool">'+l.tool+'</span><span>'+l.text+'</span></li>'}).join('');
+  S.log.forEach(function(l){l.fresh=false});
+  return '<div><h1>How it fits together</h1><p class="lead">Small tools help staff do their jobs and write what happens into one shared record. The assistant reads that record and reports to Dr. Garg.</p></div>'+
+  '<section class="card"><div class="org"><div class="senior"><b>Assistant</b> reports to Dr. Garg<br><small style="color:var(--mute)">Reads the shared record, writes the daily brief, suggests changes, acts only after approval.</small></div><div class="link-line"></div><div class="juniors">'+cards+'</div></div></section>'+
+  '<section class="card"><h2>Shared clinic record, live</h2><p class="sub">Try approving a message or marking a callback done. It appears here.</p><ul class="feed">'+feed+'</ul></section>';
+}
+
+function renderSide(){
+  var items=[['brief','Brief',null],['overnight','Overnight',pendingOvernight().length],['callbacks','Callbacks',openCbs().length],['results','Lab results',S.results.filter(function(r){return r.stage<2}).length],['schedule','Schedule',null],['setup','After-hours setup',null],['tools','How it fits',null]];
+  var p=PEOPLE[S.role];
+  document.getElementById('side').innerHTML='<div class="me"><div class="av">'+p.ini+'</div><div><b>'+p.name+'</b><span>'+p.title+'</span></div></div>'+
+    items.map(function(i){return '<button class="nav" data-act="nav" data-v="'+i[0]+'"'+(S.view===i[0]?' aria-current="page"':'')+'><span>'+i[1]+'</span>'+(i[2]!==null?'<span class="count'+((i[0]==='callbacks'||i[0]==='overnight')&&i[2]>0?' hot':'')+'">'+i[2]+'</span>':'')+'</button>'}).join('');
+}
+function renderRoles(){
+  document.getElementById('roles').innerHTML=Object.keys(PEOPLE).map(function(k){return '<button data-act="role" data-r="'+k+'" aria-pressed="'+(S.role===k)+'">'+(k==='garg'?'Dr. Garg':k==='desk'?'Front desk':'Nurse')+'</button>'}).join('');
+}
+function renderWork(){
+  var v={brief:viewBrief,overnight:viewOvernight,callbacks:viewCallbacks,results:viewResults,schedule:viewSchedule,setup:viewSetup,tools:viewTools}[S.view]();
+  document.getElementById('work').innerHTML=v;
+}
+function renderAll(){renderRoles();renderSide();renderWork();renderChips();renderMsgs()}
+
+/* ---------- assistant ---------- */
+var CHIPS={
+  garg:[['night','What came in overnight?'],['first','What should I look at first today?'],['missed','How many calls did we miss?'],['recall','Who is overdue for a recall?'],['saturday','Is the desk covered on Saturday?'],['week','How does this week compare to last?']],
+  desk:[['night','What came in overnight?'],['urgent','What is most urgent in my queue?'],['records','How do I handle a records request?'],['hours','What are our Saturday hours?'],['pickup','Draft a pickup message for Pepper']],
+  nurse:[['emerg','Any emergencies overnight?'],['waiting','Which results are waiting longest?'],['script','Draft a results call for Simba'],['flags','Any callbacks that sound urgent?'],['records','How do I handle a records request?']]
+};
+function greeting(){
+  var g={garg:'Morning, Dr. Garg. I have read everything the desk and nurses logged since yesterday. Ask me something, or tap a question below.',
+    desk:'Morning, Priya. I can show what is most urgent in your queue, draft messages for you to approve, and answer quick clinic questions.',
+    nurse:'Morning, Anita. I can show which results are waiting, draft call scripts and point out callbacks that sound urgent.'};
+  return '<p>'+g[S.role]+'</p>';
+}
+function answer(k){
+  var open=openCbs(),hi=open.filter(function(c){return c.prio==='high'}),old=waitingOld();
+  var A={
+    night:(function(){var c=ovCounts();var bk=S.overnight.filter(function(o){return o.kind==='booking'}).map(function(o){return o.who+' for '+o.pet}).join(', ');return '<p>Since 6 pm the after-hours assistant handled '+S.overnight.length+' conversations:</p><ul><li>'+c.booking+' appointment requests ('+bk+')</li><li>'+c.callback+' added to callbacks</li><li>'+c.emergency+' sent to an emergency hospital</li></ul><p>'+pendingOvernight().length+' still need someone to look at them.</p><button class="btn small" data-act="nav" data-v="overnight">Open overnight</button>'})(),
+    emerg:(function(){var l=S.overnight.filter(function(o){return o.kind==='emergency'});return '<p>'+l.length+' conversations were sent to an emergency hospital overnight:</p><ul>'+l.map(function(o){return '<li>'+o.who+', for '+o.pet+', '+o.at+'. '+o.summary+(o.status==='new'?' Nobody has followed up yet.':' Followed up.')+'</li>'}).join('')+'</ul><p>The clinic should check in with both clients this morning.</p><button class="btn small" data-act="nav" data-v="overnight">Open overnight</button>'})(),
+    first:'<p>Three things for this morning:</p><ul><li>'+open.length+' callbacks are open and '+hi.length+' are high priority. One, Mochi the rabbit not eating, may be urgent.</li><li>'+old.length+' lab results have waited two days or more without a client call.</li><li>At 9 am only one person is on the phones, and about 21 calls arrive in that hour.</li></ul><p>I put four suggestions in your brief for approval.</p><button class="btn small" data-act="nav" data-v="brief">Open brief</button>',
+    missed:'<p>41 calls went unanswered last week, 9 more than the week before. 28 of those callers rang again within the hour. 13 never did.</p><p>The gaps were Tuesday and Thursday from 8 to 10 am, and Saturday at 9 am. A text to missed callers would reach the 13 who gave up.</p><button class="btn small" data-act="nav" data-v="brief">See the suggestion</button>',
+    recall:'<p>120 clients are overdue for an annual exam. Most are dogs seen last in the spring of last year.</p><p>If you approve the recall batch I draft 10 texts at a time for the front desk to approve, so nobody is flooded with replies.</p><button class="btn small" data-act="nav" data-v="brief">Open brief</button>',
+    saturday:'<p>Saturday has one person at the desk, Marcus from 8:30 to 4:00, and Saturday at 9 am is the busiest hour of the week.</p><p>Suggestion: move one weekday shift to Saturday morning, or turn on missed-call texts so callers are not lost while he is busy.</p><button class="btn small" data-act="nav" data-v="schedule">Open schedule</button>',
+    week:'<p>Compared with last week: missed calls are up 9, results waiting more than two days are up 1, and recall bookings are flat at 18.</p><p>The extra missed calls cluster in the two hours before the second receptionist arrives.</p>',
+    urgent:'<p>In your queue, in this order:</p><ul><li>Nguyen, for Mochi the rabbit. Not eating since last night. This could be serious, so call first and tell a nurse.</li><li>Dhillon, for Simba. Asking about blood results.</li><li>Walker, for Pepper. Food order is in.</li></ul><button class="btn small" data-act="nav" data-v="callbacks">Open callbacks</button>',
+    records:'<p>For a records request from another clinic:</p><ul><li>Confirm the pet and the owner name with the requesting clinic.</li><li>Check that the owner has agreed to the transfer.</li><li>Send from the practice system and log it in the callback.</li></ul><p>This sheet is written by the clinic, and I only repeat it.</p>',
+    hours:'<p>Saturday: 9 am to 2 pm, with Dr. Garg and one receptionist. Phones go to voicemail after 2 pm.</p><p>This is example content. In the real version the clinic writes its own answer sheet.</p>',
+    pickup:'<p>I wrote one for Pepper\'s food order. It is in your Messages to approve list.</p><button class="btn small" data-act="nav" data-v="callbacks">Open callbacks</button>',
+    waiting:'<p>Longest waiting:</p><ul>'+S.results.filter(function(r){return r.stage<2}).sort(function(a,b){return b.age-a.age}).map(function(r){return '<li>'+r.pet+', '+r.test+', '+r.age+(r.age===1?' day':' days')+(r.stage===0?', waiting for doctor':', waiting for a client call')+'</li>'}).join('')+'</ul><button class="btn small" data-act="nav" data-v="results">Open results</button>',
+    script:'<p>Suggested call for Simba\'s thyroid panel, after Dr. Garg has reviewed it:</p><p><i>"Hi Mr. Dhillon, it is Anita at Walnut Grove. I am calling about Simba\'s thyroid test. Dr. Garg has looked at it and the level is slightly high. He would like to talk about treatment. Do you have a few minutes, or shall I book a call with him?"</i></p><p>I will not give a diagnosis. The doctor decides what is said.</p>',
+    flags:'<p>One. Nguyen, for Mochi the rabbit, says she has not eaten since last night. Rabbits can get sick quickly when they stop eating, so this should be seen by a nurse or the doctor now.</p><button class="btn small" data-act="nav" data-v="callbacks">Open callbacks</button>'
+  };
+  return A[k];
+}
+function say(who,html){S.chat.push({who:who,html:html})}
+function renderMsgs(){
+  var el=document.getElementById('msgs');
+  el.innerHTML=S.chat.map(function(m){return '<div class="msg '+(m.who==='me'?'me':'')+'">'+(m.typing?'<span class="typing"><i></i><i></i><i></i></span>':m.html)+'</div>'}).join('');
+  el.scrollTop=el.scrollHeight;
+}
+function renderChips(){
+  document.getElementById('chips').innerHTML=CHIPS[S.role].map(function(c){return '<button type="button" data-act="chip" data-k="'+c[0]+'" data-q="'+c[1]+'">'+c[1]+'</button>'}).join('');
+}
+function ask(k,q){
+  say('me','<p>'+q+'</p>');
+  var t={who:'bot',typing:true};S.chat.push(t);renderMsgs();
+  setTimeout(function(){S.chat.splice(S.chat.indexOf(t),1);say('bot',answer(k)||'<p>No answer for that yet.</p>');renderMsgs()},850);
+}
+function guess(q){
+  q=q.toLowerCase();
+  var m=[['overnight','night'],['emergenc','emerg'],['miss','missed'],['recall','recall'],['saturday','saturday'],['hours','hours'],['week','week'],['record','records'],['pickup','pickup'],['script','script'],['urgent','urgent'],['result','waiting'],['first','first'],['today','first']];
+  for(var i=0;i<m.length;i++)if(q.indexOf(m[i][0])>-1)return m[i][1];
+  return null;
+}
+
+/* ---------- actions ---------- */
+document.addEventListener('click',function(e){
+  var b=e.target.closest('[data-act]');if(!b)return;
+  var a=b.dataset.act,id=b.dataset.id;
+  if(a==='role'){init(b.dataset.r);return}
+  if(a==='reset'){init(S.role);toast('Demo reset');return}
+  if(a==='nav'){S.view=b.dataset.v;renderSide();renderWork();window.scrollTo({top:0});return}
+  if(a==='chip'){ask(b.dataset.k,b.dataset.q);return}
+  if(a==='filter'){S.cbFilter=b.dataset.k;renderWork();return}
+  if(a==='claim'){var c=S.callbacks.filter(function(x){return x.id===id})[0];c.owner=me();c.status='claimed';addLog('Callback list',me()+' claimed '+c.who+(c.pet?' ('+c.pet+')':''));toast('Assigned to you');renderSide();renderWork();return}
+  if(a==='cb-done'){var d=S.callbacks.filter(function(x){return x.id===id})[0];d.status='done';addLog('Callback list',me()+' closed '+d.who+' ('+d.kind.toLowerCase()+')');toast('Marked done');renderSide();renderWork();return}
+  if(a==='adv'){var r=S.results.filter(function(x){return x.id===id})[0];r.stage++;addLog('Results tracker',r.pet+', '+r.test+': '+(r.stage===1?'doctor reviewed':'client told'));toast(r.stage===1?'Marked reviewed':'Marked client told');renderSide();renderWork();return}
+  if(a==='send'){var s=S.drafts.filter(function(x){return x.id===id})[0];s.status='sent';addLog('Recall sender',me()+' approved: '+s.kind+' to '+s.to);toast('Mock only: a real version would send this text now');renderWork();return}
+  if(a==='edit'){S.edit[id]=true;renderWork();return}
+  if(a==='save'){var ta=document.getElementById('ta-'+id);var ds=S.drafts.filter(function(x){return x.id===id})[0];if(ta)ds.body=ta.value;S.edit[id]=false;addLog('Recall sender',me()+' edited a draft to '+ds.to);toast('Saved');renderWork();return}
+  if(a==='goto-sim'){var sx=document.getElementById('sim');if(sx)sx.scrollIntoView({behavior:'smooth',block:'start'});return}
+  if(a==='conv'){S.conv[id]=!S.conv[id];renderWork();return}
+  if(a==='sim-chan'){S.sim=newSim(b.dataset.c);renderWork();return}
+  if(a==='sim-restart'){S.sim=newSim(S.sim.chan);renderWork();return}
+  if(a==='sim-pick'){
+    var sm=S.sim;if(sm.wait)return;
+    var nd=SIM[sm.node],op=nd.opts[+b.dataset.i];
+    sm.picks[sm.node]=op[0];sm.msgs.push({who:'client',text:op[0]});sm.wait=true;renderWork();
+    setTimeout(function(){
+      if(S.sim!==sm)return;
+      var nx=SIM[op[1]],tx=typeof nx.say==='function'?nx.say(sm.picks):nx.say;
+      sm.msgs.push({who:'bot',text:tx});sm.node=op[1];sm.wait=false;
+      if(nx.end)finishSim(nx.end,sm);
+      renderSide();renderWork();
+    },650);
+    return}
+  if(a==='hosp-ok'){S.hospitals.filter(function(x){return x.id===id})[0].confirmed=true;addLog('After-hours assistant',me()+' confirmed the emergency hospital list');toast('Marked confirmed');renderWork();return}
+  if(a==='vt'){var v=S.visitTypes[+b.dataset.i];v.on=!v.on;renderWork();return}
+  if(a==='tg'){S.tog[b.dataset.k]=!S.tog[b.dataset.k];renderWork();return}
+  if(a.indexOf('ov-')===0){
+    var ov=S.overnight.filter(function(x){return x.id===id})[0];if(!ov)return;
+    if(a==='ov-confirm'){ov.status='confirmed';addLog('After-hours assistant',me()+' confirmed '+ov.who+' for '+ov.pref);toast('Confirmation text sent (mock). Now enter it in ImproMed.')}
+    if(a==='ov-entered'){ov.status='entered';addLog('After-hours assistant',ov.who+': booking entered in ImproMed');toast('Marked as entered in ImproMed')}
+    if(a==='ov-call'){ov.status='called';S.callbacks.push({id:'c'+ov.id+'k',who:ov.who,pet:ov.pet,what:'Wants to book. '+ov.summary,kind:'Booking',at:ov.at,via:ov.channel,prio:'normal',owner:null,status:'new'});addLog('Callback list',me()+' moved '+ov.who+' to callbacks');toast('Moved to callbacks')}
+    if(a==='ov-follow'){ov.status='handled';addLog('After-hours assistant',me()+' followed up with '+ov.who+' after an emergency routing');toast('Marked followed up')}
+    if(a==='ov-ack'){ov.status='handled';toast('Noted')}
+    renderSide();renderWork();return}
+  if(a==='rec-yes'||a==='rec-no'){
+    var rec=S.recs.filter(function(x){return x.id===id})[0];
+    if(a==='rec-no'){rec.status='dismissed';toast('Dismissed');renderWork();return}
+    rec.status='approved';
+    if(id==='r1'){DAYS.slice(0,5).forEach(function(d){S.roster[d].push({who:'Open shift',role:'desk',s:480,e:600,added:true})});addLog('Staff roster','Dr. Garg approved an open desk shift, 08:00-10:00, Monday to Friday');toast('Added to the schedule')}
+    if(id==='r2'){S.tog.missed=true;addLog('Callback list','Dr. Garg turned on texts to missed callers');toast('Missed-call texts on (mock)')}
+    if(id==='r3'){S.drafts.push({id:'d4',kind:'Annual exam recall',to:'Ms. Okafor, for Teddy',body:'Hi Ms. Okafor, it is Walnut Grove Animal Hospital. Teddy is due for his annual exam. Would you like us to book a time this week? Reply YES and we will call you.',status:'pending'},{id:'d5',kind:'Annual exam recall',to:'Mr. Tran, for Willow',body:'Hi Mr. Tran, it is Walnut Grove Animal Hospital. Willow is due for her annual exam and vaccines. Reply YES and we will call you to book.',status:'pending'});addLog('Recall sender','Recall batch started: first drafts sent to the front desk for approval');toast('Drafts sent to the front desk')}
+    if(id==='r4'){S.results.forEach(function(x){if(x.stage===0&&x.age>=2)x.stage=1});addLog('Results tracker','Dr. Garg marked older results as reviewed, nurses can call clients');toast('Nurses can now call these clients')}
+    renderSide();renderWork();return}
+});
+document.getElementById('sendForm').addEventListener('submit',function(e){
+  e.preventDefault();var i=document.getElementById('q'),q=i.value.trim();if(!q)return;i.value='';
+  var k=guess(q);
+  if(k){ask(k,q);return}
+  say('me','<p>'+q.replace(/</g,'&lt;')+'</p>');renderMsgs();
+  setTimeout(function(){say('bot','<p>This prototype only has scripted answers. Tap one of the questions above. In the real version I would answer from the clinic record.</p>');renderMsgs()},600);
+});
+init('garg');
+})();
+</script>
+
+</body></html>
