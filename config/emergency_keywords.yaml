@@ -1,0 +1,37 @@
+# Emergency words and phrases, grouped by symptom.
+# DRAFT FOR THE OWNER TO APPROVE. Dr. Garg must review this list before the after-hours assistant is used with real clients.
+# Phrases come from how callers described problems in recorded calls (call_refs listed) plus the prototype placeholder list.
+# Matching is case-insensitive after removing punctuation. Entries starting with "re:" are regular expressions.
+# Either this list or the optional model check firing means emergency. When unsure, the assistant treats it as an emergency.
+status: draft
+groups:
+  breathing:
+    phrases: ["trouble breathing", "can't breathe", "cannot breathe", "struggling to breathe", "breathing fast", "breathing hard", "labored breathing", "laboured breathing", "wheezing", "gasping", "choking", "blue gums", "blue tongue", "panting and breathing fast"]
+    heard_in: [20260812-133944-102-3f973c, 20260812-175610-102-bc2fbe, 20260817-135259-102-d6e638]
+  seizure:
+    phrases: ["seizure", "seizures", "seizing", "having a fit", "convulsing", "stiffened up", "seizure after seizure", "shaking and won't stop"]
+    heard_in: [20261006-162846-102-c45b8f, 20260815-091732-102-54a841]
+  collapse:
+    phrases: ["collapsed", "collapse", "passed out", "fainted", "unresponsive", "can't stand", "cannot stand", "won't get up", "very sleepy after surgery", "very lethargic after surgery", "not waking up"]
+    heard_in: []
+  bleeding:
+    phrases: ["bleeding that will not stop", "won't stop bleeding", "bleeding a lot", "blood in urine", "dripping blood", "vomiting blood", "throwing up blood", "blood in diarrhea", "bloody diarrhea", "liquid with blood"]
+    heard_in: [20260817-152817-102-db0e04, 20260819-100125-102-9a81dd]
+  toxins:
+    phrases: ["ate chocolate", "dark chocolate", "cocoa powder", "licked cocoa", "xylitol", "sugar free gum", "rat poison", "mouse poison", "rodenticide", "antifreeze", "ate my medication", "ate my pills", "ibuprofen", "advil", "tylenol", "grapes", "raisins", "lily", "lilies", "marijuana", "edible"]
+    heard_in: [20260923-182346-102-a54117]
+  urinary:
+    phrases: ["cannot pass urine", "can't pee", "straining to pee", "trying to pee and nothing", "blocked", "not peeing"]
+    heard_in: [20260817-152817-102-db0e04]
+  belly:
+    phrases: ["swollen hard belly", "bloated", "swollen belly", "hard stomach", "retching", "trying to vomit and nothing comes up"]
+    heard_in: []
+  trauma:
+    phrases: ["hit by a car", "struck by a car", "fell from", "attacked by a dog", "bite wound", "eye popped out", "broken bone"]
+    heard_in: []
+  heat_and_birth:
+    phrases: ["heatstroke", "overheated", "left in the car", "in labour for hours", "puppy stuck", "kitten stuck"]
+    heard_in: []
+  stated_emergency:
+    phrases: ["emergency", "is dying", "going to die", "it's urgent", "really severe", "allergic reaction", "face is swelling", "swollen face"]
+    heard_in: [20260911-182447-102-59bd49, 20260914-170829-102-9d01aa, 20260812-133944-102-3f973c]

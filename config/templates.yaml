@@ -1,0 +1,45 @@
+# Recurring calls and voicemails, as templates. DRAFT for Dr. Garg to review.
+# Wording is paraphrased from recorded calls (call_refs listed). Placeholders in {braces}.
+# Nothing here is sent anywhere. The app's SMS and voice adapters only log "would send".
+status: draft
+templates:
+  vaccine_recall_voicemail:
+    channel: voicemail
+    text: "Hi, it is {staff_name} calling from {clinic_name}. Our records show {pet_name} is due for vaccines and a check-up. Please call us back at {clinic_phone} to book. Thank you."
+    heard_in: [20260916-115822-102-f60d87, 20260916-130823-102-bedccc]
+  ready_for_pickup_voicemail:
+    channel: voicemail
+    text: "Hi, it is {staff_name} from {clinic_name}. {item} for {pet_name} is in and ready for pickup. We are open until {closing_time} today."
+    heard_in: [20260922-145042-102-aa1d0f, 20261019-172307-102-62376e]
+  post_surgery_check_in_voicemail:
+    channel: voicemail
+    text: "Hi, it is {staff_name} from {clinic_name}, calling to see how {pet_name} is doing after the surgery. Please give us a call back at {clinic_phone}."
+    heard_in: [20261020-091743-102-7ebfa5, 20261022-092511-102-8f59a2]
+  post_surgery_check_in_live:
+    channel: call
+    text: "Hi, it is {staff_name} from {clinic_name}. I am calling to check on {pet_name}. Is {pet_name} eating, drinking and going to the bathroom normally? If you have any concerns, please call us."
+    heard_in: [20260807-092022-103-a65de5, 20261016-100217-102-a4ee6e]
+  results_call_back_voicemail:
+    channel: voicemail
+    text: "Hi, this is {doctor_name} from {clinic_name} about {pet_name}'s test results. Please give us a call. Thank you."
+    heard_in: [20260815-130730-101-011593]
+  surgery_reminder:
+    channel: call
+    text: "Hi, it is {staff_name} from {clinic_name}, reminding you that {pet_name} is booked for {procedure} on {date}. No food after midnight the night before and no breakfast that morning. Water is fine. Drop-off is at {drop_off_time}."
+    heard_in: [20260924-124306-102-549969, 20260731-135825-102-4782f7, 20260801-112142-102-4c43a6]
+  suture_removal_reminder_voicemail:
+    channel: voicemail
+    text: "Hi, it is {staff_name} from {clinic_name}. {pet_name} is due to have stitches out on {date}. Please call us at {clinic_phone} to book."
+    heard_in: [20261009-100458-102-543ce8]
+  returning_missed_call_voicemail:
+    channel: voicemail
+    text: "Hi, it is {staff_name} from {clinic_name}, returning your call. Please call us back at {clinic_phone}. Thanks."
+    heard_in: [20260806-112243-102-b2b479]
+  lab_courier_pickup_request:
+    channel: call
+    text: "Hi, this is {clinic_name}. Could we please book a sample pickup for today? Please give me the confirmation number."
+    heard_in: [20260826-125337-103-9c7c32, 20260901-122502-103-dee77a, 20261014-145506-103-ce6045]
+  records_request_to_other_clinic:
+    channel: call
+    text: "Hi, I am calling from {clinic_name} about a mutual patient. Could you please email us the records for {pet_name}, owner last name {owner_last_name}? Our email is {clinic_email}."
+    heard_in: [20260812-111631-102-399dc6, 20260821-104413-102-f76d97, 20260915-145238-102-9a2a7a]
