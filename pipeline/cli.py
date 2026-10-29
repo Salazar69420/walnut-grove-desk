@@ -79,6 +79,15 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--list-files", action="store_true", help="also print matching file paths")
     s.add_argument("--seed", type=int, default=0)
 
+    s = add("telus-setup", "store TELUS/RingCentral credentials (hidden prompts, mode 600)")
+    s.add_argument("--force", action="store_true", help="replace an existing credentials file")
+
+    add("telus-check", "log in read-only and print a permission summary (no numbers or names)")
+
+    s = add("telus-pull-calllog", "pull call-log metadata (hashed numbers only) into private.db")
+    s.add_argument("--since", help="ISO 8601 start (naive values are America/Vancouver local time)")
+    s.add_argument("--days", type=int, help="pull the last N days")
+
     s = add("wipe-script", "write <root>/WIPE.sh")
     s.add_argument("--out", help="default <root>/WIPE.sh")
     return ap
@@ -125,6 +134,21 @@ def main(argv: list[str] | None = None) -> int:
     if cmd == "verify-no-leak":
         from . import leak
         return leak.run(paths, args.paths, args.ignore_regex, args.list_files, args.seed)
+    if cmd == "telus-setup":
+        from .telus import setup as telus_setup
+        return telus_setup.run(paths.root, args.force)
+    if cmd in ("telus-check", "telus-pull-calllog"):
+        from .telus import config as tcfg
+        try:
+            creds = tcfg.load_credentials(paths.root)
+        except tcfg.TelusConfigError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 2
+        if cmd == "telus-check":
+            from .telus import check
+            return check.run(creds)
+        from .telus import calllog
+        return calllog.run(paths, creds, args.since, args.days)
     if cmd == "wipe-script":
         from . import wipe
         return wipe.run(paths, args.out)

@@ -22,6 +22,34 @@ def is_after_hours(weekday: int, hour: int) -> bool:
     return True
 
 
+def add_telus_rows(conn, add, min_cell: int = MIN_CELL) -> None:
+    """Phone-system metrics, only from telus_calls (metadata, no labels). Same n < min_cell suppression.
+
+    Hourly metrics are averages per weekday for hours 8..17 (local time). Missed and voicemail shares are
+    over inbound calls. The suppression cell is the numerator count for hourly rows and min(numerator,
+    denominator) for shares."""
+    rows = conn.execute("SELECT date, hour, weekday, direction, result FROM telus_calls").fetchall()
+    if not rows:
+        return
+    dates = sorted({r["date"] for r in rows})
+    cur, end = date.fromisoformat(dates[0]), date.fromisoformat(dates[-1])
+    weekdays = 0
+    while cur <= end:
+        weekdays += 1 if cur.weekday() <= 4 else 0
+        cur += timedelta(days=1)
+    inbound = [r for r in rows if r["direction"] == "inbound"]
+    allwd = Counter(r["hour"] for r in rows if r["weekday"] <= 4)
+    missedwd = Counter(r["hour"] for r in inbound if r["weekday"] <= 4 and r["result"] == "missed")
+    for h in range(8, 18):
+        for metric, cnt in (("telus_calls_by_hour", allwd), ("telus_missed_by_hour", missedwd)):
+            n = cnt[h]
+            add(metric, str(h), None, round(n / weekdays, 3) if weekdays else None, n)
+    den = len(inbound)
+    for metric, key in (("telus_missed_share", "missed"), ("telus_voicemail_share", "voicemail")):
+        num = sum(1 for r in inbound if r["result"] == key)
+        add(metric, None, None, round(num / den, 4) if den else None, den, suppress_on=min(num, den))
+
+
 def build(conn, labeler: str, min_cell: int = MIN_CELL) -> dict:
     labels = dbm.chosen_labels(conn, labeler)
     calls = conn.execute("SELECT call_ref, date, hour, weekday, ext FROM calls").fetchall()
@@ -111,6 +139,8 @@ def build(conn, labeler: str, min_cell: int = MIN_CELL) -> dict:
             round(n / weekdays_in_range, 3) if weekdays_in_range else None, n)
 
     add("private_or_personal_total", None, None, private, private)
+
+    add_telus_rows(conn, add, min_cell)
 
     meta = {
         "generated_at": dbm.now_iso(),

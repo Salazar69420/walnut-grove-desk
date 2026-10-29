@@ -41,6 +41,25 @@ CREATE TABLE IF NOT EXISTS load_meta (
     key TEXT PRIMARY KEY,
     value TEXT
 );
+CREATE TABLE IF NOT EXISTS telus_calls (
+    telus_id TEXT PRIMARY KEY,
+    start_local TEXT NOT NULL,
+    date TEXT NOT NULL,
+    hour INTEGER NOT NULL,
+    weekday INTEGER NOT NULL,
+    duration INTEGER NOT NULL DEFAULT 0,
+    direction TEXT NOT NULL,
+    result TEXT NOT NULL,
+    ext_id TEXT,
+    has_recording INTEGER NOT NULL DEFAULT 0,
+    from_hash TEXT,
+    to_hash TEXT,
+    synced_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS telus_sync_state (
+    key TEXT PRIMARY KEY,
+    value TEXT
+);
 """
 
 
