@@ -328,3 +328,14 @@ Earlier calls never count, and an outbound call counts whatever its result (an a
   if they normalise the same way.
 * The hourly average divides by the weekdays in the window, public holidays included, so it is slightly low.
 * The past follow-up share is the rules labeler's view (gold accuracy 0.92 per the contract).
+
+## Play one recording (Phone page, owners only)
+
+The play button on the Phone page lets an owner hear a call without the web app ever holding TELUS credentials or reading the private store.
+
+1. The importer (`pipeline/app_import.py`) stores each call's **TELUS recording id** (the number at the end of the export's file name, digits only, not a phone number) in `phone_calls.recording_id`. **Unverified:** that this number is the id TELUS uses for `/recording/{id}/content`. The first play of a call will show `not_found` if it is not.
+2. Pressing play (`POST /api/phone/calls/{id}/listen`, permission `phone.listen`, owners) writes a request `{"v":1,"id":...,"mode":"play","recording_id":"<digits>","call_date":"YYYY-MM-DD","requested_by":...,"requested_at":...}` into `<bridge>/requests/`. It is refused with a plain sentence unless **Admin > TELUS > Allow downloading call recordings** is On (default Off).
+3. The worker (`pipeline/telus/worker.py`, mode `play`) runs these first, before any bulk download. It reuses a copy already in the private store, otherwise fetches that one recording with GET only through `ReadOnlyClient`, under the same disk and storage caps and the same write-scope refusal, then copies it to `<bridge>/play/<recording_id>.<ext>` (mode 660) and writes `<bridge>/play/<recording_id>.json` with `state` `ready` or `failed` and a code from a fixed list. It never writes recording ids to `status.json`.
+4. The app polls `GET /api/phone/calls/{id}/listen` and streams `GET /api/phone/calls/{id}/audio` (no links followed, extension allowlist, no-store, nosniff, sandbox). Every play writes an `access_log` row and a Phone event. Files in `play/` are secure-deleted after one hour.
+
+Direction and result from TELUS: `python -m pipeline telus-match --csv <export> --export <bridge>/call_meta.json` (as the pipeline user) matches each recording to the call log by start time and writes direction and result only (no numbers, no ids). `pipeline/app_import.py --telus-meta <file>` applies them to the Phone log. `telus-match` prints counts only.

@@ -31,6 +31,8 @@ const P: Record<string, string> = {
   list: 'M8 6h12M8 12h12M8 18h12M4 6h.5M4 12h.5M4 18h.5',
   stethoscope: 'M6 4v6a4 4 0 0 0 8 0V4M10 14v2a4 4 0 0 0 8 0v-1m0 0a2 2 0 1 0 0-.01',
   undo: 'M9 7 4 12l5 5M4 12h9a6 6 0 0 1 0 8h-3',
+  play: 'M8 5v14l11-7z',
+  pause: 'M7 5v14M17 5v14',
 }
 export function Icon({ n, size = 18 }: { n: keyof typeof P | string; size?: number }) {
   return (

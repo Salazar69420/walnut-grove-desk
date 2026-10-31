@@ -30,6 +30,7 @@ sys.path.insert(0, str(REPO / "backend"))
 
 from pipeline.people import extract, staff_from_corpus  # noqa: E402
 from pipeline.rules import label_call, load_rules  # noqa: E402
+from pipeline.telus.matchcheck import meta_key  # noqa: E402
 
 INTENT_NOTE = {
     "booking": "Booking", "reschedule_or_cancel": "Reschedule or cancel", "refill": "Refill", "food_or_supply_order": "Food or supply order",
@@ -44,6 +45,12 @@ OUTCOME_RESULT = {
 }
 SKIP_CALLER = {"staff_internal", "private_personal"}
 EXT_RX = re.compile(r"^\d{8}-\d{6}_(\d+)_")
+REC_RX = re.compile(r"_(\d{5,24})\.[A-Za-z0-9]{2,5}$")
+
+
+def recording_id_for(name: str) -> str | None:
+    m = REC_RX.search(name or "")
+    return m.group(1) if m else None
 
 
 def ref_for(key: bytes, name: str) -> str:
@@ -81,6 +88,7 @@ def convert(row: dict, rules, key: bytes, staff: set[str] | None = None):
         "agent_label": f"Line {ext}" if ext else "", "duration_seconds": int(seconds), "result": result,
         "short_note": "; ".join(note_parts)[:240], "transcript": row.get("transcript") or text, "external_ref": ref_for(key, row.get("file", "")),
         "person": person, "intent": lab.intent,
+        "recording_id": recording_id_for(row.get("file", "")), "meta_key": meta_key(row["date"], row["time"], row.get("file", "")),
     }, None
 
 
@@ -88,6 +96,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--csv", required=True)
     ap.add_argument("--dry-run", action="store_true", help="count only, write nothing")
+    ap.add_argument("--telus-meta", help="direction and result per recording from `telus-match --export` (fixes unknown directions)")
     ap.add_argument("--no-contacts", action="store_true", help="import calls only, do not create contacts")
     ap.add_argument("--db", help="app database path (default: from the app environment)")
     a = ap.parse_args(argv)
@@ -107,11 +116,17 @@ def main(argv: list[str] | None = None) -> int:
     with open(a.csv, encoding="utf-8-sig", newline="") as fh:
         rows = list(csv.DictReader(fh))
 
+    meta: dict = {}
+    if a.telus_meta:
+        import json as _json
+        with open(a.telus_meta, encoding="utf-8") as mh:
+            meta = (_json.load(mh) or {}).get("calls", {})
     staff = staff_from_corpus(r.get("transcript") or "" for r in rows)
     infos: list = []
-    stats = {"rows": len(rows), "imported": 0, "already_there": 0, "skipped_private_or_uncertain": 0, "skipped_staff_or_personal": 0, "bad_rows": 0}
+    stats = {"rows": len(rows), "imported": 0, "already_there": 0, "skipped_private_or_uncertain": 0, "skipped_staff_or_personal": 0, "bad_rows": 0, "direction_set": 0, "recording_ids_set": 0}
     with db.get_sessionmaker()() as s:
-        have = set(s.scalars(select(PhoneCall.external_ref).where(PhoneCall.external_ref.is_not(None))).all())
+        existing = {c.external_ref: c for c in s.scalars(select(PhoneCall).where(PhoneCall.external_ref.is_not(None))).all()}
+        have = set(existing)
         new: list[PhoneCall] = []
         for r in rows:
             try:
@@ -125,6 +140,24 @@ def main(argv: list[str] | None = None) -> int:
             if f["person"]:
                 from pipeline.app_contacts import Info
                 infos.append(Info(f["external_ref"], f["person"], f["intent"]))
+            tm = meta.get(f["meta_key"])
+            if tm and tm.get("d") in ("inbound", "outbound"):
+                f["direction"] = tm["d"]
+                if tm.get("r") in ("missed", "hangup"):
+                    f["handled_by"], f["result"] = "none", "missed"
+                elif tm.get("r") == "voicemail":
+                    f["handled_by"], f["result"] = "none", "voicemail"
+            if f["external_ref"] in existing:
+                row = existing[f["external_ref"]]
+                if not a.dry_run:
+                    if f["recording_id"] and row.recording_id != f["recording_id"]:
+                        row.recording_id = f["recording_id"]
+                        stats["recording_ids_set"] += 1
+                    if tm and f["direction"] != row.direction:
+                        row.direction = f["direction"]
+                        if f["handled_by"] == "none":
+                            row.handled_by, row.result = f["handled_by"], f["result"]
+                        stats["direction_set"] += 1
             if f["external_ref"] in have:
                 stats["already_there"] += 1
                 continue
@@ -133,8 +166,11 @@ def main(argv: list[str] | None = None) -> int:
                 started_at=timeutil.at_local(f["local_date"], f["local_time"].hour, f["local_time"].minute), direction=f["direction"],
                 handled_by=f["handled_by"], agent_label=f["agent_label"], contact_id=None, phone=None, duration_seconds=f["duration_seconds"],
                 result=f["result"], call_type="unknown", short_note=f["short_note"], transcript=f["transcript"], source="import",
-                external_ref=f["external_ref"], is_demo=False))
+                external_ref=f["external_ref"], recording_id=f["recording_id"], is_demo=False))
+            stats["direction_set"] += 1 if (tm and tm.get("d") in ("inbound", "outbound")) else 0
         stats["imported"] = len(new)
+        if not a.dry_run and not new:
+            s.commit()  # direction and recording ids on rows that were already there
         if not a.dry_run and new:
             s.add_all(new)
             # the invented example calls would only confuse the log now

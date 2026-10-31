@@ -75,7 +75,7 @@ export type FeeRow = {
 export type PCall = {
   id: number; started_at: string; direction: 'inbound' | 'outbound' | 'unknown'; handled_by: 'human' | 'ai' | 'none'; agent_label: string
   contact: { id: number; display_name: string; kind: string } | null; phone_display: string; duration_seconds: number
-  result: string; result_label: string; call_type: string; short_note: string; has_transcript: boolean; source: string; transcript?: string | null
+  result: string; result_label: string; call_type: string; short_note: string; has_transcript: boolean; has_recording: boolean; source: string; transcript?: string | null
 }
 
 export type Camp = {

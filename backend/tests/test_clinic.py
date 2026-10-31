@@ -325,3 +325,30 @@ def test_reset_demo_keeps_real_calls_and_does_not_add_demo_calls(env, garg):
         s.commit()
         rows = s.scalars(select(PC)).all()
         assert [r.external_ref for r in rows] == ["imp-test"]
+
+
+def test_telus_direction_and_recording_id_are_applied_on_a_rerun(env, garg, tmp_path):
+    import csv as _csv
+    import json as _json
+    work = ("Speaker 1: Walnut Grove Animal Hospital, how can I help you?\nSpeaker 2: Hi, I would like to book an appointment for my dog for vaccines next week.\n"
+            "Speaker 1: Sure, how about Thursday at ten?\nSpeaker 2: That works, thank you.")
+    name = "20260801-091500_102_+16045550123_Outgoing_Auto_3198355066024.mp3"
+    p = tmp_path / "d.csv"
+    with open(p, "w", encoding="utf-8-sig", newline="") as fh:
+        w = _csv.writer(fh)
+        w.writerow(["file", "date", "time", "number", "direction", "audio_seconds", "cost_usd", "language", "transcript", "plain_text"])
+        w.writerow([name, "2026-08-01", "09:15:00", "+16045550123", "Outgoing", 62, 0.01, "eng", work, work.replace("Speaker 1: ", "").replace("Speaker 2: ", "")])
+    assert _run_import(env, p).returncode == 0
+    with env.session() as s:
+        row = s.scalar(select(PhoneCall).where(PhoneCall.source == "import"))
+        assert row.recording_id == "3198355066024" and "5550123" not in (row.recording_id or "")
+        before = row.direction
+    meta = tmp_path / "meta.json"
+    meta.write_text(_json.dumps({"v": 1, "calls": {"2026-08-01|09:15:00|102": {"d": "outbound", "r": "answered"}}}))
+    out = _run_import(env, p, "--telus-meta", str(meta))
+    assert out.returncode == 0 and "imported=0" in out.stdout, out.stdout + out.stderr
+    with env.session() as s:
+        row = s.scalar(select(PhoneCall).where(PhoneCall.source == "import"))
+        assert row.direction == "outbound"
+    r = garg.get("/api/phone/calls?direction=outbound").json()
+    assert r["total"] == 1 and before in ("inbound", "outbound", "unknown")

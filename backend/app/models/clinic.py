@@ -110,6 +110,8 @@ class PhoneCall(Base):
     source: Mapped[str] = mapped_column(String(8), default="demo")
     # Keyed hash of the source recording's identity, so an import can be run again without duplicates. Never a file name or number.
     external_ref: Mapped[str | None] = mapped_column(String(40))
+    # TELUS recording id (digits only), used to fetch the audio on request. Not a phone number.
+    recording_id: Mapped[str | None] = mapped_column(String(24))
     is_demo: Mapped[bool] = mapped_column(Boolean, default=False)
 
 

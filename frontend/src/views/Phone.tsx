@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
 import { useApp } from '../ctx'
@@ -16,6 +16,39 @@ export function Handler({ c }: { c: PCall }) {
   if (c.handled_by === 'ai') return <span className="tag ai"><Icon n="sparkle" size={12} /> AI assistant</span>
   if (c.handled_by === 'none') return <span className="tag warn">Nobody</span>
   return <span className="tag">{c.agent_label || 'Staff'}</span>
+}
+
+type PlayState = { state: 'waiting' | 'ready' | 'failed'; message?: string }
+
+/** Asks the server to fetch a recording, then checks every two seconds (for up to 90 seconds) until it is ready. */
+function usePlayer() {
+  const { toast } = useApp()
+  const [st, setSt] = useState<Record<number, PlayState>>({})
+  const timers = useRef<Record<number, number>>({})
+  const put = (id: number, v: PlayState | null) => setSt((s) => { const n = { ...s }; if (v) n[id] = v; else delete n[id]; return n })
+  const stop = (id: number) => { window.clearTimeout(timers.current[id]); delete timers.current[id] }
+  const close = useCallback((id: number) => { stop(id); put(id, null) }, [])
+  const play = useCallback(async (id: number) => {
+    stop(id)
+    put(id, { state: 'waiting' })
+    try {
+      const r = await api<{ state: string }>(`/phone/calls/${id}/listen`, { method: 'POST', quiet: true })
+      if (r.state === 'ready') { put(id, { state: 'ready' }); return }
+    } catch (x) { put(id, null); toast(errText(x) || 'Could not start the recording.'); return }
+    const started = Date.now()
+    const tick = async () => {
+      try {
+        const r = await api<{ state: string; message?: string }>(`/phone/calls/${id}/listen`, { quiet: true })
+        if (r.state === 'ready') { put(id, { state: 'ready' }); return }
+        if (r.state === 'failed') { put(id, { state: 'failed', message: r.message }); return }
+      } catch { /* try again below */ }
+      if (Date.now() - started > 90000) { put(id, { state: 'failed', message: 'The recording is taking too long. Try again in a minute.' }); return }
+      timers.current[id] = window.setTimeout(tick, 2000)
+    }
+    timers.current[id] = window.setTimeout(tick, 1500)
+  }, [toast])
+  useEffect(() => () => { Object.keys(timers.current).forEach((k) => window.clearTimeout(timers.current[Number(k)])) }, [])
+  return { st, play, close }
 }
 
 export function Phone() {
@@ -40,7 +73,9 @@ function Log() {
   const [open, setOpen] = useState<number | null>(null)
   const qs = new URLSearchParams({ page: String(page), per_page: '25' })
   Object.entries(f).forEach(([k, v]) => { if (v.trim()) qs.set(k, v.trim()) })
-  const list = useLive<{ items: PCall[]; total: number; per_page: number }>('/phone/calls?' + qs.toString(), ['phone'])
+  const list = useLive<{ items: PCall[]; total: number; per_page: number; can_listen?: boolean }>('/phone/calls?' + qs.toString(), ['phone'])
+  const canListen = !!list.data?.can_listen
+  const player = usePlayer()
   const set = (k: keyof typeof f, v: string) => { setF((x) => ({ ...x, [k]: v })); setPage(1) }
   const pages = list.data ? Math.max(1, Math.ceil(list.data.total / list.data.per_page)) : 1
   return (
@@ -57,9 +92,12 @@ function Log() {
       <section className="card">
         {list.loading && !list.data ? <SkeletonRows n={8} h={52} /> : !list.data?.items.length ? <Empty icon="phone" title="No calls match" text="Try widening the dates or clearing a filter." /> : (
           <div className="tablewrap"><table className="calls">
-            <thead><tr><th>When</th><th>Direction</th><th>Contact</th><th>Handled by</th><th>Type</th><th>Length</th><th>Result</th><th>Note</th></tr></thead>
-            <tbody>{list.data.items.map((c) => (
-              <tr key={c.id} className="clk" tabIndex={0} onClick={() => setOpen(c.id)} onKeyDown={(e) => { if (e.key === 'Enter') setOpen(c.id) }}>
+            <thead><tr>{canListen && <th aria-label="Play" />}<th>When</th><th>Direction</th><th>Contact</th><th>Handled by</th><th>Type</th><th>Length</th><th>Result</th><th>Note</th></tr></thead>
+            <tbody>{list.data.items.map((c) => (<Fragment key={c.id}>
+              <tr className="clk" tabIndex={0} onClick={() => setOpen(c.id)} onKeyDown={(e) => { if (e.key === 'Enter') setOpen(c.id) }}>
+                {canListen && <td className="playc" onClick={(e) => e.stopPropagation()}>{c.has_recording
+                  ? <button className={'playb' + (player.st[c.id] ? ' on' : '')} aria-label={`Play the recording from ${new Date(c.started_at).toLocaleString()}`} title="Listen to this call" onClick={() => player.play(c.id)}><Icon n="play" size={16} /></button>
+                  : <span className="mute" title="No recording for this call">-</span>}</td>}
                 <td><Time iso={c.started_at} /></td>
                 <td><span className={'dir ' + c.direction} title={c.direction === 'unknown' ? 'Direction not known from the recording' : undefined}>{c.direction === 'inbound' ? 'In' : c.direction === 'outbound' ? 'Out' : '?'}</span></td>
                 <td>{c.contact ? <Link to={`/contacts/${c.contact.id}`} onClick={(e) => e.stopPropagation()}>{c.contact.display_name}</Link> : <span className="mute">{c.phone_display || 'Unknown'}</span>}</td>
@@ -69,7 +107,12 @@ function Log() {
                 <td><span className={'res r-' + c.result}>{c.result_label}</span></td>
                 <td className="ell note-c">{c.short_note}</td>
               </tr>
-            ))}</tbody>
+              {player.st[c.id] && <tr className="playr"><td colSpan={canListen ? 9 : 8}>
+                {player.st[c.id].state === 'ready' ? <div className="aplay"><audio controls autoPlay src={`/api/phone/calls/${c.id}/audio`} aria-label="Call recording" /><button className="btn small ghost" onClick={() => player.close(c.id)}>Close</button></div>
+                  : player.st[c.id].state === 'failed' ? <div className="aplay"><span className="errt" role="alert">{player.st[c.id].message}</span><button className="btn small" onClick={() => player.play(c.id)}>Try again</button><button className="btn small ghost" onClick={() => player.close(c.id)}>Close</button></div>
+                  : <div className="aplay"><span className="mute">Getting the recording from TELUS. This can take up to a minute.</span><button className="btn small ghost" onClick={() => player.close(c.id)}>Cancel</button></div>}
+              </td></tr>}
+            </Fragment>))}</tbody>
           </table></div>
         )}
         {list.data && list.data.total > 0 && (

@@ -39,6 +39,7 @@ PERMS: dict[str, set[str]] = {
     "phone.view": {"desk", "nurse", "owner"},
     "phone.export": {"desk", "owner"},
     "phone.transcript": {"owner"},  # every open is written to the access log
+    "phone.listen": {"owner"},  # play a call recording; every play is written to the access log
     "campaigns.view": {"desk", "owner"},
     "campaigns.edit": {"desk", "owner"},  # drafts and previews
     "campaigns.approve": {"owner"},  # approve and run (dry run)

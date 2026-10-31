@@ -158,3 +158,10 @@ i.h{background:var(--accent)}i.a{background:var(--vio)}i.m{background:var(--crit
   .searchbtn{width:0;overflow:hidden}.searchbtn .st{min-width:0}
   .searchbtn kbd{display:none}
 }
+
+/* ---- play a call recording ---- */
+.playc{width:52px}
+.playb{display:inline-grid;place-items:center;width:40px;height:40px;border-radius:50%;border:1px solid var(--line);background:var(--panel);color:var(--acc-t)}
+.playb:hover,.playb.on{background:var(--accent-soft);border-color:var(--accent)}
+.playr td{background:var(--panel2);padding:8px 14px}
+.aplay{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.aplay audio{flex:1 1 320px;max-width:560px;height:40px}

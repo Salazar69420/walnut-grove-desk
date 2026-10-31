@@ -89,7 +89,7 @@ def call_dicts(db: Session, rows: list[PhoneCall]) -> list[dict[str, Any]]:
             "agent_label": r.agent_label, "contact": {"id": c.id, "display_name": c.display_name, "kind": c.kind} if c else None,
             "phone_display": crm.phone_display(r.phone) if r.phone else "", "duration_seconds": r.duration_seconds,
             "result": r.result, "result_label": RESULT_LABELS.get(r.result, r.result), "call_type": r.call_type,
-            "short_note": r.short_note, "has_transcript": bool(r.transcript), "source": r.source,
+            "short_note": r.short_note, "has_transcript": bool(r.transcript), "has_recording": bool(r.recording_id), "source": r.source,
         })
     return out
 
@@ -106,7 +106,7 @@ def list_calls(
     total = db.scalar(select(func.count()).select_from(base.subquery())) or 0
     rows = db.scalars(base.order_by(PhoneCall.started_at.desc(), PhoneCall.id.desc()).limit(per_page).offset((page - 1) * per_page)).all()
     return {"items": call_dicts(db, list(rows)), "total": total, "page": page, "per_page": per_page,
-            "can_transcript": has_perm(user, "phone.transcript")}
+            "can_transcript": has_perm(user, "phone.transcript"), "can_listen": has_perm(user, "phone.listen")}
 
 
 @router.get("/phone/summary")

@@ -46,6 +46,11 @@ GRACE_SECONDS = 2.0                  # a half-written request younger than this 
 PROGRESS_EVERY = 10
 FILE_SLEEP = 1.0                     # polite pause between recordings
 MAX_CONSECUTIVE_FAILURES = 10
+PLAY_DIR = "play"                    # inside the bridge folder: short-lived audio the app streams to owners
+PLAY_TTL = 3600                      # seconds a played recording stays in the bridge before it is deleted
+PLAY_CODES = ("ready", "recordings_disabled", "not_configured", "login_failed", "write_scope_present",
+              "disk_cap_reached", "disk_low", "rate_limited", "not_found", "error")
+_PLAY_FILE = re.compile(r"^\.?[0-9]{1,24}\.[A-Za-z0-9._-]{1,30}$")
 
 CODES = ("ok", "partial", "recordings_disabled", "not_configured", "login_failed", "write_scope_present",
          "disk_cap_reached", "disk_low", "rate_limited", "no_recordings", "error")
@@ -71,9 +76,11 @@ class Request(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     v: int
     id: str = Field(pattern=_ID_PATTERN)
-    mode: Literal["check", "recordings", "sync"]
+    mode: Literal["check", "recordings", "sync", "play"]
     days: Optional[int] = Field(default=None, ge=1, le=30)
     max_items: Optional[int] = Field(default=None, ge=1, le=1000)
+    recording_id: Optional[str] = Field(default=None, pattern=r"^[0-9]{1,24}$")  # play only
+    call_date: Optional[str] = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")  # play only
     requested_by: str = Field(min_length=1, max_length=60)
     requested_at: str = Field(min_length=10, max_length=40)
 
@@ -100,6 +107,11 @@ class Request(BaseModel):
     def _need_numbers(self):
         if self.mode == "recordings" and (self.days is None or self.max_items is None):
             raise ValueError("recordings needs days and max_items")
+        if self.mode == "play":
+            if self.recording_id is None or self.call_date is None or self.days is not None or self.max_items is not None:
+                raise ValueError("play needs recording_id and call_date only")
+        elif self.recording_id is not None or self.call_date is not None:
+            raise ValueError("recording_id and call_date are only for play")
         return self
 
 
@@ -399,7 +411,9 @@ class Worker:
             self.settings = load_settings(self.bridge)
             jobs, rejected = collect_requests(self.bridge, self.sleep)
             self.status["rejected_requests"] = min(self.status["rejected_requests"] + rejected, 10 ** 9 - 1)
+            jobs.sort(key=lambda j: j.req.mode != "play")  # a person waiting to hear a call goes first (stable sort)
             jobs = jobs[:MAX_JOBS_PER_RUN]
+            self._play_cleanup()
             if not jobs:
                 if rejected:
                     self.flush()
@@ -407,6 +421,13 @@ class Worker:
                 return 0 if self.status_ok else 1
             for job in jobs:
                 self.settings = load_settings(self.bridge)
+                if job.req.mode == "play":
+                    self._play_job(job.req)  # never touches status.json: it carries no recording ids
+                    try:
+                        os.unlink(job.path)
+                    except OSError:
+                        pass
+                    continue
                 self._queue(job.req)
                 self.flush()
                 self._run_job(job.req)
@@ -488,6 +509,131 @@ class Worker:
             return None, "error"
         self._conn("ok", "ok", env=env)
         return client, None
+
+    # -------------------------------------------------------------- mode: play (one recording for an owner to hear)
+    def _play_dir(self) -> str:
+        d = os.path.join(self.bridge, PLAY_DIR)
+        try:
+            os.mkdir(d, 0o770)
+        except FileExistsError:
+            pass
+        os.chmod(d, 0o2770)
+        return d
+
+    def _play_cleanup(self) -> None:
+        try:
+            d = os.path.join(self.bridge, PLAY_DIR)
+            with os.scandir(d) as it:
+                entries = [e for _, e in zip(range(MAX_ENTRIES), it)]
+        except OSError:
+            return
+        cutoff = time.time() - PLAY_TTL
+        for e in entries:
+            try:
+                st = os.lstat(e.path)
+                if stat.S_ISREG(st.st_mode) and _PLAY_FILE.fullmatch(e.name) and st.st_mtime < cutoff:
+                    recordings.secure_delete(e.path)
+            except OSError:
+                continue
+
+    def _play_result(self, rid: str, code: str, ext: str = "", nbytes: int = 0) -> None:
+        d = self._play_dir()
+        body = {"v": 1, "state": "ready" if code == "ready" else "failed", "code": code if code in PLAY_CODES else "error",
+                "ext": ext, "bytes": nbytes, "at": self._t()}
+        tmp = os.path.join(d, f".{rid}.{os.getpid()}.tmp")
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o660)
+        with os.fdopen(fd, "w") as fh:
+            json.dump(body, fh, separators=(",", ":"))
+        os.chmod(tmp, 0o660)
+        os.replace(tmp, os.path.join(d, f"{rid}.json"))
+
+    def _find_stored(self, rid: str) -> str | None:
+        """The recording in the private store, if an earlier download left it there."""
+        base = recordings.rec_root(self.root)
+        try:
+            for y in os.scandir(base):
+                if not y.is_dir(follow_symlinks=False):
+                    continue
+                for m in os.scandir(y.path):
+                    if not m.is_dir(follow_symlinks=False):
+                        continue
+                    for f in os.scandir(m.path):
+                        if f.is_file(follow_symlinks=False) and f.name.startswith(rid + ".") and recordings._STEM_RE.fullmatch(f.name):
+                            return f.path
+        except OSError:
+            return None
+        return None
+
+    def _play_job(self, req: Request) -> None:
+        rid = req.recording_id
+        ext, nbytes = "", 0
+        try:
+            code, ext, nbytes = self._play(req)
+        except Exception as e:  # nothing from TELUS or the system may reach the result file or the logs
+            log.error("telus play failed (%s)", type(e).__name__)
+            code = "error"
+        try:
+            self._play_result(rid, code, ext, nbytes)
+        except OSError as e:
+            log.error("telus play result not written (%s)", type(e).__name__)
+
+    def _play(self, req: Request) -> tuple[str, str, int]:
+        from contextlib import ExitStack
+        rid, s = req.recording_id, self.settings
+        if not s.recordings_enabled:
+            return "recordings_disabled", "", 0
+        src = self._find_stored(rid)
+        if src is None:
+            with ExitStack() as stack:
+                client, code = self._session(stack)
+                if client is None:
+                    return (code if code in PLAY_CODES else "error"), "", 0
+                used = recordings.scan_storage(self.root)[1]
+                cap_allow = s.max_gb * GB - used
+                disk_allow = free_bytes(self.root) - LOW_DISK_BYTES
+                if cap_allow <= 0:
+                    return "disk_cap_reached", "", 0
+                if disk_allow <= 0:
+                    return "disk_low", "", 0
+                try:
+                    res = recordings.fetch(client, self.root, rid, req.call_date, min(MAX_FILE_BYTES, cap_allow, disk_allow))
+                except TelusDownloadError as e:
+                    return ("disk_cap_reached" if e.reason == "too_large" else "error"), "", 0
+                except ReadOnlyViolation:
+                    return "error", "", 0
+                except TelusHTTPError as e:
+                    return {404: "not_found", 410: "not_found", 429: "rate_limited", 401: "login_failed"}.get(e.status, "error"), "", 0
+                except TelusError:
+                    return "error", "", 0
+                except OSError as e:
+                    return ("disk_low" if e.errno in (errno.ENOSPC, errno.EDQUOT) else "error"), "", 0
+                with _closing(dbm.connect(self.db_path, create=True)) as conn:
+                    recordings.upsert(conn, rid, "play", "downloaded", nbytes=res.bytes, sha256=res.sha256, ext=res.ext, downloaded_at=self._t())
+                src = self._find_stored(rid)
+                if src is None:
+                    return "error", "", 0
+        ext = src.rsplit(".", 1)[-1]
+        d = self._play_dir()
+        for old in os.listdir(d):  # one audio file per recording
+            if old.startswith(rid + ".") and old != rid + ".json":
+                try:
+                    os.unlink(os.path.join(d, old))
+                except OSError:
+                    pass
+        tmp = os.path.join(d, f".{rid}.{os.getpid()}.part")
+        with open(src, "rb") as fin, os.fdopen(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o660), "wb") as fout:
+            n = 0
+            while True:
+                chunk = fin.read(1 << 20)
+                if not chunk:
+                    break
+                n += len(chunk)
+                if n > MAX_FILE_BYTES:
+                    raise OSError("too large")
+                fout.write(chunk)
+        os.chmod(tmp, 0o660)
+        os.replace(tmp, os.path.join(d, f"{rid}.{ext}"))
+        return "ready", ext, n
 
     # -------------------------------------------------------------- mode: check
     def _check(self, req: Request) -> str:
