@@ -4,15 +4,20 @@ Guarantees (enforced in `_send`, the single place a request is built):
   * GET only, and only to paths that fully match endpoints.GET_ALLOWLIST;
   * the single exception is the JWT login POST to exactly endpoints.TOKEN_PATH, made by `_login`;
   * any other method or path raises ReadOnlyViolation before a request object exists;
-  * no redirects are followed;
+  * no redirects are followed, with one exception: download_recording follows at most ONE redirect, and only
+    to an https host on endpoints.REDIRECT_HOSTS (checked before anything is sent to it);
   * headers, tokens, query strings and response bodies are never logged, and every exception message is
     passed through redaction of the known secret values.
 """
 from __future__ import annotations
 
 import base64
+import hashlib
 import logging
+import os
+import re
 import time
+from dataclasses import dataclass
 from typing import Any, Callable, Iterator
 
 import httpx
@@ -26,6 +31,9 @@ MAX_RETRIES = 3          # 429 and timeout retries per request
 MAX_SLEEP = 90.0         # seconds, cap on one wait
 MAX_PAGES = 2000
 EXPIRY_MARGIN = 60.0     # re-login this many seconds before the token expires
+REDIRECT_STATUSES = (301, 302, 303, 307, 308)
+_REC_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+CHUNK = 64 * 1024
 for _name in ("httpx", "httpcore"):  # their INFO lines carry full URLs
     logging.getLogger(_name).setLevel(logging.WARNING)
 
@@ -44,6 +52,23 @@ class ReadOnlyViolation(TelusError):
 
 class TelusAuthError(TelusError):
     pass
+
+
+class TelusDownloadError(TelusError):
+    """A recording download that was refused or aborted. `reason` is one of a fixed set of words."""
+
+    def __init__(self, message: str, reason: str, status: int | None = None):
+        super().__init__(message, status)
+        self.reason = reason  # not_audio, too_large, empty, bad_status, too_many_redirects
+
+
+@dataclass(frozen=True)
+class DownloadResult:
+    bytes: int
+    sha256: str
+    content_type: str
+    rate_remaining: int | None
+    rate_window: float | None
 
 
 class TelusHTTPError(TelusError):
@@ -110,6 +135,148 @@ class ReadOnlyClient:
     def get_content(self, path: str, params: dict[str, Any] | None = None) -> bytes:
         """Raw bytes of an allowlisted GET (recording audio). Not used by the call-log pull."""
         return self._get_response(path, params).content
+
+    # ------------------------------------------------------------------ recording download (streaming)
+    def download_recording(self, recording_id: str, dest_tmp_path: str, max_bytes: int) -> DownloadResult:
+        """Stream one recording's audio to `dest_tmp_path` (created new, mode 600, never overwritten).
+
+        Uses only the allowlisted content path. If TELUS answers with a redirect, at most one is followed and
+        only to an https host on endpoints.REDIRECT_HOSTS for this environment; any other target raises
+        ReadOnlyViolation before a request is built. Requires HTTP 200, a non-empty body, Content-Type
+        audio/* or application/octet-stream and at most `max_bytes`. On any failure the temp file is removed.
+        Messages never contain URLs, ids, tokens or bodies."""
+        if not isinstance(recording_id, str) or not _REC_ID.fullmatch(recording_id):
+            raise self._err(ReadOnlyViolation, "recording id is not acceptable")
+        path = endpoints.recording_content_path(recording_id)
+        self._check_get_path(path)
+        first_url = self._base + path
+        url, hop, attempts, relogged = first_url, 0, 0, False
+        while True:
+            self._ensure_token()
+            try:
+                resp = self._send_stream(url)
+            except httpx.TimeoutException:
+                attempts += 1
+                if attempts > MAX_RETRIES:
+                    raise self._err(TelusHTTPError, "recording download: timed out") from None
+                self._sleep(min(2.0 ** attempts, MAX_SLEEP))
+                continue
+            except httpx.HTTPError as e:
+                raise self._err(TelusHTTPError, f"recording download: {type(e).__name__}") from None
+            code = resp.status_code
+            if code in REDIRECT_STATUSES:
+                location = resp.headers.get("location")
+                resp.close()
+                if hop >= 1:
+                    raise self._err(TelusDownloadError, "recording download: more than one redirect",
+                                    reason="too_many_redirects", status=code)
+                url, hop = self._redirect_target(location), 1
+                continue
+            if code == 401 and not relogged:
+                resp.close()
+                relogged, self._token, url, hop = True, None, first_url, 0
+                continue
+            if code == 429:
+                wait = self._retry_wait(resp)
+                resp.close()
+                attempts += 1
+                if attempts > MAX_RETRIES:
+                    raise self._err(TelusHTTPError, "recording download: rate limited (HTTP 429), gave up",
+                                    status=429)
+                log.warning("telus rate limited, waiting %.0fs (retry %d)", wait, attempts)
+                self._sleep(wait)
+                continue
+            if code != 200:
+                resp.close()
+                if 200 <= code < 300:
+                    raise self._err(TelusDownloadError, f"recording download: unexpected HTTP {code}",
+                                    reason="bad_status", status=code)
+                raise self._err(TelusHTTPError, f"recording download: HTTP {code}", status=code)
+            break
+        try:
+            return self._save_stream(resp, dest_tmp_path, max_bytes)
+        finally:
+            resp.close()
+
+    def _send_stream(self, url: str) -> httpx.Response:
+        """GET `url` (already vetted: the allowlisted content path, or an allowlisted redirect host) with the
+        bearer token, returning an open streaming response."""
+        req = self._http.build_request(
+            "GET", url, headers={"Authorization": f"Bearer {self._token}",
+                                 "Accept": "audio/*, application/octet-stream;q=0.9"})
+        return self._http.send(req, stream=True)
+
+    def _redirect_target(self, location) -> str:
+        """The vetted absolute URL for a redirect, or ReadOnlyViolation. Nothing has been sent to it yet."""
+        bad = self._err(ReadOnlyViolation, "recording redirect target is not allowlisted")
+        if (not isinstance(location, str) or not location or len(location) > 4096
+                or re.search(r"[\x00-\x20\x7f]", location)):
+            raise bad
+        try:
+            u = httpx.URL(self._base + "/").join(location)
+        except (httpx.InvalidURL, ValueError):
+            raise bad from None
+        hosts = endpoints.REDIRECT_HOSTS.get(self._creds.env, ())
+        if (u.scheme != "https" or u.host not in hosts or u.port not in (None, 443) or u.userinfo):
+            raise bad
+        return str(u)
+
+    def _save_stream(self, resp: httpx.Response, dest: str, max_bytes: int) -> DownloadResult:
+        ctype = resp.headers.get("content-type", "").split(";")[0].strip().lower()
+        if not (ctype.startswith("audio/") or ctype == "application/octet-stream"):
+            raise self._err(TelusDownloadError, "recording download: content type is not audio",
+                            reason="not_audio", status=200)
+        declared = resp.headers.get("content-length", "")
+        if declared.isdigit() and int(declared) > max_bytes:
+            raise self._err(TelusDownloadError, "recording download: larger than the size limit",
+                            reason="too_large", status=200)
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(dest, flags, 0o600)
+        digest, total = hashlib.sha256(), 0
+        try:
+            with os.fdopen(fd, "wb") as f:
+                for chunk in resp.iter_bytes(CHUNK):
+                    total += len(chunk)
+                    if total > max_bytes:
+                        raise self._err(TelusDownloadError, "recording download: larger than the size limit",
+                                        reason="too_large", status=200)
+                    digest.update(chunk)
+                    f.write(chunk)
+                if total == 0:
+                    raise self._err(TelusDownloadError, "recording download: empty body",
+                                    reason="empty", status=200)
+                f.flush()
+                os.fsync(f.fileno())
+        except httpx.HTTPError as e:
+            self._unlink_quiet(dest)
+            raise self._err(TelusHTTPError, f"recording download: {type(e).__name__}") from None
+        except BaseException:
+            self._unlink_quiet(dest)
+            raise
+        return DownloadResult(bytes=total, sha256=digest.hexdigest(), content_type=ctype,
+                              rate_remaining=self._int_header(resp, "X-Rate-Limit-Remaining"),
+                              rate_window=self._float_header(resp, "X-Rate-Limit-Window"))
+
+    @staticmethod
+    def _unlink_quiet(path: str) -> None:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+    @staticmethod
+    def _int_header(resp: httpx.Response, name: str) -> int | None:
+        try:
+            return max(0, int(resp.headers.get(name, "")))
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _float_header(resp: httpx.Response, name: str) -> float | None:
+        try:
+            return max(0.0, min(float(resp.headers.get(name, "")), MAX_SLEEP))
+        except ValueError:
+            return None
 
     def _check_get_path(self, path: str) -> None:
         if (not isinstance(path, str) or not path.startswith("/") or "?" in path or "#" in path

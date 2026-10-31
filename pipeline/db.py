@@ -60,6 +60,16 @@ CREATE TABLE IF NOT EXISTS telus_sync_state (
     key TEXT PRIMARY KEY,
     value TEXT
 );
+CREATE TABLE IF NOT EXISTS telus_recordings (
+    recording_id TEXT PRIMARY KEY,
+    telus_id TEXT,
+    status TEXT NOT NULL CHECK (status IN ('downloaded', 'failed', 'skipped')),
+    bytes INTEGER NOT NULL DEFAULT 0,
+    sha256 TEXT,
+    ext TEXT,
+    downloaded_at TEXT,
+    error_code TEXT
+);
 """
 
 
@@ -83,13 +93,24 @@ def connect(db_path: str, create: bool = False) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys=ON")
     if create:
         conn.executescript(SCHEMA)
+        migrate(conn)
         try:
             os.chmod(db_path, 0o600)
         except OSError:
             pass
     else:
         conn.executescript(SCHEMA)  # idempotent; adds labels/gold tables on older DBs
+        migrate(conn)
     return conn
+
+
+def migrate(conn: sqlite3.Connection) -> None:
+    """Idempotent column additions for databases created by an older SCHEMA."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(telus_calls)")}
+    if "recording_id" not in cols:
+        conn.execute("ALTER TABLE telus_calls ADD COLUMN recording_id TEXT")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_telus_calls_recording ON telus_calls(recording_id)")
+    conn.commit()
 
 
 def chosen_labels(conn: sqlite3.Connection, labeler: str | None = None) -> dict[str, tuple[str, str]]:

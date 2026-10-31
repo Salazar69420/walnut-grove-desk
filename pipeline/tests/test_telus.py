@@ -683,7 +683,8 @@ def test_analytics_telus_min_cell_parameter(tmp_path):
     root = tmp_path / "r"
     conn = dbm.connect(str(root / "p.db"), create=True)
     for i in range(5):
-        conn.execute("INSERT INTO telus_calls VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        conn.execute("INSERT INTO telus_calls(telus_id, start_local, date, hour, weekday, duration, direction, "
+                     "result, ext_id, has_recording, from_hash, to_hash, synced_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                      (f"A{i}", "2026-08-04T10:00:00-07:00", "2026-08-04", 10, 1, 5, "inbound", "missed", None, 0,
                       None, None, "x"))
     rows = analytics.build(conn, "rules-v1")["rows"]

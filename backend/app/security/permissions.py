@@ -21,7 +21,7 @@ PERMS: dict[str, set[str]] = {
     "assistant.use": {"desk", "nurse", "owner"},
     "export.use": {"desk", "nurse", "owner"},  # each export also checks the list's view perm
 }
-ADMIN_PERMS: set[str] = {"admin.users", "admin.audit", "admin.settings", "admin.import", "admin.reset_demo"}  # require is_admin
+ADMIN_PERMS: set[str] = {"admin.users", "admin.audit", "admin.settings", "admin.import", "admin.reset_demo", "admin.telus"}  # require is_admin
 
 ROLES = ("owner", "desk", "nurse")
 

@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch for TELUS requests from the admin page
+
+[Path]
+PathExistsGlob=/var/lib/walnut-desk-telus/requests/*.json
+Unit=walnut-telus.service
+
+[Install]
+WantedBy=multi-user.target

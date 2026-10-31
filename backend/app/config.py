@@ -21,6 +21,7 @@ class Settings:
     db_path: str = str(BACKEND_DIR / "walnut-dev.db")
     llm_env_path: str = "/var/lib/walnut-desk-llm/llm.env"
     import_dir: str = "/var/lib/walnut-desk/imports"
+    telus_dir: str = "/var/lib/walnut-desk-telus"
     public_url: str = "http://127.0.0.1:8000"
     frontend_dist: str = str(REPO_DIR / "frontend" / "dist")
     skip_migrate: bool = False
@@ -55,6 +56,7 @@ def load_settings() -> Settings:
         db_path=os.environ.get("WALNUT_DB_PATH", base.db_path),
         llm_env_path=os.environ.get("WALNUT_LLM_ENV_PATH", base.llm_env_path),
         import_dir=os.environ.get("WALNUT_IMPORT_DIR", base.import_dir),
+        telus_dir=os.environ.get("WALNUT_TELUS_DIR", base.telus_dir),
         public_url=os.environ.get("WALNUT_PUBLIC_URL", base.public_url),
         frontend_dist=os.environ.get("WALNUT_FRONTEND_DIST", base.frontend_dist),
         skip_migrate=os.environ.get("WALNUT_SKIP_MIGRATE", "") == "1",

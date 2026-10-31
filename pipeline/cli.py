@@ -88,6 +88,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--since", help="ISO 8601 start (naive values are America/Vancouver local time)")
     s.add_argument("--days", type=int, help="pull the last N days")
 
+    s = add("telus-worker", "process TELUS requests from the web app bridge folder, then exit")
+    s.add_argument("--bridge", default="/var/lib/walnut-desk-telus", help="bridge folder shared with the app")
+
     s = add("wipe-script", "write <root>/WIPE.sh")
     s.add_argument("--out", help="default <root>/WIPE.sh")
     return ap
@@ -137,6 +140,9 @@ def main(argv: list[str] | None = None) -> int:
     if cmd == "telus-setup":
         from .telus import setup as telus_setup
         return telus_setup.run(paths.root, args.force)
+    if cmd == "telus-worker":
+        from .telus import worker
+        return worker.run(paths.root, args.bridge, paths.db, paths.salt)
     if cmd in ("telus-check", "telus-pull-calllog"):
         from .telus import config as tcfg
         try:

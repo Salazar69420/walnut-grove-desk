@@ -3,12 +3,13 @@ import { api } from '../api/client'
 import { useApp } from '../ctx'
 import { useLive } from '../live'
 import { Head, Loading } from '../components/bits'
+import { TelusTab } from './TelusTab'
 
-type Tab = 'users' | 'audit' | 'import' | 'settings'
+type Tab = 'users' | 'audit' | 'import' | 'settings' | 'telus'
 
 export function Admin() {
   const [tab, setTab] = useState<Tab>('users')
-  const tabs: [Tab, string][] = [['users', 'Users'], ['audit', 'Audit log'], ['import', 'Import'], ['settings', 'Settings']]
+  const tabs: [Tab, string][] = [['users', 'Users'], ['audit', 'Audit log'], ['import', 'Import'], ['settings', 'Settings'], ['telus', 'TELUS']]
   return (
     <>
       <Head title="Admin" lead="Accounts, the audit log, data imports and settings. Only admins see this page." />
@@ -19,6 +20,7 @@ export function Admin() {
       {tab === 'audit' && <Audit />}
       {tab === 'import' && <Import />}
       {tab === 'settings' && <Settings />}
+      {tab === 'telus' && <TelusTab />}
     </>
   )
 }

@@ -12,6 +12,13 @@ SERVER_URLS = {
     "sandbox": "https://platform.devtest.ringcentral.com",
 }
 
+# The only hosts a recording content request may be redirected to (https, port 443, exact host match).
+# The Authorization header is sent to these hosts and to no other.
+REDIRECT_HOSTS = {
+    "production": ("media.ringcentral.com", "platform.ringcentral.com"),
+    "sandbox": ("media.devtest.ringcentral.com", "platform.devtest.ringcentral.com"),
+}
+
 TOKEN_PATH = "/restapi/oauth/token"
 JWT_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:jwt-bearer"
 

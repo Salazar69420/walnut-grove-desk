@@ -128,3 +128,121 @@ connector works; they say nothing about what the clinic's account allows. Server
 * Rate-limit headers and exact limits (the client honours `Retry-After` and `X-Rate-Limit-Window`).
 * The token response fields `expires_in` and `scope`, and that a refresh token may appear (it is ignored).
 * How a voicemail that rang out is labelled (`Voicemail` versus `Missed`), which affects the shares.
+
+## Recordings button (worker)
+
+This section supersedes two statements above: recording audio IS now downloaded, but only by `telus-worker`
+and only when an admin has switched it on, and `ReadOnlyClient.download_recording` may follow ONE redirect
+(see "Download rules"). Everything else above still holds. Binding contract: `docs/CONTRACT_TELUS_RECORDINGS.md`.
+Code: `pipeline/telus/worker.py`, `pipeline/telus/recordings.py`, `ReadOnlyClient.download_recording`.
+Tests: `pipeline/tests/test_telus_recordings.py` (mocked HTTP only).
+
+### Flow
+
+1. An admin presses a button in the web app (Admin > TELUS). The app (user `walnut-app`) writes a small request
+   file into the bridge folder. It never touches TELUS, the credentials or `/srv/walnut-private`.
+2. `walnut-telus.path` starts `walnut-telus.service` (user `walnut-pipeline`), which runs
+   `python -m pipeline telus-worker [--root /srv/walnut-private] [--bridge /var/lib/walnut-desk-telus]`.
+3. The worker validates every request, handles them oldest first, one at a time, deletes each request file
+   when handled, and writes `status.json` after each step. Then it exits. A lock file under `<root>/telus/`
+   stops two workers running at once.
+4. The app polls `status.json` and shows counts and plain-English text for the code.
+
+Mode `check`: login, scope check (same strict rules as `telus-check`), 7-day call count, updates `connection`.
+Mode `recordings`: refuse unless `recordings_enabled` is true in `config.json`; login; refuse if any
+write-capable scope is present; pull the call log for the last `days` days (this also stores `recording_id`
+and backfills it on the 1289 rows that predate it); download recordings not yet downloaded, newest first, up
+to `min(max_items, max_per_run_cap)`; delete our own copies older than `keep_days`.
+
+### Bridge folder
+
+`/var/lib/walnut-desk-telus/`, group `walnut-telus` (members `walnut-app` and `walnut-pipeline`), mode 2770,
+files 660.
+
+| File | Written by | Read by |
+|---|---|---|
+| `requests/<32 hex>.json` | app | worker (then deleted) |
+| `config.json` | app | worker |
+| `status.json` | worker (temp file, fsync, chmod 660, rename) | app |
+
+Request files: name `^[0-9a-f]{32}\.json$`, regular file (checked with `lstat`, opened with `O_NOFOLLOW`),
+at most 4096 bytes, JSON validated by pydantic with unknown keys forbidden and strict types. A bad entry
+(wrong name, symlink, directory, too big, malformed, wrong id, out of range) is deleted and counted in
+`rejected_requests`. The counter is cumulative across runs. A malformed file younger than 2 seconds gets one
+more read before it is rejected, in case the app is still writing it. `days` and `max_items` are required for
+`recordings` and optional for `check`. `config.json`: missing or invalid means defaults with
+`recordings_enabled` false.
+
+### Status codes (fixed list, nothing else ever appears)
+
+`ok`, `partial`, `recordings_disabled`, `not_configured`, `login_failed`, `write_scope_present`,
+`disk_cap_reached`, `disk_low`, `rate_limited`, `no_recordings`, `error`.
+
+* `partial`: some items downloaded and some failed. `error`: nothing downloaded and some failed, a missing
+  required read scope, or an unexpected failure (only its type is logged, never its text).
+* A state `unknown` connection carries code `ok` with no meaning; read `state`.
+* Job state is `done` for `ok`, `partial`, `no_recordings` and for the stop codes `disk_cap_reached`,
+  `disk_low`, `rate_limited` when at least one file was downloaded; otherwise `failed`.
+* `status.json` holds only counts, fixed codes, the requester's display name and timestamps. The tests scan
+  every status document written for recording ids, call ids, numbers, URLs, secrets and exception text.
+
+Per-item results are kept in `telus_recordings` (`downloaded`, `failed`, `skipped` with a short `error_code`
+such as `http_500`, `not_audio`, `too_large`, `gone`, `expired`). `failed` items are retried on the next run;
+`skipped` ones (too large, HTTP 404/410, expired by `keep_days`) are not.
+
+### Download rules
+
+* GET only, through `ReadOnlyClient`, on `/restapi/v1.0/account/~/recording/{id}/content` only. The id must
+  match `[A-Za-z0-9_-]{1,64}`.
+* At most one redirect, and only to an https host with no port, no user info and an exact match in
+  `endpoints.REDIRECT_HOSTS`: production `media.ringcentral.com`, `platform.ringcentral.com`; sandbox
+  `media.devtest.ringcentral.com`, `platform.devtest.ringcentral.com`. Any other target raises
+  `ReadOnlyViolation` before a request is built, so nothing, and no Authorization header, reaches it. A second
+  redirect is refused. The Authorization header goes only to the TELUS server host and those hosts.
+* Requires HTTP 200, a non-empty body, `Content-Type` `audio/*` or `application/octet-stream`, at most
+  200 MB (checked on `Content-Length` and again while streaming). The body streams into a hidden temp file
+  (`.<id>.<pid>.part`) in the final directory, is fsynced, then renamed. Any failure removes the temp file.
+* Files: `<root>/recordings/YYYY/MM/<recording_id>.<ext>`, mode 600, every directory 700. `YYYY/MM` is the
+  call's local date. `ext` comes from the content type (`mp3`, `wav`, `ogg`, `m4a`, `aac`, `webm`, `flac`, else
+  `bin` or `audio`). The SHA-256 and byte count are stored in `telus_recordings`.
+* Rate limits: HTTP 429 waits `Retry-After` (else `X-Rate-Limit-Window`), capped at 90 s, at most 3 retries,
+  then the job stops with `rate_limited`. A response with `X-Rate-Limit-Remaining: 0` makes the worker wait
+  `X-Rate-Limit-Window` (capped at 90 s) before the next file. There is a 1 second pause between files. After 10
+  failures in a row the job stops. Sleeps are injectable, so tests run instantly.
+* URLs, tokens, ids and bodies are never logged. Audio is never transcribed or sent anywhere.
+
+### Disk rules
+
+* Cap: `max_gb` (1 to 50, GiB) is the limit on the total size of finished files under `recordings/`. Before
+  each file the worker allows `min(200 MB, cap - used, free - 5 GiB)`. If the cap has no room it stops with
+  `disk_cap_reached`; if free space on the volume would fall under 5 GiB it stops with `disk_low`. A file that
+  would not fit in the remaining room aborts (no partial file) and stops the job with the matching code.
+  A write failing with "no space" also stops with `disk_low`.
+* `keep_days` (1 to 90): after downloading, files whose `telus_recordings` row says `downloaded` more than
+  `keep_days` days ago are securely deleted (overwritten with zeros, fsynced, unlinked) and the row becomes
+  `skipped` with `expired`, so they are not fetched again. Only files that match one of our own rows are
+  touched, never symlinks, never anything outside `recordings/`. Leftover `.part` files older than an hour
+  are removed too. Empty month and year folders are removed. This runs only for an enabled `recordings` job.
+  Secure delete is best effort on copy-on-write or journaling filesystems and SSDs; see the WIPE.sh caveats.
+* `storage` in the status (count, bytes, free bytes, cap) is measured from the folder on every write.
+
+### Database changes
+
+`telus_calls.recording_id TEXT` is added with `ALTER TABLE` only if missing (every `dbm.connect`), and the
+pull now stores `recording.id` and updates it on existing rows. Table `telus_recordings(recording_id PK,
+telus_id, status, bytes, sha256, ext, downloaded_at, error_code)` is created if missing. The worker's pull for
+a `days` window does not move the incremental cursor used by `telus-pull-calllog`.
+
+### Unverified (check with real credentials)
+
+Do these on the server as `walnut-pipeline`, with a throwaway request, and read only counts and codes.
+
+| Unknown | How to verify |
+|---|---|
+| Audio format (MP3 or WAV, sizes) | Run one small job, then `ls -l` the file extension and sizes under `recordings/` (do not play or open it). The `ext` and `bytes` columns in `telus_recordings` show the same. If many are `bin` or `audio`, add the real type to `EXT_BY_TYPE`. |
+| Media host for the redirect | Run one job. `redirect_blocked` in `telus_recordings.error_code` means TELUS redirected somewhere not on `REDIRECT_HOSTS`; find the host in the TELUS/RingCentral docs (never copy a signed URL out of a log), then add it to `endpoints.REDIRECT_HOSTS` deliberately. No redirect at all is also fine. |
+| Rate-limit numbers | Run a job with `max_items` 200 and watch the elapsed time and whether `rate_limited` appears. Tune `FILE_SLEEP` and `MAX_RETRIES` from the observed `X-Rate-Limit-*` headers in the RingCentral docs. |
+| Permission to fetch other users' recordings | Run one job. Many `http_403` (or `http_404`) codes in `telus_recordings.error_code` mean the credential's extension cannot read recordings of other extensions; ask TELUS for an admin-level read of the account call recordings. |
+| `view=Simple` includes `recording` | After a first job, `SELECT COUNT(*) FROM telus_calls WHERE recording_id IS NOT NULL` against `has_recording=1`. If they differ the call log view needs to be `Detailed`. |
+| TELUS retention period | Pull a long window (`--days 90` with `telus-pull-calllog`), then request recordings for the oldest calls with a job and see from which age `http_404` / `gone` starts. Download before that age, and set `keep_days` knowing it. |
+| Write-scope strictness for a real JWT | `telus-check` (see above) must show `write_capable_scopes: none`; otherwise every job ends with `write_scope_present`. |

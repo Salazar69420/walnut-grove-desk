@@ -105,6 +105,8 @@ def transform(rec: dict, salt: bytes) -> dict | None:
         duration = 0
     direction = DIRECTIONS.get(str(rec.get("direction") or "").strip().lower(), "other")
     rcd = rec.get("recording")
+    rid = rcd.get("id") if isinstance(rcd, dict) else None
+    rid = str(rid) if rid is not None and _ID_RE.match(str(rid)) else None
     return {
         "telus_id": str(tid),
         "start_local": local.isoformat(),
@@ -116,6 +118,7 @@ def transform(rec: dict, salt: bytes) -> dict | None:
         "result": map_result(rec.get("result")),
         "ext_id": _ext_id(rec, direction),
         "has_recording": 1 if isinstance(rcd, dict) and rcd.get("id") is not None else 0,
+        "recording_id": rid,
         "from_hash": _hash_num(salt, rec.get("from")),
         "to_hash": _hash_num(salt, rec.get("to")),
     }
@@ -123,13 +126,13 @@ def transform(rec: dict, salt: bytes) -> dict | None:
 
 UPSERT = """
 INSERT INTO telus_calls(telus_id, start_local, date, hour, weekday, duration, direction, result, ext_id,
-                        has_recording, from_hash, to_hash, synced_at)
+                        has_recording, recording_id, from_hash, to_hash, synced_at)
 VALUES (:telus_id, :start_local, :date, :hour, :weekday, :duration, :direction, :result, :ext_id,
-        :has_recording, :from_hash, :to_hash, :synced_at)
+        :has_recording, :recording_id, :from_hash, :to_hash, :synced_at)
 ON CONFLICT(telus_id) DO UPDATE SET
     start_local=excluded.start_local, date=excluded.date, hour=excluded.hour, weekday=excluded.weekday,
     duration=excluded.duration, direction=excluded.direction, result=excluded.result, ext_id=excluded.ext_id,
-    has_recording=excluded.has_recording, from_hash=excluded.from_hash, to_hash=excluded.to_hash,
+    has_recording=excluded.has_recording, recording_id=excluded.recording_id, from_hash=excluded.from_hash, to_hash=excluded.to_hash,
     synced_at=excluded.synced_at
 """
 
@@ -148,11 +151,13 @@ def _state_set(conn, key, value):
 
 
 def pull(client: ReadOnlyClient, conn, salt: bytes, *, since: datetime | None = None,
-         days: int | None = None, now: datetime | None = None) -> dict:
+         days: int | None = None, now: datetime | None = None, track_state: bool = True) -> dict:
+    """Pull one window of the call log. With track_state=False (the recordings worker) the incremental
+    sync cursor and the in-flight checkpoint are neither read nor written."""
     now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     inflight = None
     raw_inflight = _state_get(conn, STATE_INFLIGHT)
-    if raw_inflight and since is None and days is None:
+    if track_state and raw_inflight and since is None and days is None:
         try:
             d = json.loads(raw_inflight)
             inflight = (d["date_from"], d["date_to"], int(d["next_page"]))
@@ -190,12 +195,13 @@ def pull(client: ReadOnlyClient, conn, salt: bytes, *, since: datetime | None = 
         nav = body.get("navigation") or {}
         paging = body.get("paging") or {}
         more = bool(nav.get("nextPage")) or (isinstance(paging.get("totalPages"), int) and page < paging["totalPages"])
-        if more:  # checkpoint: a later run resumes at the next page of the same window
+        if more and track_state:  # checkpoint: a later run resumes at the next page of the same window
             _state_set(conn, STATE_INFLIGHT, json.dumps({"date_from": date_from, "date_to": date_to,
                                                           "next_page": page + 1}))
         conn.commit()
-    _state_set(conn, STATE_INFLIGHT, None)
-    _state_set(conn, STATE_THROUGH, date_to)
+    if track_state:
+        _state_set(conn, STATE_INFLIGHT, None)
+        _state_set(conn, STATE_THROUGH, date_to)
     conn.commit()
     return {"pages": pages, "records": seen, "skipped": skipped, "resumed": int(resumed)}
 
