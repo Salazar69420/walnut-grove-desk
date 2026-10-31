@@ -179,6 +179,25 @@ def summary_booking(pet: str | None, visit: str, slot_label: str) -> str:
     return f"Wants {visit.lower()}. Asked for {slot_label}."
 
 
+# ---------------------------------------------------------------- staff-reviewed reply drafts (the assistant only suggests; a person sends)
+def reply_answers(first: str, bodies: list[str]) -> Tpl:
+    """Approved clinic knowledge, word for word, in a short wrapper."""
+    body = " ".join(b.strip() for b in bodies if b.strip())
+    return _t(f"Hi {first}, thanks for your message. {body} If there is anything else, just reply here.")
+
+
+def reply_followup(first: str) -> Tpl:
+    return _t(f"Hi {first}, thanks for your message. We want to give you the right answer, so a member of our team will get back to you shortly.")
+
+
+def reply_medical(first: str) -> Tpl:
+    return _t(
+        f"Hi {first}, thanks for letting us know. We cannot give medical advice or medicine amounts by text. "
+        "A member of our veterinary team will call you as soon as they can. If your pet seems to be getting worse, "
+        "please contact an emergency veterinarian."
+    )
+
+
 def all_client_templates() -> list[str]:
     """Static strings, for tests that scan for forbidden words."""
     return [
@@ -187,7 +206,7 @@ def all_client_templates() -> list[str]:
             msg_prompt, done_cb, done_booking_off, done_visit_front_desk, done_change, done_refill, done_msg,
             done_msg_off, advice_refusal, too_long, finished,
         )
-    ]
+    ] + [str(reply_followup("there")), str(reply_medical("there"))]
 
 
 def slot_label(label: str) -> Tpl:

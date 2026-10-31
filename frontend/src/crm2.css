@@ -175,3 +175,12 @@ i.h{background:var(--accent)}i.a{background:var(--vio)}i.m{background:var(--crit
 a.playb{color:var(--acc-t)}
 .callline .cbtns+time{margin-left:0}
 .callplay{width:100%;min-width:0;margin:2px 0 8px}.callplay td{border:0}
+
+/* ---- AI assistant suggestion in the composer ---- */
+.sugg{margin:8px 12px 0;padding:10px 12px;border:1px solid var(--line);border-left:4px solid var(--vio);border-radius:var(--r);background:var(--vio-soft);color:var(--ink);display:flex;flex-direction:column;gap:6px}
+.sugg p{margin:0}.sugg label{display:flex;flex-direction:column;gap:6px;font-weight:600;font-size:13px}.sugg textarea{width:100%;font-weight:400}
+.sg-h{display:flex;align-items:center;gap:8px}
+.sugg.k-emergency{border-left-color:var(--crit);background:var(--crit-soft)}
+.sugg.k-medical{border-left-color:var(--warn);background:var(--warn-soft)}
+.sugg.k-unknown{border-left-color:var(--info);background:var(--info-soft)}
+.sugg.ask{border-left-color:var(--accent);background:var(--panel2)}

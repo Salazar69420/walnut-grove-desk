@@ -14,6 +14,8 @@ const OK_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
 const MAX = 5 * 1024 * 1024
 const bad = (v: string) => v === 'none' || v === 'unsubscribed'
 
+type Sug = { kind: 'answer' | 'emergency' | 'medical' | 'unknown'; draft: string; note: string; sources: { id: number; title: string; kind: string }[]; task: { id: number; title: string } | null }
+
 function soon(h: number) { const d = new Date(Date.now() + h * 3600000); d.setSeconds(0, 0); return d }
 function tomorrow9(days = 1) { const d = new Date(); d.setDate(d.getDate() + days); d.setHours(9, 0, 0, 0); return d }
 
@@ -27,6 +29,9 @@ export function Composer({ contact, tl, onEditConsent }: { contact: Row; tl: TL;
   const [sched, setSched] = useState('')
   const [drag, setDrag] = useState(false)
   const [sending, setSending] = useState(false)
+  const [sug, setSug] = useState<Sug | null>(null)
+  const [suggesting, setSuggesting] = useState(false)
+  const [askText, setAskText] = useState<string | null>(null)
   const [mq, setMq] = useState<{ at: number; q: string } | null>(null)
   const [mi, setMi] = useState(0)
   const ta = useRef<HTMLTextAreaElement>(null)
@@ -51,6 +56,18 @@ export function Composer({ contact, tl, onEditConsent }: { contact: Row; tl: TL;
   const tooBig = len > 2000
   const schedISO = fromLocalInput(sched)
   const empty = !body.trim()
+  async function suggest(typed?: string) {
+    setSuggesting(true)
+    try {
+      const r = await api<Sug>(`/contacts/${contact.id}/suggest-reply`, { method: 'POST', body: typed ? { text: typed } : {}, quiet: true })
+      setSug(r); setAskText(null)
+      if (!body.trim() && mode !== 'note') { setBody(r.draft); window.setTimeout(() => ta.current?.focus(), 0) }
+    } catch (x) {
+      if (x instanceof ApiError && x.status === 409 && /no message/i.test(x.message)) setAskText(typed ?? '')
+      else toast(x instanceof ApiError && x.message && x.message !== 'error' ? x.message : 'Could not get a suggestion. Try again.')
+    }
+    setSuggesting(false)
+  }
   const canSend = !blocked && !empty && !tooBig && !sending && !uploading && !(mode === 'email' && subject.length > 150)
   const hint = /Mac|iPhone|iPad/.test(navigator.platform) ? 'Cmd Enter' : 'Ctrl Enter'
 
@@ -160,6 +177,22 @@ export function Composer({ contact, tl, onEditConsent }: { contact: Row; tl: TL;
           </div>
         )}
       </div>
+      {askText !== null && (
+        <div className="sugg ask"><label>What did {fn} say? Type it and the assistant will draft a reply.
+          <textarea value={askText} onChange={(e) => setAskText(e.target.value)} rows={2} maxLength={1500} placeholder={`For example: "Do you take walk-ins on Saturday?"`} /></label>
+          <div className="rowbtn"><button className="btn small" onClick={() => setAskText(null)}>Cancel</button><button className="btn small primary" disabled={askText.trim().length < 2 || suggesting} onClick={() => suggest(askText.trim())}>Suggest a reply</button></div></div>
+      )}
+      {sug && (
+        <div className={'sugg k-' + sug.kind} role="status">
+          <div className="sg-h"><Icon n="sparkle" size={15} /><b>{sug.kind === 'emergency' ? 'Possible emergency' : sug.kind === 'medical' ? 'Medical question, no advice given' : sug.kind === 'unknown' ? 'No approved answer yet' : 'Suggested reply'}</b><span className="spacer" />
+            <button className="ibtn sm" aria-label="Dismiss the suggestion" onClick={() => setSug(null)}><Icon n="x" size={14} /></button></div>
+          <p>{sug.note}</p>
+          {sug.sources.length > 0 && <p className="small mute">From approved knowledge: {sug.sources.map((x) => x.title).join(', ')}</p>}
+          {sug.task && <p className="small"><b>Task raised:</b> {sug.task.title}</p>}
+          {body.trim() !== sug.draft && <div className="rowbtn"><button className="btn small" onClick={() => { setBody(sug.draft); ta.current?.focus() }}>Use this draft</button></div>}
+          <p className="small mute">A draft only. Nothing is sent until you press Send.</p>
+        </div>
+      )}
       {(atts.length > 0 || schedISO) && (
         <div className="comp-chips">
           {atts.map((a) => (
@@ -174,6 +207,7 @@ export function Composer({ contact, tl, onEditConsent }: { contact: Row; tl: TL;
             <input ref={file} type="file" hidden multiple accept="image/jpeg,image/png,image/webp,application/pdf" onChange={(e) => { if (e.target.files) upload([...e.target.files]); e.target.value = '' }} />
             <button className="btn ghost" onClick={() => file.current?.click()} disabled={blocked}><Icon n="clip" size={16} /> Attach</button>
             <SchedulePop value={sched} onChange={setSched} disabled={blocked} />
+            <button className="btn ghost" onClick={() => suggest()} disabled={suggesting || !contact.ai_enabled} title={contact.ai_enabled ? 'Draft a reply from approved clinic knowledge' : 'Turn on the AI assistant for this person to get suggestions'}><Icon n="sparkle" size={16} /> {suggesting ? 'Thinking' : 'Suggest reply'}</button>
           </>
         )}
         <span className="spacer" />
