@@ -141,7 +141,7 @@ def transcribe_audio(cfg: dict[str, Any], audio: bytes, ext: str) -> str:
 
 
 def analyse(cfg: dict[str, Any], transcript: str, when: str = "") -> dict[str, Any]:
-    content = _post(cfg, {"model": cfg["model"], "temperature": 0.1, "max_tokens": 900,
+    content = _post(cfg, {"model": cfg["model"], "temperature": 0.1, "max_tokens": 2000,
                           "messages": [{"role": "system", "content": ANALYSE_PROMPT},
                                        {"role": "user", "content": (f"Call date: {when} (Vancouver time)\n\n" if when else "") + "Transcript:\n" + transcript[:24000]}],
                           "response_format": {"type": "json_schema", "json_schema": {"name": "call_summary", "strict": True, "schema": SCHEMA}}})
