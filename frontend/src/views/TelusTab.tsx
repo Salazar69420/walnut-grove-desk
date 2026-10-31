@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api } from '../api/client'
+import { api, ApiError } from '../api/client'
 import { useApp } from '../ctx'
 import { Loading } from '../components/bits'
 
@@ -206,6 +206,7 @@ export function TelusTab() {
         )}
       </section>
 
+      <TextingPanel />
       <section className="card">
         <h2>Storage</h2>
         <div className="setrow"><b>Recordings saved</b><span>{st?.storage.recordings_count ?? 0}</span></div>
@@ -215,5 +216,43 @@ export function TelusTab() {
       </section>
       {error && <p className="note">Could not refresh just now. It will try again.</p>}
     </>
+  )
+}
+
+
+type SmsView = { mode: 'practice' | 'test_numbers_only' | 'live'; test_numbers: string[]; bridge_ok: boolean; sender_ready: boolean; live_phrase: string }
+
+/** Texting mode: practice (nothing leaves the server), test numbers only, or live. The send helper enforces it again on its side. */
+function TextingPanel() {
+  const { toast, refreshMe } = useApp()
+  const [v, setV] = useState<SmsView | null>(null)
+  const [mode, setMode] = useState<SmsView['mode']>('practice')
+  const [nums, setNums] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [busy, setBusy] = useState(false)
+  const load = () => api<SmsView>('/admin/sms', { quiet: true }).then((r) => { setV(r); setMode(r.mode); setNums(r.test_numbers.join(', ')) }).catch(() => {})
+  useEffect(() => { load() }, [])
+  async function save() {
+    setBusy(true)
+    try {
+      const r = await api<SmsView>('/admin/sms', { method: 'PUT', body: { mode, test_numbers: nums.split(/[,\n]/).map((x) => x.trim()).filter(Boolean), confirm: confirm || null }, quiet: true })
+      setV(r); setNums(r.test_numbers.join(', ')); setConfirm(''); toast('Texting mode saved'); refreshMe()
+    } catch (x) { toast(x instanceof ApiError && x.message && x.message !== 'error' ? x.message : 'Not saved.') }
+    setBusy(false)
+  }
+  if (!v) return null
+  return (
+    <section className="card">
+      <h2>Texting</h2>
+      <p className="note">Practice: nothing leaves the server. Test numbers only: only the numbers below get real texts, everyone else stays in practice. Live: anyone who has agreed to texts. Campaigns always stay in practice.</p>
+      <div className="setrow"><b>Sending helper</b><span>{v.sender_ready ? 'Ready' : 'Not set up yet'}</span></div>
+      <div className="setrow"><b>Mode</b>
+        <select value={mode} onChange={(e) => setMode(e.target.value as SmsView['mode'])} aria-label="Texting mode">
+          <option value="practice">Practice (nothing is sent)</option><option value="test_numbers_only">Test numbers only</option><option value="live">Live</option>
+        </select></div>
+      <label className="setrow"><b>Test numbers</b><input value={nums} onChange={(e) => setNums(e.target.value)} placeholder="548 332 1610" aria-label="Test numbers, separated by commas" /></label>
+      {mode === 'live' && v.mode !== 'live' && <label className="setrow"><b>Type {v.live_phrase}</b><input value={confirm} onChange={(e) => setConfirm(e.target.value)} aria-label="Confirm live texting" /></label>}
+      <div className="rowbtn"><button className="btn primary" disabled={busy} onClick={save}>Save texting mode</button></div>
+    </section>
   )
 }

@@ -123,7 +123,7 @@ class Message(Base):
         CheckConstraint("channel in ('sms','email','call')", name="channel"),
         CheckConstraint("direction in ('in','out')", name="direction"),
         CheckConstraint("sender_kind in ('client','staff','ai')", name="sender_kind"),
-        CheckConstraint("delivery_state in ('received','dry_run','scheduled_dry_run')", name="delivery_state"),
+        CheckConstraint("delivery_state in ('received','dry_run','scheduled_dry_run','queued','sent','failed')", name="delivery_state"),
         Index("ix_messages_contact_id_created_at", "contact_id", "created_at"),
     )
 
@@ -138,6 +138,9 @@ class Message(Base):
     delivery_state: Mapped[str] = mapped_column(String(20), default="received")
     # For a call line: the phone call it describes (transcript and recording buttons).
     phone_call_id: Mapped[int | None] = mapped_column(Integer, index=True)
+    # Real sending: the sender's job id (to find its result file) and a fixed failure code.
+    send_job_id: Mapped[str | None] = mapped_column(String(32))
+    delivery_code: Mapped[str | None] = mapped_column(String(24))
     scheduled_for: Mapped[datetime | None] = mapped_column(UTCDateTime)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     is_demo: Mapped[bool] = mapped_column(Boolean, default=False)

@@ -65,3 +65,17 @@ def is_write_capable(scope: str) -> bool:
     if not scope.startswith("Read"):
         return True
     return any(w in low for w in WRITE_WORDS)
+
+
+# ---------------------------------------------------------------------------- sending (separate client, separate credentials)
+SMS_PATH = f"{ACCT}/extension/~/sms"
+RINGOUT_PATH = f"{ACCT}/extension/~/ring-out"
+PHONE_NUMBERS_PATH = f"{ACCT}/extension/~/phone-number"
+
+# The ONLY two paths the send client may POST to (besides the token path). Exact match.
+SEND_POST_PATHS = (SMS_PATH, RINGOUT_PATH)
+SEND_GET_ALLOWLIST = [re.compile(p) for p in (
+    re.escape(PHONE_NUMBERS_PATH),                       # find the extension's SMS-capable number
+    re.escape(RINGOUT_PATH) + f"/{_ID}",                 # status of a call started with RingOut
+    re.escape(MESSAGE_STORE_PATH) + f"/{_ID}",           # delivery status of one text
+)]

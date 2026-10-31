@@ -68,6 +68,10 @@ export function Composer({ contact, tl, onEditConsent }: { contact: Row; tl: TL;
     }
     setSuggesting(false)
   }
+  const smsMode = me?.settings.sms_mode || 'practice'
+  const realText = mode === 'sms' && !!contact.phone && (smsMode === 'live' || (smsMode === 'test_numbers_only' && (me?.settings.sms_test_numbers || []).includes(contact.phone)))
+  const smsLine = realText ? `This text is really sent through TELUS to ${contact.phone_display || contact.phone}.`
+    : smsMode === 'test_numbers_only' ? 'Test mode: only the test numbers get real texts. This one is practice.' : 'Practice mode: nothing is really sent.'
   const canSend = !blocked && !empty && !tooBig && !sending && !uploading && !(mode === 'email' && subject.length > 150)
   const hint = /Mac|iPhone|iPad/.test(navigator.platform) ? 'Cmd Enter' : 'Ctrl Enter'
 
@@ -216,7 +220,7 @@ export function Composer({ contact, tl, onEditConsent }: { contact: Row; tl: TL;
           {mode === 'note' ? 'Add note' : schedISO ? 'Schedule' : 'Send'} <kbd>{hint}</kbd>
         </button>
       </div>
-      <p className="practice">{mode === 'note' ? 'Only your team can see notes. Type @ to tell a colleague.' : 'Practice mode: nothing is really sent.'}</p>
+      <p className={'practice' + (realText ? ' real' : '')}>{mode === 'note' ? 'Only your team can see notes. Type @ to tell a colleague.' : mode === 'email' ? 'Practice mode: emails are not really sent.' : smsLine}</p>
       {drag && <div className="dropv"><Icon n="clip" size={22} /> Drop files to attach them</div>}
     </div>
   )

@@ -122,4 +122,7 @@ def put(db: Session, key: str, value: Any, by: str = "") -> None:
 def public(db: Session) -> dict[str, Any]:
     """The bits every signed-in user sees in /api/auth/me."""
     s = get_all(db)
-    return {"clinic_name": s["clinic_name"], "banner_on": bool(s["banner_on"])}
+    mode = get_raw(db, "sms_mode", "practice")
+    nums = get_raw(db, "sms_test_numbers", [])
+    return {"clinic_name": s["clinic_name"], "banner_on": bool(s["banner_on"]), "sms_mode": mode if mode in ("practice", "test_numbers_only", "live") else "practice",
+            "sms_test_numbers": [n for n in nums if isinstance(n, str)][:20]}

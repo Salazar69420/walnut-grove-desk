@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import Attachment, Contact, Message, Outbox, User
-from app.services import crm
+from app.services import crm, sms_mode
 from app.services import events as ev
 from app.services import timeutil
 
@@ -71,6 +71,7 @@ def send_to_contact(
     scheduled_for: datetime | None = None,
     attachment_ids: list[int] | None = None,
     sender_kind: str = "staff",
+    force_practice: bool = False,
 ) -> Message:
     """Create a dry-run message. Raises CrmError(409) when consent or the address is missing."""
     problem = consent_problem(contact, channel)
@@ -82,16 +83,24 @@ def send_to_contact(
             raise crm.CrmError(400, "Pick a time in the future for a scheduled message.")
         if (scheduled_for - now).days > MAX_SCHEDULE_DAYS:
             raise crm.CrmError(400, "Scheduled messages can be at most a year away.")
+    # A text really goes out only in test or live mode (see services/sms_mode.py), never from a campaign, never scheduled.
+    real = channel == "sms" and not force_practice and sms_mode.is_real_target(db, contact.phone)
+    if real and scheduled_for is not None:
+        raise crm.CrmError(409, "Scheduled texts are not available while real sending is on.")
+    if real and attachment_ids:
+        raise crm.CrmError(409, "Attachments cannot be sent by text yet.")
     msg = Message(
         contact_id=contact.id, channel=channel, direction="out", sender_kind=sender_kind,
         sender_user_id=user.id if user else None, subject=(subject or "")[:150] if channel == "email" else "",
-        body=body, delivery_state="scheduled_dry_run" if scheduled_for else "dry_run", scheduled_for=scheduled_for, created_at=now,
+        body=body, delivery_state="queued" if real else "scheduled_dry_run" if scheduled_for else "dry_run", scheduled_for=scheduled_for, created_at=now,
     )
     db.add(msg)
     db.flush()
+    if real:
+        msg.send_job_id = sms_mode.request_send("sms", contact.phone, body, user)  # raises (and nothing is saved) if the helper is not set up
     link_attachments(db, contact.id, attachment_ids or [], message_id=msg.id)
     out_body = f"Subject: {msg.subject}\n\n{body}" if channel == "email" and msg.subject else body
-    db.add(Outbox(channel=channel, to_label=contact.display_name[:160], body=out_body, status="would_send",
+    db.add(Outbox(channel=channel, to_label=contact.display_name[:160], body=out_body, status="queued" if real else "would_send",
                   source_type="message", source_id=str(msg.id), created_by=user.display_name if user else "AI assistant",
                   created_at=now))
     crm.log_access(db, user, contact.id, "send", detail=channel)
@@ -99,8 +108,8 @@ def send_to_contact(
     word = "text" if channel == "sms" else "email"
     who = user.display_name if user else "The assistant"
     ev.record(
-        db, ev.CONVERSATIONS, "message_scheduled" if scheduled_for else "message_queued",
-        f"{who} {'scheduled' if scheduled_for else 'sent'} a {word} (practice mode)", user or "AI assistant", "message", msg.id,
+        db, ev.CONVERSATIONS, "message_scheduled" if scheduled_for else "message_queued" if real else "message_practice",
+        f"{who} {'scheduled' if scheduled_for else 'sent'} a {word}" + ("" if real else " (practice mode)"), user or "AI assistant", "message", msg.id,
         {"contact_id": contact.id, "channel": channel},
     )
     ev.queue_publish(db, "contacts", contact.id, None)

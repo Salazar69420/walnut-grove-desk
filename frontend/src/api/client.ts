@@ -2,7 +2,7 @@ export type Me = {
   user: { id: number; username: string; display_name: string; title: string; initials: string; role: 'owner' | 'desk' | 'nurse'; is_admin: boolean; must_change_password: boolean }
   perms: string[]
   csrf_token: string
-  settings: { clinic_name: string; banner_on: boolean }
+  settings: { clinic_name: string; banner_on: boolean; sms_mode?: 'practice' | 'test_numbers_only' | 'live'; sms_test_numbers?: string[] }
 }
 
 let csrf = ''

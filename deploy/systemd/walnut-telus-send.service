@@ -1,0 +1,27 @@
+[Unit]
+Description=TELUS send helper: texts (and RingOut calls) the web app asked for, with the separate send credentials
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=20
+
+[Service]
+Type=oneshot
+User=walnut-pipeline
+Group=walnut-pipeline
+SupplementaryGroups=walnut-telus
+UMask=0007
+WorkingDirectory=/opt/walnut-desk
+ExecStart=/opt/walnut-desk/pipeline/.venv/bin/python -m pipeline telus-send-worker
+TimeoutStartSec=10min
+# hardening: may write only the private store (send log, credentials) and the bridge folder
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/walnut-private /var/lib/walnut-desk-telus
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true

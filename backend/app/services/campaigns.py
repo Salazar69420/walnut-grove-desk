@@ -169,6 +169,7 @@ def run_dry(db: Session, camp: Campaign, user: User) -> dict[str, Any]:
                 msg = sender.send_to_contact(
                     db, c, user, channel=camp.channel, body=render(db, camp.body, c, name, camp.channel, footer=True),
                     subject=render(db, camp.subject, c, name, camp.channel, footer=False) if camp.channel == "email" else "",
+                    force_practice=True,  # campaigns never send for real
                 )
                 msg_id, state, sent = msg.id, "dry_run_sent", sent + 1
             except crm.CrmError:

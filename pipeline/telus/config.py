@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 from . import endpoints
 
 CRED_REL = os.path.join("telus", "credentials.env")
+SEND_REL = os.path.join("telus", "credentials-send.env")  # a different TELUS app, allowed to send texts and start calls
 KEYS = ("TELUS_ENV", "TELUS_SERVER_URL", "TELUS_CLIENT_ID", "TELUS_CLIENT_SECRET", "TELUS_JWT")
 SECRET_KEYS = ("TELUS_CLIENT_ID", "TELUS_CLIENT_SECRET", "TELUS_JWT")
 ENVS = ("sandbox", "production")
@@ -94,8 +95,39 @@ def check_file_safety(path: str) -> None:
             f"credentials file mode is {stat.S_IMODE(st.st_mode):o}, must be 600 (chmod 600 on it)")
 
 
-def load_credentials(root: str) -> Credentials:
-    path = credentials_path(root)
+def send_credentials_path(root: str) -> str:
+    return os.path.join(root, SEND_REL)
+
+
+def load_send_credentials(root: str) -> Credentials:
+    return load_credentials(root, path=send_credentials_path(root))
+
+
+def copy_current_to_send(root: str, force: bool = False) -> str:
+    """Copy the existing credentials file to the send file without displaying anything (mode 600, atomic)."""
+    src, dst = credentials_path(root), send_credentials_path(root)
+    check_file_safety(src)
+    if os.path.lexists(dst) and not force:
+        raise TelusConfigError("send credentials already exist (use --force to replace them)")
+    with open(src, "rb") as f:
+        data = f.read()
+    old = os.umask(0o077)
+    try:
+        tmp = os.path.join(os.path.dirname(dst), f".credentials-send.{os.getpid()}.tmp")
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, dst)
+    finally:
+        os.umask(old)
+    return dst
+
+
+def load_credentials(root: str, path: str | None = None) -> Credentials:
+    path = path or credentials_path(root)
     check_file_safety(path)
     with open(path, "r", encoding="utf-8") as f:
         env = parse_env_text(f.read())

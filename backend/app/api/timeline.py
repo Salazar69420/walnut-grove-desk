@@ -13,7 +13,7 @@ from app.api.schemas import Strict
 from app.db import get_db
 from app.models import Attachment, Contact, Message, Note, NoteMention, Pet, PhoneCall, Reminder, Task, User, Visit
 from app.security.auth import require
-from app.services import crm
+from app.services import crm, sms_mode
 from app.services import events as ev
 from app.services import sender, timeutil
 
@@ -105,7 +105,7 @@ def build_items(db: Session, contact: Contact, *, messages: list[Message] = (), 
         out.append({
             "id": m.id, "type": "message", "channel": m.channel, "direction": m.direction,
             "sender": _sender_dict(m.sender_kind, users.get(m.sender_user_id), contact), "subject": m.subject, "body": m.body,
-            "at": timeutil.iso(m.created_at), "delivery_state": m.delivery_state, "scheduled_for": timeutil.iso(m.scheduled_for),
+            "at": timeutil.iso(m.created_at), "delivery_state": m.delivery_state, "delivery_code": m.delivery_code, "scheduled_for": timeutil.iso(m.scheduled_for),
             "attachments": atts_by_msg.get(m.id, []), "mentions": [], "meta": {"call": calls[m.phone_call_id]} if m.phone_call_id in calls else {},
         })
     for n in notes:
@@ -175,6 +175,8 @@ def timeline(
     if channel == "all":
         visits = limited(Visit, Visit.visited_at)
         tasks = limited(Task, Task.created_at)
+    if sms_mode.refresh(db, msgs):  # texts the sender has finished since the page last looked
+        ev.queue_publish(db, "messages", c.id, None)
     merged = build_items(db, c, messages=msgs, notes=notes, visits=visits, tasks=tasks)
     more = len(merged) > limit
     items = merged[:limit]

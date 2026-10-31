@@ -45,6 +45,13 @@ export function useTimeline(cid: number, channel: string) {
     const offs = ['messages', 'tasks', 'contacts'].map((e) => onEntity(e, f))
     return () => { clearTimeout(t); offs.forEach((o) => o()) }
   }, [refresh])
+  // a text that is being sent: check every two seconds until the helper has answered (the server folds its result in)
+  const sending = items.some((i) => i.delivery_state === 'queued')
+  useEffect(() => {
+    if (!sending) return
+    const t = window.setInterval(refresh, 2000)
+    return () => window.clearInterval(t)
+  }, [sending, refresh])
   const loadOlder = useCallback(async () => {
     const nb = nextRef.current
     if (!nb || older) return false
@@ -89,11 +96,21 @@ function Attachments({ list }: { list: TItem['attachments'] }) {
   return <div className="atts">{list.map((a) => <a key={a.id} className="achip" href={`/api/attachments/${a.id}`} download><Icon n="clip" size={14} /><span className="ell">{a.filename}</span><small>{bytes(a.bytes)}</small></a>)}</div>
 }
 
+const FAIL_TEXT: Record<string, string> = {
+  practice_mode: 'Texting is in practice mode.', not_allowed_number: 'This number is not on the test list.', rate_limited_local: 'Too many texts this hour.',
+  not_configured: 'The sending login is not set up.', login_failed: 'TELUS did not accept the sending login.', no_permission: 'The sending login may not send texts.',
+  no_sms_number: 'The clinic has no text-capable number.', rejected: 'TELUS refused this text.', rate_limited: 'TELUS asked us to slow down.',
+  sender_not_running: 'The sending helper did not answer.', error: 'The text could not be sent.',
+}
 function deliveryText(it: TItem): string | null {
   if (it.delivery_state === 'scheduled_dry_run') return `Scheduled for ${exact(it.scheduled_for)}. Practice only, nothing is sent.`
   if (it.delivery_state === 'dry_run') return 'Practice, not really sent'
+  if (it.delivery_state === 'queued') return 'Sending through TELUS'
+  if (it.delivery_state === 'sent') return 'Sent through TELUS'
+  if (it.delivery_state === 'failed') return 'Not sent. ' + (FAIL_TEXT[it.delivery_code || ''] || FAIL_TEXT.error)
   return null
 }
+const DELIVERY_TAG: Record<string, string> = { scheduled_dry_run: 'Scheduled', dry_run: 'Practice', queued: 'Sending', sent: 'Sent', failed: 'Not sent' }
 
 export function Item({ it, contact }: { it: TItem; contact: Row }) {
   if (it.type === 'visit' || it.type === 'task') {
@@ -128,7 +145,8 @@ export function Item({ it, contact }: { it: TItem; contact: Row }) {
           {ai ? <span className="aitag"><Icon n="sparkle" size={12} /> AI assistant</span> : <span>{out ? it.sender?.name : it.sender?.name || contact.display_name}</span>}
           <span aria-hidden="true">·</span><span>{it.channel === 'email' ? 'Email' : 'Text'}</span>
           <span aria-hidden="true">·</span>{it.pending ? <span>Sending</span> : <Clock iso={it.at} />}
-          {dt && <span className="dry" title={dt}>{it.delivery_state === 'scheduled_dry_run' ? 'Scheduled' : 'Practice'}</span>}
+          {dt && <span className={'dry d-' + it.delivery_state} title={dt}>{DELIVERY_TAG[it.delivery_state || ''] || 'Practice'}</span>}
+          {it.delivery_state === 'failed' && <span className="dfail">{dt}</span>}
         </div>
       </div>
     </div>

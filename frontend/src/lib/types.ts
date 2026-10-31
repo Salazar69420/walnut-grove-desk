@@ -34,7 +34,7 @@ export type Detail = {
 export type TItem = {
   id: number | string; type: 'message' | 'note' | 'visit' | 'task'; channel: string | null; direction: string | null
   sender: { kind: string; name: string; initials: string } | null
-  subject: string | null; body: string | null; at: string; delivery_state: string | null; scheduled_for: string | null
+  subject: string | null; body: string | null; at: string; delivery_state: string | null; delivery_code?: string | null; scheduled_for: string | null
   attachments: { id: number; filename: string; mime: string; bytes: number }[]
   mentions: { id: number; display_name: string }[]
   meta?: { call?: { id: number; has_recording: boolean; has_transcript: boolean; seconds: number } }

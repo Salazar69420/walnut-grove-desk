@@ -184,3 +184,10 @@ a.playb{color:var(--acc-t)}
 .sugg.k-medical{border-left-color:var(--warn);background:var(--warn-soft)}
 .sugg.k-unknown{border-left-color:var(--info);background:var(--info-soft)}
 .sugg.ask{border-left-color:var(--accent);background:var(--panel2)}
+
+/* ---- real texting ---- */
+.practice.real{background:var(--ok-soft);color:var(--ok-t)}
+.dry.d-queued{background:var(--info-soft);color:var(--info-t)}
+.dry.d-sent{background:var(--ok-soft);color:var(--ok-t)}
+.dry.d-failed{background:var(--crit-soft);color:var(--crit-t)}
+.dfail{flex-basis:100%;color:var(--crit-t);font-size:12px}

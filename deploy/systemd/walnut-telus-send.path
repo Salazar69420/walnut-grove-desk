@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch for texts the web app wants sent
+
+[Path]
+PathExistsGlob=/var/lib/walnut-desk-telus/send/requests/*.json
+Unit=walnut-telus-send.service
+
+[Install]
+WantedBy=multi-user.target

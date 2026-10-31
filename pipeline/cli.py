@@ -94,6 +94,12 @@ def build_parser() -> argparse.ArgumentParser:
     s = add("telus-match", "compare a transcripts CSV with the TELUS call log, counts only (--csv)")
     s.add_argument("--export", help="also write direction and result per matched recording to this file (for the app importer)")
 
+    s = add("telus-send-worker", "send the texts and start the calls the web app asked for (separate send credentials)")
+    s.add_argument("--bridge", default="/var/lib/walnut-desk-telus", help="bridge folder shared with the app")
+    s = add("telus-send-setup", "copy the current TELUS credentials to the separate send credentials file (shows nothing)")
+    s.add_argument("--force", action="store_true")
+    add("telus-send-check", "log in with the send credentials and say which send permissions it has (no numbers)")
+
     s = add("telus-messages-probe", "count SMS and voicemail in the TELUS message store (counts only)")
     s.add_argument("--days", type=int, default=120)
 
@@ -162,6 +168,43 @@ def main(argv: list[str] | None = None) -> int:
             print("error: --days must be between 1 and 90", file=sys.stderr)
             return 2
         return worker.Worker(paths.root, args.bridge, paths.db, paths.salt).run_sync_command(args.days)
+    if cmd == "telus-send-worker":
+        from .telus import send_worker
+        return send_worker.run(paths.root, args.bridge)
+    if cmd == "telus-send-setup":
+        from .telus import config as tcfg
+        try:
+            dst = tcfg.copy_current_to_send(paths.root, args.force)
+        except (tcfg.TelusConfigError, OSError) as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
+        print(f"send credentials stored at {dst} (mode 600). Nothing was displayed.")
+        return 0
+    if cmd == "telus-send-check":
+        from .telus import config as tcfg
+        from .telus import endpoints as ep
+        from .telus.send_client import SendClient
+        from .telus.client import TelusError
+        try:
+            creds = tcfg.load_send_credentials(paths.root)
+            with SendClient(creds) as c:
+                c.login()
+                have = set(c.scopes)
+                print(f"environment: {creds.env}")
+                for need in ("SMS", "RingOut", "VoipCalling", "ReadAccounts"):
+                    print(f"{need}: {'present' if need in have else 'missing'}")
+                extra = sorted(x for x in have if x not in ("SMS", "RingOut", "ReadAccounts"))
+                print(f"other_permissions_on_this_app: {len(extra)} (the sender cannot use them: its allowlist is two POST paths)")
+                try:
+                    body = c.get(ep.PHONE_NUMBERS_PATH, {"perPage": 100})
+                    ok = any("SmsSender" in (r.get("features") or []) for r in body.get("records") or [])
+                    print(f"sms_capable_number_found: {'yes' if ok else 'no'}")
+                except TelusError:
+                    print("sms_capable_number_found: could not check")
+        except (tcfg.TelusConfigError, TelusError) as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
+        return 0
     if cmd == "telus-messages-probe":
         from .telus import config as tcfg
         from .telus import messages as tmsg

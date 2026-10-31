@@ -117,7 +117,7 @@ def test_settings_get_put(env, garg, priya):
     r = garg.put("/api/admin/settings", {"settings": {"clinic_name": "Maple Street Vets", "banner_on": False, "wording.opening": {"a": 1}}})
     assert r.status_code == 200 and r.json()["settings"]["banner_on"] is False
     me = priya.get("/api/auth/me").json()
-    assert me["settings"] == {"clinic_name": "Maple Street Vets", "banner_on": False}
+    assert me["settings"] == {"clinic_name": "Maple Street Vets", "banner_on": False, "sms_mode": "practice", "sms_test_numbers": []}
     assert garg.put("/api/admin/settings", {"settings": {"banner_on": "yes"}}).status_code == 400
     assert garg.put("/api/admin/settings", {"settings": {"clinic_name": ""}}).status_code == 400
     assert garg.put("/api/admin/settings", {"settings": {"Bad Key!": 1}}).status_code == 400
