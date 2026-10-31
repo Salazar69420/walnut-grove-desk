@@ -47,7 +47,7 @@ PROGRESS_EVERY = 10
 FILE_SLEEP = 1.0                     # polite pause between recordings
 MAX_CONSECUTIVE_FAILURES = 10
 PLAY_DIR = "play"                    # inside the bridge folder: short-lived audio the app streams to owners
-PLAY_TTL = 3600                      # seconds a played recording stays in the bridge before it is deleted
+PLAY_TTL = 900                       # seconds a played recording stays in the bridge before it is deleted (15 minutes)
 PLAY_CODES = ("ready", "recordings_disabled", "not_configured", "login_failed", "write_scope_present",
               "disk_cap_reached", "disk_low", "rate_limited", "not_found", "error")
 _PLAY_FILE = re.compile(r"^\.?[0-9]{1,24}\.[A-Za-z0-9._-]{1,30}$")
@@ -583,6 +583,7 @@ class Worker:
         if not s.recordings_enabled:
             return "recordings_disabled", "", 0
         src = self._find_stored(rid)
+        fetched_now = src is None  # a recording fetched only to be played is not kept in the private store afterwards
         if src is None:
             with ExitStack() as stack:
                 client, code = self._session(stack)
@@ -633,6 +634,11 @@ class Worker:
                 fout.write(chunk)
         os.chmod(tmp, 0o660)
         os.replace(tmp, os.path.join(d, f"{rid}.{ext}"))
+        if fetched_now:
+            recordings.secure_delete(src)
+            with _closing(dbm.connect(self.db_path, create=True)) as conn:
+                conn.execute("DELETE FROM telus_recordings WHERE recording_id=? AND telus_id='play'", (rid,))
+                conn.commit()
         return "ready", ext, n
 
     # -------------------------------------------------------------- mode: check

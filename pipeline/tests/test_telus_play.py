@@ -9,7 +9,7 @@ import time
 import pytest
 
 from test_telus_recordings import (  # noqa: F401  (fixtures and helpers shared with the recordings tests)
-    FakeTelus, _lots_of_disk, _restore_write_status, body_for, env, make_worker, read_status, rec_files, run, write_cfg, write_req,
+    FakeTelus, _lots_of_disk, _restore_write_status, body_for, db_rows, env, make_worker, read_status, rec_files, run, write_cfg, write_req,
 )
 import httpx
 
@@ -36,7 +36,8 @@ def test_play_fetches_one_recording_and_leaves_it_for_the_app(env):
     assert open(audio, "rb").read() == body_for(RID)
     assert stat.S_IMODE(os.stat(audio).st_mode) == 0o660
     assert len(rc.content_gets()) == 1 and all(m == "GET" or m == "POST" for m, *_ in rc.log)
-    assert any(RID in f for f in rec_files(env))  # also kept in the private store
+    assert rec_files(env) == []  # nothing is kept in the private store: only the short-lived playback copy exists
+    assert db_rows(env, "select * from telus_recordings") == []
     assert not os.path.exists(os.path.join(env.bridge, "requests", "c" * 32 + ".json"))
     assert all(RID not in w for w in env.writes)  # recording ids never reach status.json
 
@@ -51,7 +52,7 @@ def test_play_is_refused_when_recordings_are_off_and_telus_is_not_touched(env):
     assert rc.log == [] and not os.path.exists(os.path.join(env.bridge, "play", f"{RID}.mp3"))
 
 
-def test_second_play_uses_the_stored_copy(env):
+def test_a_second_play_downloads_again_because_nothing_is_kept(env):
     rc = FakeTelus(1)
     write_cfg(env)
     play_req(env)
@@ -59,8 +60,23 @@ def test_second_play_uses_the_stored_copy(env):
     os.unlink(os.path.join(env.bridge, "play", f"{RID}.mp3"))
     play_req(env, job="d" * 32)
     make_worker(env, rc).run()
-    assert result(env)["state"] == "ready" and os.path.exists(os.path.join(env.bridge, "play", f"{RID}.mp3"))
-    assert len(rc.content_gets()) == 1  # no second download
+    assert result(env)["state"] == "ready" and len(rc.content_gets()) == 2 and rec_files(env) == []
+
+
+def test_a_recording_already_downloaded_in_bulk_is_reused_and_kept(env):
+    rc = FakeTelus(3)
+    write_cfg(env)
+    write_req(env, job_id="a" * 32, mode="recordings")
+    make_worker(env, rc).run()
+    first = rec_files(env)[0]
+    rid = "4455667788"
+    os.rename(first, os.path.join(os.path.dirname(first), rid + ".mp3"))  # pretend this one was downloaded under a numeric id
+    kept = rec_files(env)
+    before = len(rc.content_gets())
+    play_req(env, rid=rid, job="b" * 32)
+    make_worker(env, rc).run()
+    assert result(env, rid)["state"] == "ready" and len(rc.content_gets()) == before  # no new download
+    assert rec_files(env) == kept  # the admin's bulk download is not deleted
 
 
 def test_a_recording_that_is_gone_reports_not_found(env):
@@ -82,7 +98,7 @@ def test_old_playback_files_are_deleted_and_fresh_ones_kept(env):
     old, fresh = os.path.join(play, "111111.mp3"), os.path.join(play, "222222.mp3")
     for p in (old, fresh):
         open(p, "wb").write(b"x")
-    past = time.time() - 7200
+    past = time.time() - 3600
     os.utime(old, (past, past))
     play_req(env)
     make_worker(env, rc).run()
