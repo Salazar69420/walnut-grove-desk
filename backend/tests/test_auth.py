@@ -187,7 +187,7 @@ def test_security_headers_everywhere(env, priya):
         assert h["x-content-type-options"] == "nosniff"
         assert h["x-frame-options"] == "DENY"
         assert h["referrer-policy"] == "same-origin"
-        assert h["permissions-policy"] == "camera=(), microphone=(), geolocation=()"
+        assert h["permissions-policy"] == "camera=(), microphone=(self), geolocation=()"  # the Assistant's voice button; still no camera or location
 
 
 def test_login_events_in_audit(env, garg):

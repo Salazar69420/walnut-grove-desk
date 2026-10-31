@@ -96,14 +96,32 @@ def knowledge(aid: int, user: User = Depends(require("website.run")), db: Sessio
 
 
 @router.get("/studio")
-def studio_status(user: User = Depends(require("website.run"))):
-    """Is the Content studio (Contento, a separate app on this server) running?"""
-    import httpx
-    try:
-        up = httpx.get("http://127.0.0.1:3100/login", timeout=3.0).status_code < 500
-    except httpx.HTTPError:
-        up = False
-    return {"up": up, "url": "https://contento.77-42-69-194.sslip.io/admin/dashboard"}
+def studio_status(user: User = Depends(require("website.run")), db: Session = Depends(get_db)):
+    """Content studio (Contento): is it running, a fresh sign-in link for the embedded view, and its summary."""
+    from app.services import studio
+    up = studio.is_up()
+    out: dict[str, Any] = {"up": up, "linked": studio.linked(), "url": studio.public_url() + "/admin/dashboard", "embed_url": None, "summary": None}
+    if up:
+        out["embed_url"] = studio.sso_url(user.display_name)
+        out["summary"] = studio.summary()
+        ev.record(db, ev.ADMIN, "content_studio_opened", f"{user.display_name} opened Content studio", user, "setting", "content_studio", publish=False)
+        db.commit()
+    return out
+
+
+@router.post("/studio/share-key")
+def studio_share_key(user: User = Depends(require("admin.settings")), db: Session = Depends(get_db)):
+    """Give Content studio the OpenRouter key Walnut Desk already holds, so it is entered once (never shown)."""
+    from app.assistant import ai
+    from app.services import studio
+    cfg = ai.get_config(db)
+    if not cfg.get("key_enc"):
+        raise HTTPException(status_code=409, detail="Walnut Desk has no OpenRouter key yet (Admin, AI assistant).")
+    if not studio.share_openrouter_key(crypto.decrypt(cfg["key_enc"])):
+        raise HTTPException(status_code=502, detail="Content studio did not accept the key. Is it running?")
+    ev.record(db, ev.ADMIN, "content_studio_key_shared", f"{user.display_name} gave Content studio the OpenRouter key", user, "setting", "content_studio")
+    db.commit()
+    return {"ok": True}
 
 
 class SettingsIn(Strict):
