@@ -274,6 +274,11 @@ Backlog lives in section 7 (known gaps) and section 8 (next steps).
 
 ### 11.4 Journal (newest first)
 
+**2026-10-31 UTC, session 3 (latest): staff assistant with AI tools and confirm-to-change**
+- `app/assistant/staff_agent.py`, routes `POST /api/assistant/chat`, `/api/assistant/proposals/{id}/confirm|cancel`; panel `frontend/src/components/Assistant.tsx`; switch "AI for staff" (`assistant_ai.staff_enabled`, off by default, needs the OpenRouter key). Tools are filtered by the person's permissions; the model can only propose changes (kept 15 minutes in memory, single worker); Confirm re-checks the permission. Fixed: a refused confirm by another person no longer deletes the proposal.
+- Checked the screenshot alarm: the emergency reply answered "My dog ... not able to breathe properly" (correct), not the 24/7 question; the panel shows newest first.
+- Still waiting on the owner: a valid OpenRouter key (the stored old one returns 401), approving knowledge, a read-only TELUS app for playback, the product file. Tests 393 backend, 284 pipeline.
+
 **2026-10-31 UTC, session 3 (latest): booking by text, product suggestions, playback error explained**
 - `app/assistant/booking.py` (bookable hours setting `booking_hours`, free times from those hours minus Calendar events booked or requested, offers 1/2/3, picks create a REQUESTED Calendar event plus a booking task), confirm endpoint `POST /api/calendar/events/{id}/confirm` (can text the client), Calendar panel "Booking by text" (OFF by default; pre-filled Mon-Fri 9:00-17:30, Sat 9:00-13:30, Sun closed from what staff say on calls; owner must check). Order in `replies.suggest`: emergency > medical > booking > AI > rules.
 - `app/assistant/upsell.py`, `products` table, Knowledge & Fees > Products (CSV import, approve one by one, suggestions switch OFF by default): at most one approved pitch when its triggers fit, never in hard moments, not again within `days_between`. The owner said a product file would be provided; it has NOT been received yet.
