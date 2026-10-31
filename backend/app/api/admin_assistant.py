@@ -26,6 +26,7 @@ MODEL_RX = re.compile(r"^[a-z0-9._-]+/[a-z0-9._:-]+$")
 
 class AssistantIn(Strict):
     enabled: bool | None = None
+    staff_enabled: bool | None = None
     model: str | None = Field(default=None, max_length=120)
     api_key: str | None = Field(default=None, min_length=10, max_length=300)
     clear_key: bool = False
@@ -80,6 +81,11 @@ def put_assistant(body: AssistantIn, user: User = Depends(require("admin.setting
             raise HTTPException(status_code=409, detail="Add an OpenRouter API key first.")
         cfg["enabled"] = body.enabled
         changed.append("on" if body.enabled else "off")
+    if body.staff_enabled is not None:
+        if body.staff_enabled and not cfg["key_enc"]:
+            raise HTTPException(status_code=409, detail="Add an OpenRouter API key first.")
+        cfg["staff_enabled"] = body.staff_enabled
+        changed.append("staff AI " + ("on" if body.staff_enabled else "off"))
     ai.save(db, cfg, user.display_name)
     ev.record(db, ev.ADMIN, "assistant_settings_changed", f"{user.display_name} changed the AI assistant: {', '.join(changed) or 'nothing'}", user,
               "setting", ai.KEY, {"changed": changed})

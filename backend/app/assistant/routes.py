@@ -19,9 +19,11 @@ def chips_for(user: User) -> list[list[str]]:
 
 
 @router.get("/chips")
-def chips(user: User = Depends(require("assistant.use"))):
+def chips(user: User = Depends(require("assistant.use")), db: Session = Depends(get_db)):
     g = ref.GREETINGS[user.role].format(name=user.display_name)
-    return {"greeting": g, "chips": [{"key": k, "question": q} for k, q in chips_for(user)]}
+    from app.assistant import staff_agent
+    on = staff_agent.enabled(db)
+    return {"greeting": g, "chips": [{"key": k, "question": q} for k, q in chips_for(user)], "ai": on}
 
 
 class AskBody(Strict):
@@ -46,3 +48,42 @@ def ask(body: AskBody, user: User = Depends(require("assistant.use")), db: Sessi
     answer = HANDLERS[key](db, user)
     db.commit()
     return {"answer": answer}
+
+
+# ---------------------------------------------------------------- AI chat over the clinic's data (when "AI for staff" is on)
+class Turn(Strict):
+    role: str = Field(pattern="^(user|assistant)$")
+    content: str = Field(min_length=1, max_length=4000)
+
+
+class ChatBody(Strict):
+    messages: list[Turn] = Field(min_length=1, max_length=24)
+
+
+@router.post("/chat")
+def chat(body: ChatBody, user: User = Depends(require("assistant.use")), db: Session = Depends(get_db)):
+    from app.assistant import staff_agent
+    from app.services import events as ev
+    if not staff_agent.enabled(db):
+        raise HTTPException(status_code=409, detail="AI for staff is off. An admin turns it on in Admin, AI assistant.")
+    try:
+        out = staff_agent.run(db, user, [m.model_dump() for m in body.messages])
+    except staff_agent.AgentFailed as e:
+        raise HTTPException(status_code=502, detail=f"The AI could not answer just now ({e}). The question buttons still work.")
+    ev.record(db, ev.ADMIN, "staff_assistant_used", f"{user.display_name} asked the staff assistant", user, "setting", "staff_assistant",
+              {"tools": out["tools"], "proposals": len(out["proposals"])}, publish=False)
+    db.commit()
+    return out
+
+
+@router.post("/proposals/{pid}/confirm")
+def confirm_proposal(pid: str, user: User = Depends(require("assistant.use")), db: Session = Depends(get_db)):
+    from app.assistant import staff_agent
+    return {"done": staff_agent.confirm(db, user, pid)}
+
+
+@router.post("/proposals/{pid}/cancel")
+def cancel_proposal(pid: str, user: User = Depends(require("assistant.use"))):
+    from app.assistant import staff_agent
+    staff_agent.cancel(user, pid)
+    return {"ok": True}

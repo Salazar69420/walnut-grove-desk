@@ -86,7 +86,7 @@ class AiFailed(Exception):
 
 # ---------------------------------------------------------------- settings
 def defaults() -> dict[str, Any]:
-    return {"enabled": False, "model": DEFAULT_MODEL, "key_enc": "", "key_last4": None, "deny_data_collection": True, "system_prompt": DEFAULT_PROMPT}
+    return {"enabled": False, "staff_enabled": False, "model": DEFAULT_MODEL, "key_enc": "", "key_last4": None, "deny_data_collection": True, "system_prompt": DEFAULT_PROMPT}
 
 
 def get_config(db: Session) -> dict[str, Any]:
@@ -100,7 +100,7 @@ def get_config(db: Session) -> dict[str, Any]:
 
 
 def public(cfg: dict[str, Any]) -> dict[str, Any]:
-    return {"enabled": bool(cfg["enabled"]), "model": cfg["model"], "has_key": bool(cfg["key_enc"]), "key_last4": cfg["key_last4"],
+    return {"enabled": bool(cfg["enabled"]), "staff_enabled": bool(cfg["staff_enabled"]), "model": cfg["model"], "has_key": bool(cfg["key_enc"]), "key_last4": cfg["key_last4"],
             "deny_data_collection": bool(cfg["deny_data_collection"]), "system_prompt": cfg["system_prompt"], "default_prompt": DEFAULT_PROMPT,
             "rules": RULES}
 

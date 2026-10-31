@@ -202,3 +202,6 @@ a.playb{color:var(--acc-t)}
 .bookhours summary{cursor:pointer;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .bh{border:0;padding:8px 0 0;margin:0;display:flex;flex-direction:column;gap:8px}
 .bh-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.bh-row>b{min-width:150px}.bh-row input[type=time]{width:auto}
+
+.propose{border:1px solid var(--vio);background:var(--vio-soft);border-radius:var(--r);padding:8px 10px;margin-top:8px;display:flex;flex-direction:column;gap:6px}
+.propose p{margin:0}.propose.done{border-color:var(--ok);background:var(--ok-soft)}.propose.cancelled{opacity:.6}.propose.failed{border-color:var(--crit);background:var(--crit-soft)}

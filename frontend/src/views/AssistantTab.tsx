@@ -3,7 +3,7 @@ import { api, ApiError } from '../api/client'
 import { useApp } from '../ctx'
 
 type View = {
-  enabled: boolean; model: string; has_key: boolean; key_last4: string | null; deny_data_collection: boolean
+  enabled: boolean; staff_enabled: boolean; model: string; has_key: boolean; key_last4: string | null; deny_data_collection: boolean
   system_prompt: string; default_prompt: string; rules: string; active_for: string[]; knowledge_count: number; fee_count: number
 }
 type Model = { id: string; name: string; context: number | null; in_per_million: number; out_per_million: number }
@@ -43,6 +43,9 @@ export function AssistantTab() {
         <p className="note">When this is on, the assistant's replies are written by an AI model through OpenRouter, using only knowledge you have approved. Emergencies and medical questions are always answered with fixed text, never by the AI. Every AI reply is checked: it must cite approved knowledge, and every price or time in it must come from that knowledge, or the safe reply is used instead.</p>
         <div className="setrow"><b>AI writing</b>
           <label className="ck"><input type="checkbox" checked={v.enabled} disabled={busy} onChange={(e) => put({ enabled: e.target.checked }, e.target.checked ? 'AI assistant on' : 'AI assistant off')} /> {v.enabled ? 'On' : 'Off (the rules answer)'}</label></div>
+        <div className="setrow"><b>AI for staff</b>
+          <label className="ck"><input type="checkbox" checked={v.staff_enabled} disabled={busy} onChange={(e) => put({ staff_enabled: e.target.checked }, e.target.checked ? 'AI for staff on' : 'AI for staff off')} /> The Assistant panel answers any question about the app's data and can propose changes (staff confirm each one)</label></div>
+        {v.staff_enabled && <p className="note">This sends what staff ask about (names, messages, tasks, appointments) to OpenRouter. Call transcripts, recordings and keys are never sent. Each person only reaches what their role allows.</p>}
         <div className="setrow"><b>Active for</b><span>{v.active_for.length ? v.active_for.join(', ') : 'Nobody yet'} <span className="mute small">(people on the texting test list with their assistant switch on; nobody else's messages are sent to the AI)</span></span></div>
         <div className="setrow"><b>Knowledge it uses</b><span>{v.knowledge_count} approved entries and {v.fee_count} approved fees</span></div>
       </section>
