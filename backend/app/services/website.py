@@ -117,6 +117,29 @@ class _Page(HTMLParser):
         self.text.append(data)
 
 
+LOCAL_TYPES = {"VeterinaryCare", "LocalBusiness", "MedicalBusiness", "AnimalShelter"}
+
+
+def _local_business(blocks: list[str]) -> dict[str, Any] | None:
+    """The first local-business JSON-LD object on the page (for address, phone, hours, geo checks)."""
+    for b in blocks:
+        try:
+            data = json.loads(b)
+        except ValueError:
+            continue
+        stack = data if isinstance(data, list) else [data]
+        while stack:
+            x = stack.pop()
+            if isinstance(x, dict):
+                t = x.get("@type")
+                if set(t if isinstance(t, list) else [t]) & LOCAL_TYPES:
+                    return {k: x.get(k) for k in ("name", "address", "telephone", "openingHoursSpecification", "openingHours", "geo", "url", "hasMap", "sameAs", "image", "priceRange")}
+                stack += [v for v in x.values() if isinstance(v, (dict, list))]
+            elif isinstance(x, list):
+                stack += x
+    return None
+
+
 def _schema_types(blocks: list[str]) -> tuple[list[str], int]:
     types: list[str] = []
     bad = 0
@@ -157,7 +180,11 @@ def fetch_page(client: httpx.Client, url: str) -> dict[str, Any]:
         pass
     types, bad = _schema_types(p.jsonld)
     text = re.sub(r"\s+", " ", " ".join(p.text)).strip()
-    page.update(title=p.title[:200], description=p.meta.get("description", "")[:400], robots=p.meta.get("robots", ""), canonical=p.canonical,
+    phones = sorted({re.sub(r"\D", "", m)[-10:] for m in re.findall(r"\(?\b\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}\b", text)})[:5]
+    page.update(local=_local_business(p.jsonld), phones=phones, postal=sorted(set(re.findall(r"\b[A-Z]\d[A-Z]\s?\d[A-Z]\d\b", text)))[:3],
+                maps_link=any(re.search(r"google\.[a-z.]+/maps|maps\.app\.goo\.gl|g\.page|goo\.gl/maps", h) for h in p.links),
+                question_headings=sum(1 for h in p.text if h.strip().endswith("?")),
+                title=p.title[:200], description=p.meta.get("description", "")[:400], robots=p.meta.get("robots", ""), canonical=p.canonical,
                 lang=p.lang, viewport=bool(p.meta.get("viewport")), og_title=bool(p.meta.get("og:title")), og_description=bool(p.meta.get("og:description")),
                 og_image=bool(p.meta.get("og:image")), h1=p.h1[:5], h2=p.h2, imgs=p.imgs, imgs_no_alt=p.imgs_no_alt, schema=types, schema_errors=bad,
                 words=len(text.split()), text=text[:6000],
@@ -190,11 +217,37 @@ def _sitemap_urls(client: httpx.Client, base: str) -> tuple[list[str], dict[str,
     return urls, info
 
 
+def pagespeed(url: str) -> dict[str, Any]:
+    """Google PageSpeed Insights (mobile): Lighthouse scores and, when Google has enough visits, real-user Core Web Vitals."""
+    out: dict[str, Any] = {}
+    try:
+        r = httpx.get("https://www.googleapis.com/pagespeedonline/v5/runPagespeed", timeout=90.0,
+                      params=[("url", url), ("strategy", "mobile"), ("category", "performance"), ("category", "seo"), ("category", "accessibility"), ("category", "best-practices")])
+        if r.status_code != 200:
+            return {"error": f"http_{r.status_code}"}
+        d = r.json()
+        cats = (d.get("lighthouseResult") or {}).get("categories") or {}
+        out["scores"] = {k: round((v.get("score") or 0) * 100) for k, v in cats.items()}
+        audits = (d.get("lighthouseResult") or {}).get("audits") or {}
+        out["lab"] = {k: (audits.get(a) or {}).get("displayValue") for k, a in (("lcp", "largest-contentful-paint"), ("cls", "cumulative-layout-shift"), ("tbt", "total-blocking-time"), ("fcp", "first-contentful-paint"))}
+        field = (d.get("loadingExperience") or {}).get("metrics") or {}
+        out["field"] = {k: (field.get(m) or {}).get("category") for k, m in (("lcp", "LARGEST_CONTENTFUL_PAINT_MS"), ("inp", "INTERACTION_TO_NEXT_PAINT"), ("cls", "CUMULATIVE_LAYOUT_SHIFT_SCORE"))} if field else {}
+    except (httpx.HTTPError, ValueError):
+        return {"error": "unreachable"}
+    return out
+
+
 def crawl(base: str, max_pages: int = MAX_PAGES) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     base = base.rstrip("/") + "/"
     host = urlparse(base).netloc
     with httpx.Client(timeout=TIMEOUT, follow_redirects=True, headers={"User-Agent": UA}) as client:
         smap, site = _sitemap_urls(client, base)
+        try:
+            r = client.get(urljoin(base, "/llms.txt"))
+            site["llms_status"] = r.status_code if "text" in r.headers.get("content-type", "") else 404
+        except httpx.HTTPError:
+            site["llms_status"] = 0
+        site["pagespeed"] = pagespeed(base)
         # the sitemap may name another domain (the final one); check the same paths on the site being audited
         queue = [base] + [urljoin(base, urlparse(u).path or "/") for u in smap]
         seen: set[str] = set()
@@ -303,13 +356,68 @@ def check(pages: list[dict[str, Any]], site: dict[str, Any], base: str, canonica
     if host != want and want and False:
         issues.append(_issue("staging_host", "low", f"Audited on {host}; the site's own domain is {want}",
                              "When the real domain is live, set it as the site URL so canonicals and the sitemap all use it, and redirect the old host."))
+    # ---- Google: real speed from PageSpeed
+    ps = site.get("pagespeed") or {}
+    sc = ps.get("scores") or {}
+    if sc.get("performance") is not None and sc["performance"] < 50:
+        issues.append(_issue("ps_performance", "high", f"Google PageSpeed performance is {sc['performance']}/100 on mobile",
+                             "Optimise the largest image above the fold (next/image with priority and sizes), cut unused JavaScript, and cache pages.", detail=str(ps.get("lab"))))
+    elif sc.get("performance") is not None and sc["performance"] < 80:
+        issues.append(_issue("ps_performance", "medium", f"Google PageSpeed performance is {sc['performance']}/100 on mobile",
+                             "Optimise images (next/image), fonts (next/font) and third-party scripts.", detail=str(ps.get("lab"))))
+    if sc.get("seo") is not None and sc["seo"] < 90:
+        issues.append(_issue("ps_seo", "medium", f"Google Lighthouse SEO score is {sc['seo']}/100", "Open the PageSpeed report for the failing checks."))
+    if sc.get("accessibility") is not None and sc["accessibility"] < 90:
+        issues.append(_issue("ps_a11y", "low", f"Google Lighthouse accessibility score is {sc['accessibility']}/100", "Fix contrast, labels and alt texts listed in the report."))
+    if any(v == "SLOW" for v in (ps.get("field") or {}).values()):
+        issues.append(_issue("cwv_field", "high", "Real visitors see slow Core Web Vitals (Google field data)", "Improve LCP, INP and CLS; Google uses these for ranking.",
+                             detail=str(ps.get("field"))))
+    # ---- Maps and local: the clinic's name, address, phone and hours, the way Google Maps reads them
+    local = next((p.get("local") for p in ok if p.get("local")), None)
+    if local:
+        need = [k for k, label in (("address", "address"), ("telephone", "phone"), ("geo", "map location"), ("url", "url"), ("image", "photo")) if not local.get(k)]
+        if not (local.get("openingHoursSpecification") or local.get("openingHours")):
+            need.append("openingHours")
+        if need:
+            issues.append(_issue("local_schema_incomplete", "high", "The clinic's structured data is missing details Google Maps uses",
+                                 "Add these to the VeterinaryCare JSON-LD: " + ", ".join(need) + ".", detail=", ".join(need)))
+        if not local.get("sameAs"):
+            issues.append(_issue("no_sameas", "medium", "The clinic's structured data does not link its Google Business Profile and social pages",
+                                 "Add sameAs with the Google Maps listing URL and social profiles, so Google ties the site to the Maps listing."))
+    phones = Counter(ph for p in ok for ph in p.get("phones", []))
+    if len(phones) > 1:
+        top = phones.most_common(1)[0][0]
+        issues.append(_issue("nap_phone", "medium", "Different phone numbers appear on the site", f"Use one main number everywhere (most common: {top}); Google Maps checks it matches the listing.",
+                             [p["url"] for p in ok if set(p.get("phones", [])) - {top}], detail=", ".join(phones)))
+    if not any(p.get("postal") for p in ok):
+        issues.append(_issue("no_address_text", "high", "The clinic's address does not appear as text on the site", "Show the full street address (with postal code) in the footer and on the contact page."))
+    if not any(p.get("maps_link") for p in ok):
+        issues.append(_issue("no_maps_link", "medium", "No link to the clinic on Google Maps", "Link 'Get directions' to the Google Maps listing on the contact page and footer (and add it as hasMap)."))
+    # ---- AI search (ChatGPT, Perplexity, Google AI Overviews, Claude)
+    robots = site.get("robots", "")
+    blocked = [b for b in ("GPTBot", "OAI-SearchBot", "ChatGPT-User", "ClaudeBot", "PerplexityBot", "Google-Extended", "CCBot")
+               if re.search(rf"(?ims)^user-agent:\s*{b}\s*$(?:\n(?!user-agent).*)*?^disallow:\s*/\s*$", robots)]
+    if blocked:
+        issues.append(_issue("ai_bots_blocked", "high", "robots.txt blocks AI search crawlers", "Allow them if the clinic wants to be cited by AI assistants.", detail=", ".join(blocked)))
+    if site.get("llms_status") != 200:
+        issues.append(_issue("no_llms_txt", "low", "No /llms.txt", "Add public/llms.txt: a short plain summary of the clinic (services, hours, area, booking) with links to key pages, for AI assistants."))
+    if not any(p.get("question_headings", 0) >= 3 for p in ok):
+        issues.append(_issue("few_questions", "medium", "Few pages answer questions directly", "Add short question-and-answer sections to service pages (how much, how long, what to expect); AI answers quote these."))
+    if ok and sum(p.get("words", 0) for p in ok) / len(ok) < 300:
+        issues.append(_issue("ai_thin", "medium", "Little readable text per page for AI answers", "Make sure each service page has its key facts as server-rendered text, not only images or scripts."))
+    for i in issues:
+        i.setdefault("area", AREA.get(i["code"], "google"))
     issues.sort(key=lambda i: (SEVERITY_ORDER[i["severity"]], -i["count"]))
     return issues
 
 
-def score(issues: list[dict[str, Any]]) -> int:
+AREA = {"no_local_schema": "maps", "local_schema_incomplete": "maps", "no_sameas": "maps", "nap_phone": "maps", "no_address_text": "maps", "no_maps_link": "maps",
+        "ai_bots_blocked": "ai", "no_llms_txt": "ai", "few_questions": "ai", "ai_thin": "ai", "no_faq_schema": "ai"}
+
+
+def score(issues: list[dict[str, Any]], area: str | None = None) -> int:
     pen = {"high": 12, "medium": 5, "low": 2}
-    return max(0, 100 - sum(pen[i["severity"]] for i in issues))
+    return max(0, 100 - sum(pen[i["severity"]] for i in issues if area is None or i.get("area", AREA.get(i["code"], "google")) == area))
 
 
 def compare(new: list[dict[str, Any]], old: list[dict[str, Any]]) -> dict[str, list[str]]:
@@ -340,6 +448,7 @@ def _run(audit_id: int, cfg: dict[str, str]) -> None:
             a = s.get(WebsiteAudit, audit_id)
             a.pages_json, a.issues_json = json.dumps(pages), json.dumps(issues)
             a.summary_json = json.dumps({"pages": len(pages), "ok_pages": sum(1 for p in pages if p.get("status") == 200), "score": score(issues),
+                                         "areas": {k: score(issues, k) for k in ("google", "maps", "ai")}, "pagespeed": site.get("pagespeed") or {},
                                          "by_severity": dict(Counter(i["severity"] for i in issues)), "site": {k: v for k, v in site.items() if k != "robots"},
                                          "avg_ms": int(sum(p.get("ms", 0) for p in pages) / max(1, len(pages))), "compare": diff, "previous_id": prev.id if prev else None})
             a.status, a.finished_at = "done", timeutil.now_utc()

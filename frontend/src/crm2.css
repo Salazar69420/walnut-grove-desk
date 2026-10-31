@@ -256,3 +256,9 @@ a.playb{color:var(--acc-t)}
 .web-issue-h:hover{background:var(--hov)}.web-issue-b{padding:0 16px 14px 16px}.web-issue-b ul{margin:6px 0 0;padding-left:18px}
 .tag.sev{text-transform:uppercase;font-size:11px;font-weight:700}.tag.sev.high{background:var(--crit-soft);color:var(--crit)}.tag.sev.medium{background:#fdf1d8;color:#8a5a00}.tag.sev.low{background:var(--panel2)}
 .web-plan{white-space:pre-wrap;font:14px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--panel2);border-radius:10px;padding:14px;max-height:70vh;overflow:auto}
+.web-kpis .as-btn{text-align:left;cursor:pointer;color:inherit;font:inherit}.web-kpis .as-btn.sel{outline:2px solid var(--accent)}
+.web .seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}.web .seg button{border:0;background:var(--panel);padding:6px 12px;cursor:pointer;color:inherit}
+.web .seg button.on{background:var(--accent);color:var(--accent-ink)}
+.web-form{display:flex;flex-direction:column;gap:10px}.web-form textarea{width:100%;font:inherit}.web .fld{display:flex;flex-direction:column;gap:4px;font-size:13px;font-weight:600;color:var(--mute);flex:1;min-width:0}
+.web .fld input,.web .fld select,.web .fld textarea{width:100%}.web-token input{flex:1}.web .card + .card,.web section + section{margin-top:14px}
+.linkbtn{background:none;border:0;color:var(--accent);cursor:pointer;padding:0;text-decoration:underline}

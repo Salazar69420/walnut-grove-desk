@@ -19,7 +19,7 @@ import { Knowledge } from './views/Knowledge'
 import { Phone } from './views/Phone'
 import { Campaigns } from './views/Campaigns'
 import { Report, Reports } from './views/Reports'
-import { WebsiteContent, WebsiteSeo } from './views/Website'
+import { ContentStudio, WebsiteContent, WebsiteSeo } from './views/Website'
 
 export function landing(role: string) {
   return role === 'owner' ? '/brief' : role === 'desk' ? '/home' : '/results'
@@ -58,6 +58,7 @@ export function App() {
           <Route path="/reports/:key" element={<Guard perm="reports.view"><Report /></Guard>} />
           <Route path="/website/content" element={<Guard perm="website.view"><WebsiteContent /></Guard>} />
           <Route path="/website/seo" element={<Guard perm="website.view"><WebsiteSeo /></Guard>} />
+          <Route path="/website/studio" element={<Guard perm="website.run"><ContentStudio /></Guard>} />
           <Route path="/brief" element={<Guard perm="brief.view"><Brief /></Guard>} />
           <Route path="/overnight" element={<Guard perm="overnight.view"><Overnight /></Guard>} />
           <Route path="/callbacks" element={<Guard perm="callbacks.view"><Callbacks /></Guard>} />

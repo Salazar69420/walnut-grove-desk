@@ -16,7 +16,7 @@ export const NAV: { group: string; items: NavItem[] }[] = [
     { to: '/website/content', label: 'Website content', perm: 'website.view', icon: 'list' },
     { to: '/website/seo', label: 'SEO agent', perm: 'website.view', icon: 'sparkle' },
     // Contento runs as its own app on this server (its own logins and credits); it opens in a new tab
-    { to: 'contento', href: 'https://contento.77-42-69-194.sslip.io/admin/dashboard', label: 'Content studio', perm: 'website.run', icon: 'play' },
+    { to: '/website/studio', label: 'Content studio', perm: 'website.run', icon: 'play' },
   ] },
   { group: 'Clinic', items: [
     { to: '/brief', label: 'Brief', perm: 'brief.view', icon: 'sparkle' },

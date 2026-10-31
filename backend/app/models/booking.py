@@ -69,6 +69,31 @@ class WebsiteAudit(Base):
     error: Mapped[str] = mapped_column(String(200), default="")
 
 
+class WebsiteChange(Base):
+    """One change the deployment agent made to the website code: a branch and pull request; merged automatically or after approval."""
+
+    __tablename__ = "website_changes"
+    __table_args__ = (CheckConstraint("status in ('planning','building','ready','merged','failed','rejected')", name="status"),
+                      CheckConstraint("mode in ('auto','approve')", name="mode"))
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    audit_id: Mapped[int | None] = mapped_column(Integer)
+    mode: Mapped[str] = mapped_column(String(8), default="approve")
+    status: Mapped[str] = mapped_column(String(10), default="planning")
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    created_by: Mapped[str] = mapped_column(String(120), default="")
+    branch: Mapped[str] = mapped_column(String(120), default="")
+    head_sha: Mapped[str] = mapped_column(String(64), default="")
+    pr_number: Mapped[int | None] = mapped_column(Integer)
+    pr_url: Mapped[str] = mapped_column(String(300), default="")
+    preview_url: Mapped[str] = mapped_column(String(300), default="")
+    summary: Mapped[str] = mapped_column(Text, default="")
+    diff: Mapped[str] = mapped_column(Text, default="")
+    issue_codes: Mapped[str] = mapped_column(String(600), default="")
+    error: Mapped[str] = mapped_column(String(300), default="")
+    merged_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+
+
 class UpsellLog(Base):
     """Each suggestion sent, so one person is not offered things too often."""
 

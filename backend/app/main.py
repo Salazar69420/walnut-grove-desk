@@ -23,6 +23,18 @@ log = logging.getLogger("walnut")
 NO_DOCS_NAMES = {"docs", "redoc", "openapi.json"}
 
 
+def _deploy_tick() -> None:
+    from sqlalchemy import select
+    from app import db as app_db
+    from app.api.website import _after_merge
+    from app.models import WebsiteChange
+    from app.services import deploy_agent
+    with app_db.get_sessionmaker()() as s:
+        for c in s.scalars(select(WebsiteChange).where(WebsiteChange.status == "building", WebsiteChange.mode == "auto").limit(3)).all():
+            before = c.status
+            _after_merge(s, before, deploy_agent.refresh(s, c))
+
+
 async def _inbound_loop() -> None:
     """Every few seconds, fold incoming texts from the send helper into conversations (and let the assistant reply)."""
     from app.services import inbound
@@ -37,6 +49,11 @@ async def _inbound_loop() -> None:
             await asyncio.to_thread(calls_live.run_once)  # new calls from TELUS, only when telus-calls wrote a new file
         except Exception:  # noqa: BLE001 - keep looping
             log.error("live calls loop error")
+        if n % 12 == 11:  # about every minute: auto-mode website changes are merged as soon as their preview build passes
+            try:
+                await asyncio.to_thread(_deploy_tick)
+            except Exception:  # noqa: BLE001 - keep looping
+                log.error("deploy agent loop error")
         if (n := n + 1) % 6 == 0:  # about every 30 seconds
             try:
                 from app.services import transcribe
