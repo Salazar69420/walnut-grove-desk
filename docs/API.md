@@ -195,3 +195,28 @@ Binding contract: `docs/CONTRACT_TELUS_RECORDINGS.md`. The app only touches the 
 - `POST /api/admin/telus/check` writes a request file `requests/<uuid4 hex>.json` (mode 660, mode `check`) and returns `{"job_id"}`. Event: `telus_check_requested`.
 - `POST /api/admin/telus/recordings {days:1..30, max_items:1..1000}` does the same for mode `recordings` and returns `{"job_id"}`. Event: `telus_recordings_requested`. 400 with plain text while recordings are turned off in the saved settings.
 - Both POSTs return 409 while a job is queued or running (status file or a waiting request file under 24 hours old), and 503 with plain text when the bridge folder is missing, not a real directory (a symlink is refused) or not writable. A request file holds `{v,id,mode,days,max_items,requested_by,requested_at}` and never any call content. Events carry text only.
+
+## Knowledge & Fees, Phone, Campaigns, Reports (migration 0004)
+
+All JSON, snake_case, CSRF on writes, errors `{"detail": "plain sentence"}`. Permissions in `backend/app/security/permissions.py`.
+
+| Route | Perm | Notes |
+|---|---|---|
+| `GET /api/knowledge?status=approved\|pending\|declined\|retired\|all&category&q&conflicts&proposed_by` | knowledge.view | `{items, counts, categories}`. Only approved entries are used by the assistant |
+| `POST /api/knowledge` | knowledge.suggest | `{category, title, body, replaces_id?}`. Always creates a **pending** entry. Same title as an approved entry makes it a replacement (`conflicts`, `previous_body`). 409 on identical text or a pending duplicate |
+| `PATCH /api/knowledge/{id}` | knowledge.suggest | Pending only |
+| `POST /api/knowledge/{id}/approve\|decline\|retire` | knowledge.decide (owner) | Approving a replacement retires the old entry and bumps `version` |
+| `POST /api/knowledge/bulk` | knowledge.decide | `{ids, action: approve\|decline}` |
+| `GET/POST /api/fees`, `PATCH /api/fees/{id}`, `POST /api/fees/{id}/approve\|retire` | view and suggest: all staff; decide: owner | Price in cents; approving retires an older approved fee for the same service |
+| `GET /api/phone/calls` | phone.view | Filters `from,to,direction,handled_by,result,call_type,contact_id,q,page,per_page`. `handled_by` is `human`, `ai` or `none` |
+| `GET /api/phone/calls/{id}` | phone.view | Transcript only for phone.transcript (owner); each open writes an `access_log` row |
+| `PATCH /api/phone/calls/{id}` | contacts.edit | `short_note`, `contact_id`, `call_type` |
+| `GET /api/phone/summary?days=` | phone.view | Call-centre numbers |
+| `GET /api/export/phone.csv` | phone.export | Formula-safe, logged |
+| `GET/POST /api/campaigns`, `GET/PATCH /api/campaigns/{id}` | campaigns.view / campaigns.edit | Segment uses the Contacts filters |
+| `POST /api/campaigns/preview` | campaigns.edit | Matched, eligible, left out by reason, three rendered samples |
+| `POST /api/campaigns/{id}/submit\|cancel` | campaigns.edit | |
+| `POST /api/campaigns/{id}/approve\|run` | campaigns.approve (owner) | `run` is a practice-mode run: one `would_send` outbox row per eligible contact through `send_to_contact`. Refused in quiet hours (9 pm to 8 am) and unless approved |
+| `GET /api/reports`, `GET /api/reports/{key}?from&to` | reports.view | Keys: `agents`, `pending_knowledge`, `conversion`, `recall`, `call_volume`, `campaigns`. Same shape: `stats`, `sections` |
+
+Consent rules in code (`services/campaigns.py`): unsubscribed and no-consent contacts are never messaged; a promo needs full consent, a care message accepts care-only; one message per phone or address.

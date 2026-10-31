@@ -1,6 +1,6 @@
 # Plan: the Clinic CRM and AI front desk (EliseAI-style, for a veterinary clinic)
 
-Status: plan, nothing built yet. Source: the owner's walkthrough and 17 photographed screens of the EliseAI product (Home, Tasks, Contacts, Calendar, Knowledge & Fees, Phone call log, Reports, conversation view). The photos contained a real person's details; none of that is copied here.
+Status (2026-10-31): phases 1 to 5, 7 and 8 are built on invented data (see HANDOFF.md section 11); phase 6 (AI assistant) and phase 9 (real sending, calling, voice) are not. Original plan text follows. Source: the owner's walkthrough and 17 photographed screens of the EliseAI product (Home, Tasks, Contacts, Calendar, Knowledge & Fees, Phone call log, Reports, conversation view). The photos contained a real person's details; none of that is copied here.
 
 Short verdict: **it can be pulled off, in phases.** The screens and workflows are all buildable on the stack we already have. What decides the pace is not code. It is three gates: privacy approval for real client data, consent rules for sending messages, and safety rules for an AI that talks to clients. The plan builds the whole interface first on invented contacts, then connects real data and real sending one gate at a time.
 

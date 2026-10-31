@@ -29,6 +29,8 @@ A staff work app for Walnut Grove Animal Hospital (British Columbia): overnight 
 - **Server:** Hetzner VM named `Veto`, Ubuntu 26.04 LTS, 2 vCPU, 3.7 GiB RAM, 2 GiB swap at `/swapfile`, root login, systemd. Not a container.
 - **Working copy on server:** `/opt/walnut-desk` (git, branch `main`, clean at handoff)
 
+**Clinic CRM (EliseAI-style, for a vet clinic), built on invented data:** Home, Tasks, Contacts with Guest Card, conversations (practice mode), Calendar, Knowledge & Fees with a Pending approval queue, Phone call log, Campaigns, Reports. Plan: `docs/PLAN_CLINIC_CRM.md`. What the real calls say about priorities: `docs/CALL_ANALYSIS.md`. Endpoints: `docs/API.md`.
+
 Read `README.md` in the repo for the architecture map and `docs/PROGRESS.md` for the milestone status with evidence.
 
 ---
@@ -94,7 +96,7 @@ Read `README.md` in the repo for the architecture map and `docs/PROGRESS.md` for
 
 ```bash
 # backend tests (from repo root)
-cd /opt/walnut-desk/backend && WALNUT_ENV=test ../.venv/bin/pytest -q          # expect 136 passed
+cd /opt/walnut-desk/backend && WALNUT_ENV=test ../.venv/bin/pytest -q          # expect 290 passed
 
 # pipeline tests (synthetic data only)
 cd /opt/walnut-desk && pipeline/.venv/bin/python -m pytest pipeline/tests -q   # expect 30 passed
@@ -251,22 +253,41 @@ Two people (each with their own fresh Claude Code session) work in this repo. Th
 
 ### 11.2 Current state (update at every handoff)
 
-- **Last updated:** 2026-10-28 (session 1)
-- **Branch / commit:** `main` at `2fc9119`, equal to `origin/main`, working tree clean at start of session 1
-- **Services:** `walnut-desk` and `caddy` active; public `/healthz` returned HTTP 200
-- **Live URL:** https://77-42-69-194.sslip.io (also in `/var/lib/walnut-desk/public_url.txt`)
-- **Tests last run:** not run this session yet (expected baseline: 136 backend, 30 pipeline, 15 e2e)
-- **Uncommitted work:** none
+- **Last updated:** 2026-10-31 (session 3)
+- **Branch / commit:** `main`. Everything through the Calendar, Knowledge, Phone, Campaigns and Reports frontend is committed (`git log --oneline -8`). Check `git status -sb` against `origin/main` before starting.
+- **Live service is NOT yet running the newest code.** Session 3 was not allowed to restart `walnut-desk` or write to the live database (blocked as a production deploy). The static frontend in `frontend/dist` is already rebuilt on disk, but the running backend predates migration 0004 and the new routes, so the new screens will show errors on the live URL until the deploy steps in 11.3 are run by the owner or with their explicit go-ahead.
+- **Tests last run:** backend 290 passed (this session); frontend `npm run build` zero type errors; new screens checked in a real browser (Chromium) against a throwaway local copy (owner and desk, desktop and phone width, no console errors except the normal pre-login 401). Not yet checked on the live URL.
+- **Uncommitted work:** none after the session 3 handoff commit.
 
 ### 11.3 Open work / who is doing what
 
 | Item | Owner (session) | Status | Files or area | Notes |
 |---|---|---|---|---|
-| (none claimed yet) | | | | |
+| **Deploy the CRM build to the live server** | owner or session with go-ahead | **waiting** | server | Steps: `cd /opt/walnut-desk/frontend && npm run build`; `systemctl restart walnut-desk` (runs migration 0004); then seed only the new demo tables once: `sudo -u walnut-app bash -c 'set -a; . /etc/walnut-desk/app.env; set +a; cd /opt/walnut-desk/backend && ../.venv/bin/python -c "from app import db,config; from app.seed import clinic_seed; from app.services import timeutil; s=config.get_settings(); db.init_engine(s.db_path); x=db.get_sessionmaker()(); print(clinic_seed.seed_clinic(x, timeutil.now_utc())); x.commit()"'` (needs the CRM demo contacts to exist; a full "Reset demo data" in Admin also seeds it). Then `walnut-health` and open each new screen as owner and desk |
+| Feature 1: independent assistant test | session 2 | done, pushed (`a2004c0`) | `eval/`, `emergency.py` | Emergency detection still not good enough for autonomous client messaging |
+| Features 2 to 4 (Retell signature, two-factor, encrypted backups) | not started | open | | Order set by the owner, see section 8 |
+| CRM phase 6: AI assistant (Suggest stage) | not started | open | `backend/app/services/knowledge.py` has `propose()` ready for the model to call | Needs the owner's privacy decision and a fresh sealed evaluation first |
+| CRM phase 9: real sending, calling, voice | not started | open | `services/sender.py` is the only send path | Each integration behind its own switch and a staff-only pilot |
+| Wire Phone and Home to real TELUS call metadata | not started | open | `pipeline/telus/`, `phone_calls.source = 'telus'` | Caller identity must come from TELUS, not the transcripts (docs/CALL_ANALYSIS.md) |
 
 Backlog lives in section 7 (known gaps) and section 8 (next steps).
 
 ### 11.4 Journal (newest first)
+
+**2026-10-31 UTC, session 3: CRM phases 3 to 5, 7 and 8 built; call analysis; deploy blocked**
+- Took over from the uncommitted CRM work found on the server (phases 1 and 2, TELUS live sync). Tests and build passed (261), leak scan clean, committed in two logical commits and pushed (`75c3049`, `25595fd`).
+- Built backend (migration 0004, models `models/clinic.py`, services `knowledge.py` and `campaigns.py`, APIs `knowledge.py`, `phone.py`, `campaigns.py`, `reports.py`, seed `seed/clinic_seed.py`, 29 tests in `tests/test_clinic.py`) and frontend (`views/CalendarPage.tsx`, `Knowledge.tsx`, `Phone.tsx`, `Campaigns.tsx`, `Reports.tsx`, `crm2.css`). Nav gained Calendar and an Operations group.
+- Design choices worth knowing: only the owner approves knowledge, fees and campaigns (`knowledge.decide`, `campaigns.approve`; open question 6 in the plan, change in `permissions.py`); a pending entry with the same title as an approved one becomes a replacement and shows a before/after diff; campaigns reuse the Contacts filters and the single `send_to_contact` path, so consent is enforced in one place (promo needs full consent, care accepts care-only, unsubscribed never); runs are blocked 9 pm to 8 am and unless approved; transcripts are owner-only and every open is written to `access_log`; erasing a contact now also clears campaign rows and blanks the phone log rows for them.
+- Analysed the owner's uploaded transcript export (3,637 calls) outside the repo. Aggregate findings only in `docs/CALL_ANALYSIS.md`. Key finding: the export's `number` and `direction` columns cannot identify callers, so call-to-contact matching must come from TELUS metadata. No transcript text, names or numbers were printed or committed.
+- Fixed a pre-existing sideways overflow of the top bar on phones (all CRM pages were about 60 px too wide).
+- **Deploy was blocked** by the harness (restart of the live service and a write to the live DB). Nothing was changed on the live server. Run the deploy steps in 11.3, then verify the new screens on the live URL.
+- Known limits: Phone, Calendar events and campaigns all show invented demo data; the assistant does not yet read Knowledge (phase 6); `propose()` exists but nothing calls it; the Guest Card "Services" tab still shows visit types, not the new Fees; Calendar does not scroll to the current hour.
+- Next session should do first: the deploy (with the owner's go-ahead), then show Dr. Garg the Knowledge pending queue and ask who approves knowledge and fees, then phase 6 planning.
+
+**2026-10-28 22:27 UTC, session 2: Feature 1 started**
+- Owner approved a one-feature-at-a-time plan (order above) and the push of this journal (`7483b4d`).
+- Plan for feature 1: a fresh subagent writes 100 new scenarios from the written scope only (no access to the engine, keyword list or the earlier scenarios), 30 of them sealed. Run on a copy of the live DB, report the first-run numbers before any fix, then fix emergency misses and report the later numbers as no longer independent.
+- Replaced one real call reference that appeared as an example in section 3.1 with a placeholder format.
 
 **2026-10-28, session 1: Journal started**
 - Added section 11 (protocol, current state, work table, journal) and corrected the stale "deployed commit" line in section 4.
