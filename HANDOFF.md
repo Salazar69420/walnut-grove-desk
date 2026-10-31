@@ -255,7 +255,7 @@ Two people (each with their own fresh Claude Code session) work in this repo. Th
 
 - **Last updated:** 2026-10-31 (session 3)
 - **Branch / commit:** `main`. Everything through the Calendar, Knowledge, Phone, Campaigns and Reports frontend is committed (`git log --oneline -8`). Check `git status -sb` against `origin/main` before starting.
-- **Live service is NOT yet running the newest code.** Session 3 was not allowed to restart `walnut-desk` or write to the live database (blocked as a production deploy). The static frontend in `frontend/dist` is already rebuilt on disk, but the running backend predates migration 0004 and the new routes, so the new screens will show errors on the live URL until the deploy steps in 11.3 are run by the owner or with their explicit go-ahead.
+- **Deployed.** The owner ran the build, restarted `walnut-desk` (05:09 UTC, migration 0004 applied) and seeded the new demo tables (23 knowledge entries, 5 fees, 70 calls, 3 campaigns). `walnut-health` all green, new routes answer 401 when signed out. Note: restarting while people have the app open makes systemd wait about 90 s for the live-update (SSE) connections to close, during which the site returns 502; this is normal.
 - **Tests last run:** backend 290 passed (this session); frontend `npm run build` zero type errors; new screens checked in a real browser (Chromium) against a throwaway local copy (owner and desk, desktop and phone width, no console errors except the normal pre-login 401). Not yet checked on the live URL.
 - **Uncommitted work:** none after the session 3 handoff commit.
 
@@ -263,7 +263,7 @@ Two people (each with their own fresh Claude Code session) work in this repo. Th
 
 | Item | Owner (session) | Status | Files or area | Notes |
 |---|---|---|---|---|
-| **Deploy the CRM build to the live server** | owner or session with go-ahead | **waiting** | server | Steps: `cd /opt/walnut-desk/frontend && npm run build`; `systemctl restart walnut-desk` (runs migration 0004); then seed only the new demo tables once: `sudo -u walnut-app bash -c 'set -a; . /etc/walnut-desk/app.env; set +a; cd /opt/walnut-desk/backend && ../.venv/bin/python -c "from app import db,config; from app.seed import clinic_seed; from app.services import timeutil; s=config.get_settings(); db.init_engine(s.db_path); x=db.get_sessionmaker()(); print(clinic_seed.seed_clinic(x, timeutil.now_utc())); x.commit()"'` (needs the CRM demo contacts to exist; a full "Reset demo data" in Admin also seeds it). Then `walnut-health` and open each new screen as owner and desk |
+| Deploy the CRM build to the live server | owner | **done 2026-10-31** | server | Still to do: sign in on the live URL as owner and desk and click through each new screen (only checked on a local copy so far) |
 | Feature 1: independent assistant test | session 2 | done, pushed (`a2004c0`) | `eval/`, `emergency.py` | Emergency detection still not good enough for autonomous client messaging |
 | Features 2 to 4 (Retell signature, two-factor, encrypted backups) | not started | open | | Order set by the owner, see section 8 |
 | CRM phase 6: AI assistant (Suggest stage) | not started | open | `backend/app/services/knowledge.py` has `propose()` ready for the model to call | Needs the owner's privacy decision and a fresh sealed evaluation first |
@@ -280,9 +280,9 @@ Backlog lives in section 7 (known gaps) and section 8 (next steps).
 - Design choices worth knowing: only the owner approves knowledge, fees and campaigns (`knowledge.decide`, `campaigns.approve`; open question 6 in the plan, change in `permissions.py`); a pending entry with the same title as an approved one becomes a replacement and shows a before/after diff; campaigns reuse the Contacts filters and the single `send_to_contact` path, so consent is enforced in one place (promo needs full consent, care accepts care-only, unsubscribed never); runs are blocked 9 pm to 8 am and unless approved; transcripts are owner-only and every open is written to `access_log`; erasing a contact now also clears campaign rows and blanks the phone log rows for them.
 - Analysed the owner's uploaded transcript export (3,637 calls) outside the repo. Aggregate findings only in `docs/CALL_ANALYSIS.md`. Key finding: the export's `number` and `direction` columns cannot identify callers, so call-to-contact matching must come from TELUS metadata. No transcript text, names or numbers were printed or committed.
 - Fixed a pre-existing sideways overflow of the top bar on phones (all CRM pages were about 60 px too wide).
-- **Deploy was blocked** by the harness (restart of the live service and a write to the live DB). Nothing was changed on the live server. Run the deploy steps in 11.3, then verify the new screens on the live URL.
+- Deploy was blocked for the assistant by the permission system, so the owner ran the build, restart and seed by hand; it is now live.
 - Known limits: Phone, Calendar events and campaigns all show invented demo data; the assistant does not yet read Knowledge (phase 6); `propose()` exists but nothing calls it; the Guest Card "Services" tab still shows visit types, not the new Fees; Calendar does not scroll to the current hour.
-- Next session should do first: the deploy (with the owner's go-ahead), then show Dr. Garg the Knowledge pending queue and ask who approves knowledge and fees, then phase 6 planning.
+- Next session should do first: check the new screens on the live URL as each role, then show Dr. Garg the Knowledge pending queue and ask who approves knowledge and fees, then phase 6 planning.
 
 **2026-10-28 22:27 UTC, session 2: Feature 1 started**
 - Owner approved a one-feature-at-a-time plan (order above) and the push of this journal (`7483b4d`).
