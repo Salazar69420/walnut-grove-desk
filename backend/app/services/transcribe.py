@@ -22,7 +22,7 @@ from datetime import timedelta
 from typing import Any
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.adapters import llm as llm_adapter
@@ -35,7 +35,7 @@ from app.services import events as ev
 log = logging.getLogger("walnut.transcribe")
 MIN_SECONDS = 8
 MAX_AGE_DAYS = 30
-IN_FLIGHT = 3
+IN_FLIGHT = 4  # recordings asked for in one batch
 MAX_TRIES = 4
 WAIT_FOR_COPY = 600  # seconds before asking the helper again
 MAX_AUDIO = 25 * 1024 * 1024
@@ -61,9 +61,12 @@ SCHEMA = {
         "pet_name": {"type": "string", "description": "the caller's pet discussed, else empty"},
         "species": {"type": "string", "enum": ["", "dog", "cat", "rabbit", "bird", "other"]},
         "urgent": {"type": "boolean", "description": "true if the caller described signs that may need a vet today"},
+        "clinic_knowledge": {"type": "array", "maxItems": 2, "items": {"type": "object", "properties": {
+            "category": {"type": "string", "enum": ["clinic_info", "fees", "patient_communication", "inquiry_communication", "specials"]},
+            "title": {"type": "string"}, "text": {"type": "string"}}, "required": ["category", "title", "text"], "additionalProperties": False}},
     },
     "required": ["summary", "intent", "outcome", "follow_up_needed", "follow_up_note", "caller_type", "caller_first_name", "caller_last_name",
-                 "pet_name", "species", "urgent"],
+                 "pet_name", "species", "urgent", "clinic_knowledge"],
     "additionalProperties": False,
 }
 TRANSCRIBE_PROMPT = ("Transcribe this phone call to a veterinary clinic word for word. Start each turn on a new line with 'Speaker 1:' or "
@@ -74,9 +77,15 @@ ANALYSE_PROMPT = ("You read call transcripts for Walnut Grove Animal Hospital, a
                   "when the clinic still has to do something (call back, a refill, results, booking, a question nobody answered, a voicemail). "
                   "Say whether the caller is an existing patient of the clinic or a new inquiry. Give the caller's name and pet only if the "
                   "CALLER says them (never a staff member's name; the clinic side greets with the clinic name). Set urgent when the caller "
-                  "describes signs that may need a vet today. The transcript may have no speaker labels. Do not add medical advice. "
+                  "describes signs that may need a vet today. In clinic_knowledge, list (at most two) GENERAL clinic facts or policies the STAFF member "
+                  "actually said while answering, that would answer the same question from any other client (hours, prices, services, "
+                  "procedures, what to bring, how things work), written as the clinic would text them. Only what staff said, nothing about "
+                  "this one client (no names, pets, dates, results), no medical advice; an empty list when there is none. The transcript may "
+                  "have no speaker labels. Do not add medical advice. "
                   "Reply with JSON only.")
 _queued_at: dict[int, float] = {}
+_last_batch = {"at": -1e9}
+BATCH_EVERY = 75  # seconds between batches of recording requests
 
 
 def _key(cfg: dict[str, Any]) -> str | None:
@@ -148,6 +157,7 @@ def file_call(db: Session, c: PhoneCall, transcript: str, data: dict[str, Any]) 
     c.intent = data["intent"]
     follow = bool(data.get("follow_up_needed"))
     c.short_note = (INTENTS[c.intent] + ("; follow-up needed" if follow else ""))[:240]
+    learn_from_call(db, c, data)
     if c.intent != "wrong_number_or_spam" and data.get("caller_type") in ("patient", "inquiry"):
         c.call_type = data["caller_type"]  # every real call is a patient or an inquiry
     if c.contact_id is None and c.phone and c.intent not in ("wrong_number_or_spam", "vendor_or_business"):
@@ -179,6 +189,47 @@ def file_call(db: Session, c: PhoneCall, transcript: str, data: dict[str, Any]) 
     db.add(t)
     db.flush()
     ev.record(db, ev.TASKS, "task_raised_by_assistant", f"The assistant raised a task from a call transcript: {t.title[:80]}", "AI assistant", "task", t.id)
+
+
+MAX_CALL_NOTES_PER_DAY = 15
+
+
+def learn_from_call(db: Session, c: PhoneCall, data: dict[str, Any]) -> int:
+    """How staff answered on the phone becomes PENDING knowledge, labelled "Call notes", for an owner to approve one by one."""
+    from app.models import KnowledgeEntry, Pet
+    from app.services import knowledge as kn
+    items = data.get("clinic_knowledge") if isinstance(data.get("clinic_knowledge"), list) else []
+    if not items or c.intent in ("wrong_number_or_spam", "vendor_or_business", "triage_symptom"):
+        return 0
+    since = timeutil.now_utc() - timedelta(days=1)
+    if (db.scalar(select(func.count()).select_from(KnowledgeEntry).where(KnowledgeEntry.source_kind == "call", KnowledgeEntry.proposed_at >= since)) or 0) >= MAX_CALL_NOTES_PER_DAY:
+        return 0
+    personal = {str(data.get(k) or "").strip().lower() for k in ("caller_first_name", "caller_last_name", "pet_name")}
+    if c.contact_id:
+        ct = db.get(Contact, c.contact_id)
+        personal |= {w.lower() for w in (ct.display_name or "").split()} if ct else set()
+        personal |= {p.lower() for p in db.scalars(select(Pet.name).where(Pet.contact_id == c.contact_id)).all()}
+    personal = {w for w in personal if len(w) > 2}
+    when = timeutil.local(c.started_at).strftime("%b %d, %I:%M %p").replace(" 0", " ")
+    added = 0
+    for it in items[:2]:
+        if not isinstance(it, dict):
+            continue
+        title, text = str(it.get("title") or "").strip()[:200], re.sub(r"\s+", " ", str(it.get("text") or "")).strip()[:600]
+        cat = it.get("category") if it.get("category") in ("clinic_info", "fees", "patient_communication", "inquiry_communication", "specials") else "clinic_info"
+        words = set(re.findall(r"[a-z']+", f"{title} {text}".lower()))
+        if len(title) < 3 or len(text) < 15 or ai.FORBIDDEN.search(text) or words & personal:
+            continue
+        if db.scalar(select(KnowledgeEntry.id).where(KnowledgeEntry.status == "pending", func.lower(KnowledgeEntry.title) == title.lower()).limit(1)):
+            continue  # one suggestion per topic waits at a time
+        try:
+            e = kn.propose(db, category=cat, title=title, body=text, proposed_by="ai", source_kind="call", source_ref=f"Call notes: call on {when}"[:80])
+        except crm.CrmError:
+            continue
+        ev.record(db, ev.KNOWLEDGE, "knowledge_from_call", f"Call notes: suggested knowledge from how staff answered a call: {e.title}", "AI assistant", "knowledge", e.id,
+                  {"phone_call_id": c.id})
+        added += 1
+    return added
 
 
 NAME_OK = re.compile(r"^[A-Za-z][A-Za-z'\-]{1,29}$")
@@ -228,7 +279,7 @@ def step(db: Session) -> dict[str, int]:
     if not cfg.get("transcribe_enabled") or not cfg.get("key_enc") or not bridge.read_settings().get("recordings_enabled"):
         return counts
     rows = _candidates(db)
-    in_flight = 0
+    in_flight = sum(1 for c in rows if c.transcript_state == "queued")  # a batch is still out: wait for it before asking again
     for c in rows:
         if c.duration_seconds < MIN_SECONDS:
             c.transcript_state = "skipped"
@@ -257,19 +308,18 @@ def step(db: Session) -> dict[str, int]:
                 continue
             if phone_audio._failed(c.recording_id) or time.monotonic() - _queued_at.get(c.id, 0) > WAIT_FOR_COPY:
                 c.transcript_state = "" if c.transcript_tries < MAX_TRIES else "failed"
-            else:
-                in_flight += 1
             continue
-        if in_flight >= IN_FLIGHT:
-            continue
+        if in_flight or time.monotonic() - _last_batch["at"] < BATCH_EVERY or counts["asked"] >= IN_FLIGHT:
+            continue  # ask in batches: the helper may start only 5 times in 5 minutes, and the play button needs room
         try:
             phone_audio.request_copy(c, "Call transcripts")
         except OSError:
             break
         c.transcript_state, c.transcript_tries = "queued", c.transcript_tries + 1
         _queued_at[c.id] = time.monotonic()
-        in_flight += 1
         counts["asked"] += 1
+    if counts["asked"]:
+        _last_batch["at"] = time.monotonic()
     db.commit()
     return counts
 

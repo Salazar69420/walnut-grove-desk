@@ -21,7 +21,9 @@ class Router:
         self.calls: list[dict] = []
         self.analysis = {"summary": "Sam called about a refill of Rex's food. Wants a call back.", "intent": "refill", "outcome": "follow_up_needed",
                          "follow_up_needed": True, "follow_up_note": "Call Sam to confirm the food is ready.", "caller_type": "patient",
-                         "caller_first_name": "Sam", "caller_last_name": "Lee", "pet_name": "Rex", "species": "dog", "urgent": False}
+                         "caller_first_name": "Sam", "caller_last_name": "Lee", "pet_name": "Rex", "species": "dog", "urgent": False,
+                         "clinic_knowledge": [{"category": "clinic_info", "title": "Food orders", "text": "Food orders are usually ready for pickup the next business day."},
+                                              {"category": "clinic_info", "title": "Rex food", "text": "Rex can pick up his food on Monday."}]}
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/audio/transcriptions"):
@@ -72,6 +74,7 @@ def test_a_voicemail_is_transcribed_and_its_task_learns_what_it_was_about(env, b
     from app.api import admin_telus
     monkeypatch.setattr(admin_telus, "read_settings", lambda: {"recordings_enabled": True})
     cid, pid = _voicemail(env)
+    transcribe._last_batch["at"] = -1e9
     with env.session() as s:
         assert transcribe.step(s)["asked"] == 1
     assert len(list((bridge / "requests").iterdir())) == 1  # the helper was asked for a copy, same as the play button
@@ -85,6 +88,10 @@ def test_a_voicemail_is_transcribed_and_its_task_learns_what_it_was_about(env, b
         t = s.scalar(select(Task).where(Task.kind == "callback", Task.contact_id == cid))
         assert "refill of Rex" in t.reason and t.title.endswith("refill")
         assert s.scalar(select(Message.body).where(Message.phone_call_id == pid)) == "Refill; follow-up needed"
+        from app.models import KnowledgeEntry
+        notes = s.scalars(select(KnowledgeEntry).where(KnowledgeEntry.source_ref.like("Call notes%"))).all()
+        assert [k.title for k in notes] == ["Food orders"]  # the personal one about Rex is dropped
+        assert notes[0].status == "pending" and notes[0].source_ref.startswith("Call notes")
     audio_call = next(c for c in router.calls if c["model"] == "whisper")
     assert b"whisper-large-v3-turbo" in audio_call["raw"] or b"filename" in audio_call["raw"]
 
@@ -117,7 +124,8 @@ def test_an_unknown_caller_becomes_a_prospect_that_is_never_texted(env, bridge, 
     from app.api import admin_telus
     from app.models import Pet
     monkeypatch.setattr(admin_telus, "read_settings", lambda: {"recordings_enabled": True})
-    router.analysis.update(caller_type="inquiry", caller_first_name="Priya", caller_last_name="Shah", pet_name="Mochi", species="cat", urgent=True,
+    transcribe._last_batch["at"] = -1e9
+    router.analysis.update(clinic_knowledge=[], caller_type="inquiry", caller_first_name="Priya", caller_last_name="Shah", pet_name="Mochi", species="cat", urgent=True,
                            intent="booking", summary="Priya wants to book a first visit for her kitten Mochi.")
     now = timeutil.now_utc()
     with env.session() as s:
