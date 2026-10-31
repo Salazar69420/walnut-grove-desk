@@ -5,6 +5,7 @@ import { useApp } from '../ctx'
 import { useLive } from '../live'
 import { Assistant } from './Assistant'
 import { Bell } from './Bell'
+import { Chats, useChatUnread } from './Chats'
 import { Palette } from './Palette'
 import { Icon } from './icons'
 import { Pop, useDialog } from './ui'
@@ -16,6 +17,7 @@ export function Shell() {
   const loc = useLocation()
   const [pal, setPal] = useState(false)
   const [asst, setAsst] = useState(false)
+  const [chats, setChats] = useState(false)
   const cbs = useLive<{ items: any[] }>(can('callbacks.view') ? '/callbacks' : null, ['callbacks'])
   const ov = useLive<{ summary: { pending: number } }>(can('overnight.view') ? '/overnight' : null, ['overnight'])
   const rs = useLive<{ items: any[] }>(can('results.view') ? '/results' : null, ['results'])
@@ -69,6 +71,7 @@ export function Shell() {
         )}
         <div className="spacer" />
         {ws && canAssist && <button className="btn asst-btn" onClick={() => setAsst((a) => !a)} aria-expanded={asst}><Icon n="sparkle" size={16} /><span>Assistant</span></button>}
+        <ChatsButton open={chats} onClick={() => { setChats((c) => !c); setAsst(false) }} />
         <Bell />
         <Pop align="right" button={({ open, toggle }) => (
           <button className="umenu" onClick={toggle} aria-expanded={open} aria-haspopup="menu" aria-label={`Account menu for ${u.display_name}`}>
@@ -125,19 +128,29 @@ export function Shell() {
         {canAssist && !ws && <Assistant />}
       </div>
       {canAssist && ws && <Drawer open={asst} onClose={() => setAsst(false)}><Assistant /></Drawer>}
+      <Drawer open={chats} onClose={() => setChats(false)} label="Chats">{chats && <Chats />}</Drawer>
       <Palette open={pal} onClose={() => setPal(false)} />
     </div>
   )
 }
 
-function Drawer({ open, onClose, children }: { open: boolean; onClose: () => void; children: React.ReactNode }) {
+function ChatsButton({ open, onClick }: { open: boolean; onClick: () => void }) {
+  const unread = useChatUnread()
+  return (
+    <button className="btn asst-btn chats-btn" onClick={onClick} aria-expanded={open} aria-label={unread ? `Chats, ${unread} unread` : 'Chats'}>
+      <Icon n="chat" size={16} /><span className="hide-s">Chats</span>{unread > 0 && <span className="count hot">{unread > 99 ? '99+' : unread}</span>}
+    </button>
+  )
+}
+
+function Drawer({ open, onClose, children, label = 'Assistant' }: { open: boolean; onClose: () => void; children: React.ReactNode; label?: string }) {
   const ref = useRef<HTMLDivElement>(null)
   useDialog(open, onClose, ref)
   return (
     <>
       <div className={'drawer-scrim' + (open ? ' open' : '')} onClick={onClose} aria-hidden="true" />
-      <div className={'drawer' + (open ? ' open' : '')} ref={ref} role="dialog" aria-label="Assistant" aria-hidden={!open} aria-modal={open}>
-        <button className="ibtn drawer-x" onClick={onClose} aria-label="Close assistant"><Icon n="x" /></button>
+      <div className={'drawer' + (open ? ' open' : '')} ref={ref} role="dialog" aria-label={label} aria-hidden={!open} aria-modal={open}>
+        <button className="ibtn drawer-x" onClick={onClose} aria-label={`Close ${label.toLowerCase()}`}><Icon n="x" /></button>
         {children}
       </div>
     </>

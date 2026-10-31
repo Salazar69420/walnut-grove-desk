@@ -39,7 +39,7 @@ ENTITIES = {
     "callbacks", "results", "drafts", "shifts", "suggestions", "overnight",
     "events", "settings", "hospitals", "visit_types", "users", "analytics",
     "contacts", "messages", "tasks", "notifications", "events_cal",
-    "knowledge", "fees", "phone", "campaigns",
+    "knowledge", "fees", "phone", "campaigns", "chats",
 }
 _ENTITY_OF_TYPE = {
     "callback": "callbacks",
