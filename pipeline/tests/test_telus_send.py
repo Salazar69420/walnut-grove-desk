@@ -16,7 +16,7 @@ from pipeline.telus import endpoints, send_worker
 from pipeline.telus.client import ReadOnlyViolation, TelusHTTPError
 from pipeline.telus.send_client import SendClient
 
-TEST_NUM = "+15483321610"
+TEST_NUM = "+16045550161"
 OTHER = "+16045550142"
 SENDER = "+16045550100"
 SECRETS = ["FAKE_CLIENT_ID", "FAKE_CLIENT_SECRET", "FAKE_JWT.FAKE_PAYLOAD.FAKE_SIGNATURE"]
@@ -140,12 +140,12 @@ def test_results_and_logs_never_hold_a_number_or_the_text(env, caplog):
     job, _ = request(env, text="a private message")
     work(env, fake)
     text = json.dumps(result(env, job)) + caplog.text
-    for needle in (TEST_NUM, "5483321610", "a private message", "secret text", "FAKE_ACCESS", *SECRETS):
+    for needle in (TEST_NUM, "6045550161", "a private message", "secret text", "FAKE_ACCESS", *SECRETS):
         assert needle not in text, needle
     assert result(env, job)["code"] == "rejected"
 
 
-@pytest.mark.parametrize("over", [{"to": "5483321610"}, {"to": "+15483321610x"}, {"to": "+11111111111"}, {"extra": 1}, {"text": ""}, {"v": 2}, {"text": "bad \x07 char"}])
+@pytest.mark.parametrize("over", [{"to": "6045550161"}, {"to": "+16045550161x"}, {"to": "+11111111111"}, {"extra": 1}, {"text": ""}, {"v": 2}, {"text": "bad \x07 char"}])
 def test_bad_requests_are_rejected_and_deleted(env, over):
     fake = FakeSend()
     config(env, "live", ())

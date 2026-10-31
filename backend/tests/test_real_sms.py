@@ -13,7 +13,7 @@ from app import config
 from app.models import Contact, Message, Outbox
 from app.services import timeutil
 
-TEST = "+15483321610"
+TEST = "+16045550161"
 OTHER = "+16045550177"
 
 
@@ -66,7 +66,7 @@ def test_only_admins_change_the_mode_and_live_needs_the_phrase(env, bridge, priy
     assert set_mode(garg, "test_numbers_only", []).status_code == 400  # a test mode with no test number
     assert set_mode(garg, "live").status_code == 400
     assert set_mode(garg, "live", confirm="yes").status_code == 400
-    r = set_mode(garg, "test_numbers_only", ["548 332 1610"])
+    r = set_mode(garg, "test_numbers_only", ["604 555 0161"])
     assert r.status_code == 200 and r.json()["test_numbers"] == [TEST]  # normalised
     cfg = json.loads((bridge / "send_config.json").read_text())
     assert cfg["mode"] == "test_numbers_only" and cfg["test_numbers"] == [TEST]  # the helper's own copy

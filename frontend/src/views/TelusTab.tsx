@@ -250,7 +250,7 @@ function TextingPanel() {
         <select value={mode} onChange={(e) => setMode(e.target.value as SmsView['mode'])} aria-label="Texting mode">
           <option value="practice">Practice (nothing is sent)</option><option value="test_numbers_only">Test numbers only</option><option value="live">Live</option>
         </select></div>
-      <label className="setrow"><b>Test numbers</b><input value={nums} onChange={(e) => setNums(e.target.value)} placeholder="548 332 1610" aria-label="Test numbers, separated by commas" /></label>
+      <label className="setrow"><b>Test numbers</b><input value={nums} onChange={(e) => setNums(e.target.value)} placeholder="604 555 0161" aria-label="Test numbers, separated by commas" /></label>
       {mode === 'live' && v.mode !== 'live' && <label className="setrow"><b>Type {v.live_phrase}</b><input value={confirm} onChange={(e) => setConfirm(e.target.value)} aria-label="Confirm live texting" /></label>}
       <div className="rowbtn"><button className="btn primary" disabled={busy} onClick={save}>Save texting mode</button></div>
     </section>
