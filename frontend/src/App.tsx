@@ -14,6 +14,11 @@ import { Home } from './views/Home'
 import { Contacts } from './views/Contacts'
 import { ContactPage } from './views/ContactPage'
 import { Tasks } from './views/Tasks'
+import { CalendarPage } from './views/CalendarPage'
+import { Knowledge } from './views/Knowledge'
+import { Phone } from './views/Phone'
+import { Campaigns } from './views/Campaigns'
+import { Report, Reports } from './views/Reports'
 
 export function landing(role: string) {
   return role === 'owner' ? '/brief' : role === 'desk' ? '/home' : '/results'
@@ -44,6 +49,12 @@ export function App() {
           <Route path="/tasks" element={<Guard perm="tasks.view"><Tasks /></Guard>} />
           <Route path="/contacts" element={<Guard perm="contacts.view"><Contacts /></Guard>} />
           <Route path="/contacts/:id" element={<Guard perm="contacts.view"><ContactPage /></Guard>} />
+          <Route path="/calendar" element={<Guard perm="calendar.view"><CalendarPage /></Guard>} />
+          <Route path="/knowledge" element={<Guard perm="knowledge.view"><Knowledge /></Guard>} />
+          <Route path="/phone" element={<Guard perm="phone.view"><Phone /></Guard>} />
+          <Route path="/campaigns" element={<Guard perm="campaigns.view"><Campaigns /></Guard>} />
+          <Route path="/reports" element={<Guard perm="reports.view"><Reports /></Guard>} />
+          <Route path="/reports/:key" element={<Guard perm="reports.view"><Report /></Guard>} />
           <Route path="/brief" element={<Guard perm="brief.view"><Brief /></Guard>} />
           <Route path="/overnight" element={<Guard perm="overnight.view"><Overnight /></Guard>} />
           <Route path="/callbacks" element={<Guard perm="callbacks.view"><Callbacks /></Guard>} />

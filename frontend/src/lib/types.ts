@@ -51,3 +51,38 @@ export const TASK_KINDS: [string, string][] = [['unknown_knowledge', 'Missing an
 export const SPECIES_EMOJI: Record<string, string> = { dog: '\u{1F415}', cat: '\u{1F408}', rabbit: '\u{1F407}', bird: '\u{1F426}', reptile: '\u{1F98E}', hamster: '\u{1F439}', horse: '\u{1F434}', fish: '\u{1F41F}' }
 export const emojiFor = (s: string) => SPECIES_EMOJI[(s || '').toLowerCase()] || '\u{1F43E}'
 export const VISIT_LABEL: Record<string, string> = { checkup: 'Check-up', vaccine: 'Vaccine', surgery: 'Surgery', dental: 'Dental', sick: 'Sick visit', emergency: 'Emergency', other: 'Visit' }
+
+export const EVENT_KINDS: [string, string, number][] = [
+  ['checkup', 'Check-up', 170], ['vaccine', 'Vaccine', 210], ['surgery', 'Surgery', 350], ['dental', 'Dental', 280], ['consult', 'Consult', 40],
+  ['inquiry_call', 'Inquiry call', 100], ['staff', 'Staff', 215], ['reminder', 'Reminder', 60], ['other', 'Other', 190],
+]
+export const EVENT_HUE: Record<string, number> = Object.fromEntries(EVENT_KINDS.map(([k, , h]) => [k, h]))
+export const EVENT_LABEL: Record<string, string> = Object.fromEntries(EVENT_KINDS.map(([k, l]) => [k, l]))
+
+export type KEntry = {
+  id: number; category: string; category_label: string; title: string; body: string; version: number
+  status: 'pending' | 'approved' | 'declined' | 'retired'; proposed_by: 'human' | 'ai' | 'import'
+  source_kind: string; source_ref: string; source_quote: string; confidence: number | null
+  supersedes_id: number | null; previous_body: string; conflicts: boolean
+  proposer: string | null; decider: string | null; proposed_at: string; decided_at: string | null; decline_reason: string
+}
+export type KCounts = { pending: number; approved: number; declined: number; retired: number; conflicts: number; pending_by_category: Record<string, number>; approved_by_category: Record<string, number> }
+export type FeeRow = {
+  id: number; service: string; price_cents: number | null; price_dollars: number | null; price_prefix: string; unit: string; note: string
+  status: 'pending' | 'approved' | 'retired'; proposed_by: string; effective_from: string | null; effective_to: string | null; decider: string | null
+}
+
+export type PCall = {
+  id: number; started_at: string; direction: 'inbound' | 'outbound'; handled_by: 'human' | 'ai' | 'none'; agent_label: string
+  contact: { id: number; display_name: string; kind: string } | null; phone_display: string; duration_seconds: number
+  result: string; result_label: string; call_type: string; short_note: string; has_transcript: boolean; source: string; transcript?: string | null
+}
+
+export type Camp = {
+  id: number; name: string; channel: 'sms' | 'email'; purpose: 'care' | 'promo'; status: string; status_label: string
+  segment: Record<string, any>; subject: string; body: string; created_by: string | null; approved_by: string | null
+  created_at: string; approved_at: string | null; ran_at: string | null
+  counts: { matched?: number; sent?: number; skipped?: Record<string, number> }
+  recipients?: { contact: { id: number; display_name: string }; state: string; skipped_label: string }[]
+}
+export type Preview = { matched: number; eligible: number; skipped: Record<string, number>; skipped_list: { reason: string; label: string; count: number }[]; samples: { contact: { id: number; display_name: string }; subject: string; text: string }[]; quiet_hours: boolean }
