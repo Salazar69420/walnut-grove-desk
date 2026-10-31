@@ -269,7 +269,7 @@ def booking_confirmed(first: str, label: str, pet: str | None) -> Tpl:
 def reply_smalltalk(first: str, kind: str, pet: str | None = None, appt: str | None = None, seed: int = 0) -> Tpl:
     if kind == "thanks":
         opts = [f"You are so welcome{_c(first)}!", f"Our pleasure{_c(first)}!", f"Anytime{_c(first)}!"]
-        tail = f" We look forward to seeing you{' and ' + pet if pet else ''} on {appt}." if appt else " Text us anytime if you need anything."
+        tail = f" We look forward to seeing you{' and ' + pet if pet else ''} on {appt}." if appt else " We are here whenever you need us."
     elif kind == "greeting":
         opts = [f"{_hi(first)}! How can we help{' you and ' + pet if pet else ''} today?", f"{_hi(first)}, thanks for texting! What can we do for you{' and ' + pet if pet else ''}?"]
         tail = ""

@@ -89,9 +89,9 @@ def put_hours(db: Session, body: dict[str, Any], by: str) -> dict[str, Any]:
 KIND_FOR_VISIT = {"Vaccines": "vaccine", "Dental consult": "dental", "Surgery drop-off": "surgery", "Sick visit": "consult"}
 
 
-def availability(db: Session, minutes: int = 30, n: int = 4) -> list[datetime]:
+def availability(db: Session, minutes: int = 30, n: int = 6) -> list[datetime]:
     """The next open times the assistant may tell a client about (empty when booking by text is off)."""
-    return free_times(db, minutes, n=n) if get_hours(db)["enabled"] else []
+    return sorted(spread(free_times(db, minutes, n=80), k=n, gap=timedelta(hours=3))) if get_hours(db)["enabled"] else []
 
 
 def remember_offer(db: Session, contact: Contact, times: list[datetime], visit_type_id: int | None = None) -> None:

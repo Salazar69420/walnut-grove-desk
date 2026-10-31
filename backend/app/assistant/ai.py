@@ -170,7 +170,7 @@ def schedule_block(db: Session, contact: Contact | None) -> tuple[str, dict[str,
     times = booking.availability(db)
     if times:
         texts["A1"] = "Open times: " + "; ".join(f"{i}. {booking.label(t)}" for i, t in enumerate(times, 1))
-        lines += ["", "OPEN TIMES [A1] (from the Calendar, right now; a team member confirms any booking):"] + [f"{i}. {booking.label(t)}" for i, t in enumerate(times, 1)]
+        lines += ["", "OPEN TIMES [A1] (a SAMPLE of open times from the Calendar right now, other times are free too; never say these are the only, first or last ones; a team member confirms any booking):"] + [f"{i}. {booking.label(t)}" for i, t in enumerate(times, 1)]
     if contact is not None:
         mine = booking.upcoming(db, contact)
         if mine:
@@ -260,8 +260,7 @@ def check(data: dict[str, Any], texts: dict[str, str], client_text: str) -> dict
     answered = data.get("answered") is True
     needs_human = data.get("needs_human") is True
     ids = [str(i) for i in (data.get("knowledge_ids") or []) if isinstance(i, (str, int))]
-    if any(i not in texts for i in ids):
-        raise AiFailed("unknown_id")
+    ids = [i for i in ids if i in texts]  # a made-up id supports nothing; drop it (an answer still needs a real source below)
     if answered and not any(i[0] in "KFA" for i in ids):
         raise AiFailed("no_source")
     if FORBIDDEN.search(reply):
