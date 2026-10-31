@@ -32,6 +32,17 @@ PERMS: dict[str, set[str]] = {
     "calendar.view": {"desk", "nurse", "owner"},
     "calendar.edit": {"desk", "owner"},
     "home.view": {"desk", "nurse", "owner"},
+    # Knowledge and fees, phone, campaigns, reports (docs/PLAN_CLINIC_CRM.md phases 4, 5, 7, 8)
+    "knowledge.view": {"desk", "nurse", "owner"},
+    "knowledge.suggest": {"desk", "nurse", "owner"},  # add or edit a pending entry
+    "knowledge.decide": {"owner"},  # approve, decline, retire, and approve fees
+    "phone.view": {"desk", "nurse", "owner"},
+    "phone.export": {"desk", "owner"},
+    "phone.transcript": {"owner"},  # every open is written to the access log
+    "campaigns.view": {"desk", "owner"},
+    "campaigns.edit": {"desk", "owner"},  # drafts and previews
+    "campaigns.approve": {"owner"},  # approve and run (dry run)
+    "reports.view": {"desk", "owner"},
 }
 ADMIN_PERMS: set[str] = {"admin.users", "admin.audit", "admin.settings", "admin.import", "admin.reset_demo", "admin.telus", "admin.contacts_erase", "admin.access_log"}  # require is_admin
 

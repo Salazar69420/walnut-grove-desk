@@ -18,6 +18,7 @@ from app.models import (
     AccessLog,
     Attachment,
     CalendarEvent,
+    CampaignRecipient,
     Contact,
     ContactLink,
     ContactNoteHistory,
@@ -27,6 +28,7 @@ from app.models import (
     Notification,
     Outbox,
     Pet,
+    PhoneCall,
     Reminder,
     Task,
     User,
@@ -540,6 +542,8 @@ def erase_contact_rows(db: Session, contact_id: int) -> list[str]:
     if note_ids:
         db.execute(delete(NoteMention).where(NoteMention.note_id.in_(note_ids)))
     db.execute(delete(Notification).where(Notification.link == f"/contacts/{contact_id}"))
+    db.execute(delete(CampaignRecipient).where(CampaignRecipient.contact_id == contact_id))
+    db.execute(update(PhoneCall).where(PhoneCall.contact_id == contact_id).values(contact_id=None, phone=None, short_note="", transcript=None))
     db.execute(delete(Attachment).where(Attachment.contact_id == contact_id))
     db.execute(delete(Reminder).where(Reminder.contact_id == contact_id))
     db.execute(delete(Note).where(Note.contact_id == contact_id))

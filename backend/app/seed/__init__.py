@@ -33,7 +33,7 @@ from app.models import (
     VisitType,
 )
 from app.security.passwords import generate_password, hash_password
-from app.seed import crm_seed
+from app.seed import clinic_seed, crm_seed
 from app.seed import reference_data as ref
 from app.services import events as ev
 from app.services import timeutil
@@ -99,6 +99,7 @@ def reset_demo(db: Session, actor=None, now: datetime | None = None) -> dict[str
     now = now or timeutil.now_utc()
     today = timeutil.today_local(now)
 
+    clinic_seed.wipe_clinic_demo(db)
     crm_seed.wipe_demo(db)
     for model in RESET_TABLES:
         if model is Outbox:
@@ -202,6 +203,7 @@ def reset_demo(db: Session, actor=None, now: datetime | None = None) -> dict[str
     db.flush()
 
     crm_counts = crm_seed.seed_crm(db, now, conv_rows)
+    clinic_counts = clinic_seed.seed_clinic(db, now)
 
     ensure_settings(db, reset_toggles=True)
 
@@ -217,6 +219,7 @@ def reset_demo(db: Session, actor=None, now: datetime | None = None) -> dict[str
     for model in RESET_TABLES:
         counts[model.__tablename__] = db.scalar(select(func.count()).select_from(model)) or 0
     counts.update({f"crm_{k}": v for k, v in crm_counts.items()})
+    counts.update({f"clinic_{k}": v for k, v in clinic_counts.items()})
     return counts
 
 
@@ -266,4 +269,5 @@ def create_users(db: Session) -> list[tuple[str, str]]:
         if c.owner_id is None and c.owner_name:
             c.owner_id = ids.get(c.owner_name)
     crm_seed.relink_users(db)
+    clinic_seed.relink(db)
     return out
