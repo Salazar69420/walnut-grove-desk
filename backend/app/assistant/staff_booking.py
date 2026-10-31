@@ -17,7 +17,7 @@ from datetime import date, timedelta
 from sqlalchemy import select
 
 log = logging.getLogger("walnut.staff_booking")
-TIME_HINT = re.compile(r"\b(\d{1,2}(:\d{2})?\s*(am|pm)|\d{1,2}:\d{2}|noon|monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|today|"
+TIME_HINT = re.compile(r"\b(\d{1,2}(:\d{2})?\s*([ap]\.?\s?m\b\.?)|\d{1,2}:\d{2}|noon|monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|today|"
                        r"tonight|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\b", re.I)
 SCHEMA = {"type": "object", "properties": {
     "agreed": {"type": "boolean"}, "date": {"type": "string"}, "time": {"type": "string"}, "visit": {"type": "string"}},

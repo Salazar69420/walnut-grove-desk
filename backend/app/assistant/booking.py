@@ -103,6 +103,37 @@ def remember_offer(db: Session, contact: Contact, times: list[datetime], visit_t
     db.flush()
 
 
+MONTHS = {m: i for i, m in enumerate(["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"], 1)}
+_MON = r"(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?"
+
+
+def dates_in(text: str, today: date | None = None) -> list[date]:
+    """Days a client mentions: today, tomorrow, weekday names, "Nov 5", "5th November", "November 5th"."""
+    today = today or timeutil.today_local()
+    t = (text or "").lower()
+    out: list[date] = []
+
+    def add(d: date) -> None:
+        if d not in out:
+            out.append(d)
+    if re.search(r"\btoday\b", t):
+        add(today)
+    if re.search(r"\btomorrow\b", t):
+        add(today + timedelta(days=1))
+    for name, wd in DAY_NAMES.items():
+        if len(name) > 3 and re.search(rf"\b{name}\b", t):
+            add(today + timedelta(days=(wd - today.weekday()) % 7 or (7 if "next" in t else 0)))
+    for m in list(re.finditer(rf"\b{_MON}\s+(\d{{1,2}})(?:st|nd|rd|th)?\b", t)) + list(re.finditer(rf"\b(\d{{1,2}})(?:st|nd|rd|th)?\s+(?:of\s+)?{_MON}", t)):
+        g = m.groups()
+        mon, day = (g[0], g[1]) if not g[0].isdigit() else (g[1], g[0])
+        try:
+            d = date(today.year, MONTHS[mon[:3]], int(day))
+        except (ValueError, KeyError):
+            continue
+        add(d if d >= today else date(today.year + 1, d.month, d.day))
+    return out[:3]
+
+
 def within_hours(db: Session, start: datetime, minutes: int = 30) -> bool:
     """Inside the clinic's hours that day (not a closed date) and within the next 120 days."""
     cfg = get_hours(db)

@@ -296,3 +296,34 @@ def test_a_part_of_the_day_is_enough_to_send_a_request(env, bridge, garg, router
         e = s.scalar(select(CalendarEvent).where(CalendarEvent.contact_id == cid))
         assert e.status == "requested" and timeutil.local(e.starts_at).hour < 12 and timeutil.local(e.starts_at).date() == day
         assert "They asked for Monday morning" in s.scalar(select(Task.reason).where(Task.contact_id == cid, Task.title.like("Confirm text booking%")))
+
+
+def test_dates_clients_mention_are_understood():
+    from datetime import date
+    t = date(2026, 10, 31)  # a Saturday
+    assert booking.dates_in("How about 5th November ?", t) == [date(2026, 11, 5)]
+    assert booking.dates_in("Nov 5 at 11", t) == [date(2026, 11, 5)]
+    assert booking.dates_in("tomorrow works", t) == [date(2026, 11, 1)]
+    assert booking.dates_in("is Tuesday ok", t) == [date(2026, 11, 3)]
+    assert ai.parse_clock("11:00 am") == (11, 0) and ai.parse_clock("2pm") == (14, 0) and ai.parse_clock("11 a.m.") == (11, 0)
+
+
+def test_the_ai_sees_every_open_time_on_the_day_they_ask_about(env, bridge, garg):
+    cid = pilot(env, garg)
+    day = next_weekday(3)
+    with env.session() as s:
+        c = s.get(Contact, cid)
+        system, texts = ai.system_prompt(s, None, c, f"How about {day.strftime('%B')} {day.day}?")
+    assert f"OPEN ON {day.strftime('%A %B').upper()} {day.day}" in system and "8:30 AM" in system
+
+
+def test_accepting_a_time_staff_offered_becomes_a_request(env, bridge, garg, router):
+    cid = pilot(env, garg, ai_on=True)
+    day = next_weekday(3)
+    garg.post(f"/api/contacts/{cid}/messages", {"channel": "sms", "body": f"Hi, this is Dr. Garg, we have a slot on {day.strftime('%B')} {day.day} at 11 a.m."})
+    router.reply = {"reply": "Perfect, I have sent that to the team and they will confirm it by text.", "answered": True, "needs_human": False, "knowledge_ids": [],
+                    "reason": "accepts", "task_title": "", "task_note": "", "appointment_request": {"wanted": True, "date": day.isoformat(), "time": "11:00 am", "visit": ""}}
+    say(env, bridge, "I'll take that slot thanks")
+    with env.session() as s:
+        e = s.scalar(select(CalendarEvent).where(CalendarEvent.contact_id == cid, CalendarEvent.status == "requested"))
+        assert e is not None and timeutil.local(e.starts_at).strftime("%H:%M") == "11:00"

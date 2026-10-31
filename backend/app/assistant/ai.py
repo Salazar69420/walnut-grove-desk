@@ -83,8 +83,8 @@ RULES = """Hard rules (always apply, they override everything above):
 7. Reply with JSON only, matching the schema.
 8. If OPTIONAL PRODUCTS are listed, you may add ONE short sentence suggesting ONE of them, using its wording, only when it clearly fits what the client asked about. Never suggest anything when they are worried about their pet's health, upset, grieving, or asking about an emergency. Include its id.
 9. If you are in any doubt at all, set "needs_human" to true. Handing over to a person is always fine. When "answered" is false or "needs_human" is true, fill "task_title" (a short, specific title for the team, like "Asks if we see rabbits") and "task_note" (what the client needs, what was missing, and the next step you suggest).
-10. Read the whole conversation above and reply to what they mean in context, like a person would. Use WHAT YOU REMEMBER ABOUT THEM naturally: never ask for something you already know (their name, their pet, what they told us before), and pick up where things were left. If the message is only thanks, a greeting, an okay or a goodbye, reply warmly and briefly (mention their appointment from THEIR APPOINTMENTS if there is one), set "answered" false, "needs_human" false and leave task_title empty: no task is needed for that.
-11. Write like a real person texting, never like a system: no numbered menus, no "reply 1, 2 or 3", no form-letter phrases, and never talk about how things work behind the scenes (do not say "within our hours", "open times list", "the system" or "the Calendar"). Use what they told you before, in texts and on calls (see WHAT YOU REMEMBER), the way a front-desk person who knows them would."""
+10. Read the whole conversation above and reply to what they mean in context, like a person would. Call them only by the first name given in the header (or no name); never another name. Use WHAT YOU REMEMBER ABOUT THEM naturally: never ask for something you already know (their name, their pet, what they told us before), and pick up where things were left. If the message is only thanks, a greeting, an okay or a goodbye, reply warmly and briefly (mention their appointment from THEIR APPOINTMENTS if there is one), set "answered" false, "needs_human" false and leave task_title empty: no task is needed for that.
+11. Write like a real person texting, never like a system: no numbered menus, no "reply 1, 2 or 3", no form-letter phrases, and never talk about how things work behind the scenes (do not say "within our hours", "open times list", "the system" or "the Calendar"), and never say you cannot see the schedule: the OPEN lists above are the live schedule. When a team member offered a time in the conversation and the client accepts it, send that time as the appointment_request. Use what they told you before, in texts and on calls (see WHAT YOU REMEMBER), the way a front-desk person who knows them would."""
 
 SCHEMA = {
     "type": "object",
@@ -183,7 +183,7 @@ def knowledge_block(db: Session) -> tuple[str, dict[str, str]]:
     return "\n".join(lines), texts
 
 
-def schedule_block(db: Session, contact: Contact | None) -> tuple[str, dict[str, str], list]:
+def schedule_block(db: Session, contact: Contact | None, text: str = "") -> tuple[str, dict[str, str], list]:
     """Open times (A1) and this client's own upcoming appointments (A2), from the Calendar, as the model's only source for times."""
     from app.assistant import booking
     texts: dict[str, str] = {}
@@ -198,6 +198,23 @@ def schedule_block(db: Session, contact: Contact | None) -> tuple[str, dict[str,
     if times:
         texts["A1"] = "Open times: " + "; ".join(f"{i}. {booking.label(t)}" for i, t in enumerate(times, 1))
         lines += ["", "OPEN TIMES [A1] (a SAMPLE of open times from the Calendar right now, other times are free too; never say these are the only, first or last ones; a team member confirms any booking):"] + [f"{i}. {booking.label(t)}" for i, t in enumerate(times, 1)]
+    # every open time on the days they are talking about (this text and the last few), so a date like "Nov 5" can be checked
+    recent = text
+    if contact is not None:
+        recent += " " + " ".join(m.body or "" for m in db.scalars(select(Message).where(Message.contact_id == contact.id, Message.channel == "sms",
+                                                                                    Message.sender_kind != "ai")  # what the client and staff said
+                                                                  .order_by(Message.created_at.desc()).limit(6)).all())
+    for d in booking.dates_in(recent):
+        free = booking.free_times(db, 30, n=40, day=d, staff=True) if booking.get_hours(db)["enabled"] else []
+        key = f"A{3 + len([k for k in texts if k.startswith('A') and k[1:].isdigit() and int(k[1:]) >= 3])}"
+        when = d.strftime("%A %B ") + str(d.day)
+        if free:
+            texts[key] = f"Open times on {when}: " + ", ".join(_tu.local(x).strftime("%I:%M %p").lstrip("0") for x in free)
+            lines += ["", f"OPEN ON {when.upper()} [{key}] (every free start time that day; anything not listed is taken or outside hours): "
+                      + ", ".join(_tu.local(x).strftime("%I:%M %p").lstrip("0") for x in free)]
+        else:
+            texts[key] = f"{when}: no open times (closed, full or past)."
+            lines += ["", f"{when.upper()} [{key}]: no open times (closed, full or already past)."]
     if contact is not None:
         mine = booking.upcoming(db, contact)
         if mine:
@@ -206,10 +223,10 @@ def schedule_block(db: Session, contact: Contact | None) -> tuple[str, dict[str,
     return "\n".join(lines), texts, times
 
 
-def system_prompt(db: Session, products: list | None = None, contact: Contact | None = None) -> tuple[str, dict[str, str]]:
+def system_prompt(db: Session, products: list | None = None, contact: Contact | None = None, text: str = "") -> tuple[str, dict[str, str]]:
     cfg = get_config(db)
     kb, texts = knowledge_block(db)
-    sched, stexts, _ = schedule_block(db, contact)
+    sched, stexts, _ = schedule_block(db, contact, text)
     texts.update(stexts)
     extra = sched
     if products:
@@ -281,6 +298,21 @@ def call(cfg: dict[str, Any], system: str, messages: list[dict[str, str]]) -> di
     return data
 
 
+def parse_clock(t: str) -> tuple[int, int]:
+    """"11:00", "11:00 am", "11 a.m.", "2pm", "14:30" -> (hour, minute). Raises ValueError."""
+    m = re.fullmatch(r"\s*(\d{1,2})(?:[:.](\d{2}))?\s*(?:([ap])\.?\s*m\.?)?\s*", str(t).lower())
+    if not m:
+        raise ValueError("time")
+    h, mi, ap = int(m.group(1)), int(m.group(2) or 0), m.group(3)
+    if ap == "p" and h < 12:
+        h += 12
+    if ap == "a" and h == 12:
+        h = 0
+    if not (0 <= h < 24 and 0 <= mi < 60):
+        raise ValueError("time")
+    return h, mi
+
+
 def check(data: dict[str, Any], texts: dict[str, str], client_text: str) -> dict[str, Any]:
     """Raise AiFailed unless the reply is safe to use. Returns the cleaned result."""
     reply = data.get("reply")
@@ -305,18 +337,18 @@ def check(data: dict[str, Any], texts: dict[str, str], client_text: str) -> dict
             if part:  # "Monday morning": the first open time then; staff see what was asked and can adjust
                 appt = {"date": d, "part": part, "visit": visit}
             else:
-                hh, mm = (int(x) for x in t.split(":")[:2])
+                hh, mm = parse_clock(t)
                 appt = {"date": d, "hour": hh, "minute": mm, "visit": visit}
         except (ValueError, TypeError):
             raise AiFailed("bad_time") from None
     if answered and not needs_human and not appt and not any(i[0] in "KFA" for i in ids) and "A1" in texts:
-        cal = [texts[k] for k in ("A0", "A1", "A2") if k in texts] + [client_text]
+        cal = [v for k, v in texts.items() if k.startswith("A")] + [client_text]
         allowed_cal: list[Any] = [1]
         for src in cal:
             n_, t_ = numbercheck.extract(src)
             allowed_cal += n_ + t_
         if re.search(r"\d", reply) and numbercheck.check(reply, allowed_cal)[0]:
-            ids = ids + [k for k in ("A0", "A1", "A2") if k in texts and k not in ids]  # every time it named comes from the Calendar
+            ids = ids + [k for k in texts if k.startswith("A") and k not in ids]  # every time it named comes from the Calendar
     if answered and not needs_human and not appt and not any(i[0] in "KFA" for i in ids):
         raise AiFailed("no_source")
     reply = re.sub(r"\s*[\u2014\u2013]\s*", ", ", reply)  # house style: no long dashes in client texts
@@ -364,7 +396,7 @@ def draft(db: Session, contact: Contact, text: str, note: str = "") -> dict[str,
     """The checked AI reply for this contact's message. Raises AiFailed with a short code. `note` is a fact from the code for this turn."""
     from app.assistant import upsell
     cfg = get_config(db)
-    system, texts = system_prompt(db, upsell.eligible(db, contact, text), contact)
+    system, texts = system_prompt(db, upsell.eligible(db, contact, text), contact, text)
     if note:
         system += f"\n\nFOR THIS MESSAGE: {note}"
     started = time.monotonic()

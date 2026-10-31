@@ -292,6 +292,7 @@ Backlog lives in section 7 (known gaps) and section 8 (next steps).
 - Hazel's memory includes the latest call transcript excerpt (last 60 days) besides call summaries.
 - Calendar: requested appointments can be Confirmed or Declined by any staff member (`POST /api/calendar/events/{id}/decline`, optional text).
 - A day and time a staff member agrees by text (`app/assistant/staff_booking.py`, after a staff text with a time word) become a REQUESTED event plus task.
+- Hazel sees every open time on any day the client or staff mention ("Nov 5", "5th November", "Tuesday", "tomorrow"; `booking.dates_in`, keys A3+), reads a time a staff member offered and turns the client's yes into a request; times like "11:00 am" or "11 a.m." are understood (`ai.parse_clock`).
 - Assistant memory (`app/assistant/memory.py`): last 20 texts as they are, plus `contacts.ai_memory` (older texts summarised every 10 texts), recent calls with summaries, open tasks and staff preference notes. Erased with the contact.
 
 **2026-10-31 UTC, session 3 (latest): replies that sound like a person; live TELUS calls**
