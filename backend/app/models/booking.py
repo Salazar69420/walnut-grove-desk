@@ -50,6 +50,25 @@ class Product(Base):
     is_demo: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
+class WebsiteAudit(Base):
+    """One crawl of the clinic website: every page found, every SEO issue, and how it compares with the run before."""
+
+    __tablename__ = "website_audits"
+    __table_args__ = (CheckConstraint("status in ('running','done','failed')", name="status"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    base_url: Mapped[str] = mapped_column(String(200))
+    status: Mapped[str] = mapped_column(String(8), default="running")
+    started_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    started_by: Mapped[str] = mapped_column(String(120), default="")
+    pages_json: Mapped[str] = mapped_column(Text, default="[]")
+    issues_json: Mapped[str] = mapped_column(Text, default="[]")
+    summary_json: Mapped[str] = mapped_column(Text, default="{}")
+    ai_plan: Mapped[str] = mapped_column(Text, default="")
+    error: Mapped[str] = mapped_column(String(200), default="")
+
+
 class UpsellLog(Base):
     """Each suggestion sent, so one person is not offered things too often."""
 

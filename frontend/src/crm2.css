@@ -237,3 +237,22 @@ a.playb{color:var(--acc-t)}
 .whybars{display:flex;flex-direction:column;gap:6px;margin-top:8px}
 .wb{display:grid;grid-template-columns:minmax(120px,190px) 1fr 40px;align-items:center;gap:10px;font-size:14px}
 .wb i{display:block;height:12px;border-radius:6px;background:var(--accent);min-width:4px}.wb b{text-align:right}
+/* Assistant voice buttons */
+.assist .send .mic{flex:none;width:40px;height:40px;border-radius:10px;border:1px solid var(--line);background:var(--panel)}
+.assist .send .mic.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.assist .send .mic.on:first-of-type{animation:micpulse 1.4s infinite}
+@keyframes micpulse{0%,100%{box-shadow:0 0 0 0 rgba(28,124,110,.45)}50%{box-shadow:0 0 0 6px rgba(28,124,110,0)}}
+@media (prefers-reduced-motion:reduce){.assist .send .mic.on{animation:none}}
+/* Website content and SEO agent */
+.web .web-bar{display:flex;gap:12px;align-items:center;padding:12px 16px;flex-wrap:wrap}.web .web-bar input{flex:1;min-width:180px}
+.web .tbl{width:100%;border-collapse:collapse}.web .tbl th,.web .tbl td{padding:10px 16px;text-align:left;border-top:1px solid var(--line)}
+.web .tbl .num{text-align:right;white-space:nowrap}.web .tbl tr.click{cursor:pointer}.web .tbl tr.click:hover{background:var(--hov)}
+.web .tbl td.ell{max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.web-text{white-space:pre-wrap;line-height:1.55;max-height:55vh;overflow:auto}
+.web-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:12px 0}
+.web-kpis .card{display:flex;flex-direction:column;gap:2px}.web-kpis b{font-size:26px}.web-kpis span{color:var(--mute);font-size:13px}
+.web-score.good b{color:#1f9d55}.web-score.mid b{color:#c17d00}.web-score.low b{color:var(--crit)}
+.web-issue{border-top:1px solid var(--line)}.web-issue-h{display:flex;gap:10px;align-items:center;width:100%;text-align:left;background:none;border:0;padding:12px 16px;cursor:pointer;color:inherit;flex-wrap:wrap}
+.web-issue-h:hover{background:var(--hov)}.web-issue-b{padding:0 16px 14px 16px}.web-issue-b ul{margin:6px 0 0;padding-left:18px}
+.tag.sev{text-transform:uppercase;font-size:11px;font-weight:700}.tag.sev.high{background:var(--crit-soft);color:var(--crit)}.tag.sev.medium{background:#fdf1d8;color:#8a5a00}.tag.sev.low{background:var(--panel2)}
+.web-plan{white-space:pre-wrap;font:14px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--panel2);border-radius:10px;padding:14px;max-height:70vh;overflow:auto}

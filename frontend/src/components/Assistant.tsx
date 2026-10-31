@@ -21,6 +21,9 @@ export function Assistant() {
   const [aiOn, setAiOn] = useState(false)
   const [turns, setTurns] = useState<{ role: 'user' | 'assistant'; content: string }[]>([])
   const box = useRef<HTMLDivElement>(null)
+  const voice = useVoice((t) => { if (aiOn) chat(t); else ask({ text: t }, t) }, toast)
+  const [speak, setSpeak] = useState(() => { try { return localStorage.getItem('wgd-speak') === '1' } catch { return false } })
+  const toggleSpeak = () => { const v = !speak; setSpeak(v); try { localStorage.setItem('wgd-speak', v ? '1' : '0') } catch { /* private mode */ } if (!v) window.speechSynthesis?.cancel() }
 
   const loadChips = useCallback(() => api<{ greeting: string; chips: { key: string; question: string }[]; ai?: boolean }>('/assistant/chips', { quiet: true })
     .then((r) => { setGreeting(r.greeting); setChips(r.chips || []); setAiOn(!!r.ai); return !!r.ai })
@@ -38,6 +41,7 @@ export function Assistant() {
     try {
       const [r] = await Promise.all([api<{ answer: Answer }>('/assistant/ask', { body }), delay])
       setMsgs((m) => [...m.filter((x) => !x.typing), { who: 'bot', answer: r.answer }])
+      if (speak) say([...r.answer.paragraphs, ...r.answer.bullets, ...r.answer.after].join('. '))
     } catch {
       setMsgs((m) => m.filter((x) => !x.typing))
     }
@@ -52,6 +56,7 @@ export function Assistant() {
       const r = await api<{ text: string; proposals: Proposal[] }>('/assistant/chat', { body: { messages: next }, quiet: true })
       setTurns([...next, { role: 'assistant' as const, content: r.text }].slice(-12))
       setMsgs((m) => [...m.filter((x) => !x.typing), { who: 'bot', ai: r.text, proposals: r.proposals }])
+      if (speak) say(r.text)
     } catch (x) {
       setMsgs((m) => [...m.filter((x) => !x.typing), { who: 'bot', ai: x instanceof ApiError && x.message && x.message !== 'error' ? x.message : 'The AI could not answer just now. The question buttons still work.' }])
     }
@@ -112,7 +117,14 @@ export function Assistant() {
         ))}
       </div>
       <form className="send" onSubmit={submit}>
-        <input value={q} onChange={(e) => setQ(e.target.value)} type="text" maxLength={aiOn ? 2000 : 300} placeholder={aiOn ? 'Ask about anything, or ask for a change' : 'Ask, or tap a question above'} autoComplete="off" aria-label="Ask the assistant" />
+        <input value={q} onChange={(e) => setQ(e.target.value)} type="text" maxLength={aiOn ? 2000 : 300} placeholder={voice.state === 'recording' ? 'Listening... tap the microphone to stop' : voice.state === 'working' ? 'Writing down what you said...' : aiOn ? 'Ask about anything, or ask for a change' : 'Ask, or tap a question above'} autoComplete="off" aria-label="Ask the assistant" />
+        {voice.supported && <button type="button" className={'ibtn mic' + (voice.state === 'recording' ? ' on' : '')} disabled={waiting || voice.state === 'working'} onClick={voice.toggle}
+          aria-pressed={voice.state === 'recording'} aria-label={voice.state === 'recording' ? 'Stop and send' : 'Ask by voice'} title={voice.state === 'recording' ? 'Stop and send' : 'Ask by voice'}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" /></svg>
+        </button>}
+        {'speechSynthesis' in window && <button type="button" className={'ibtn mic' + (speak ? ' on' : '')} onClick={toggleSpeak} aria-pressed={speak} aria-label="Read answers aloud" title={speak ? 'Reading answers aloud (tap to stop)' : 'Read answers aloud'}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4z" />{speak && <path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11" />}</svg>
+        </button>}
         <button className="btn primary" type="submit" disabled={waiting}>Send</button>
       </form>
     </aside>
@@ -133,4 +145,56 @@ function AiText({ text }: { text: string }) {
     else blocks.push({ list, lines: [clean] })
   }
   return <>{blocks.map((b, i) => b.list ? <ul key={i}>{b.lines.map((l, j) => <li key={j}>{l}</li>)}</ul> : <p key={i}>{b.lines[0]}</p>)}</>
+}
+
+
+/** Read an answer aloud with the browser's own voice (nothing leaves the computer). */
+function say(text: string) {
+  const synth = window.speechSynthesis
+  if (!synth) return
+  synth.cancel()
+  const u = new SpeechSynthesisUtterance(text.replace(/^- /gm, '').slice(0, 1500))
+  u.lang = 'en-CA'
+  u.rate = 1.03
+  synth.speak(u)
+}
+
+/** Microphone: record while on, then the server writes it down (Whisper) and it is asked like a typed question. */
+function useVoice(onText: (t: string) => void, toast: (m: string) => void) {
+  const [state, setState] = useState<'idle' | 'recording' | 'working'>('idle')
+  const rec = useRef<MediaRecorder | null>(null)
+  const chunks = useRef<Blob[]>([])
+  const supported = typeof window !== 'undefined' && !!navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== 'undefined'
+  async function start() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const type = ['audio/webm', 'audio/mp4', 'audio/ogg'].find((t) => MediaRecorder.isTypeSupported(t)) || ''
+      const r = new MediaRecorder(stream, type ? { mimeType: type } : undefined)
+      chunks.current = []
+      r.ondataavailable = (e) => { if (e.data.size) chunks.current.push(e.data) }
+      r.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop())
+        const blob = new Blob(chunks.current, { type: (r.mimeType || 'audio/webm').split(';')[0] })
+        if (blob.size < 2000) { setState('idle'); toast('That was too short. Hold the thought and try again.'); return }
+        setState('working')
+        const form = new FormData()
+        form.append('file', blob, 'voice.' + (blob.type.includes('mp4') ? 'mp4' : blob.type.includes('ogg') ? 'ogg' : 'webm'))
+        try {
+          const out = await api<{ text: string }>('/assistant/voice', { form, quiet: true })
+          if (out.text) onText(out.text)
+          else toast('I did not catch that. Try again a little closer to the microphone.')
+        } catch (x) { toast(x instanceof ApiError && x.message && x.message !== 'error' ? x.message : 'Voice did not work just now.') }
+        setState('idle')
+      }
+      rec.current = r
+      r.start()
+      setState('recording')
+      window.setTimeout(() => { if (rec.current?.state === 'recording') rec.current.stop() }, 120000)
+    } catch { toast('The browser did not allow the microphone. Allow it in the address bar and try again.') }
+  }
+  function toggle() {
+    if (state === 'recording') rec.current?.stop()
+    else if (state === 'idle') start()
+  }
+  return { state, supported, toggle }
 }

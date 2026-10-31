@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import Field
 from sqlalchemy.orm import Session
 
@@ -74,6 +74,35 @@ def chat(body: ChatBody, user: User = Depends(require("assistant.use")), db: Ses
               {"tools": out["tools"], "proposals": len(out["proposals"])}, publish=False)
     db.commit()
     return out
+
+
+VOICE_MAX = 6 * 1024 * 1024
+VOICE_TYPES = {"audio/webm": "webm", "audio/ogg": "ogg", "audio/mp4": "mp4", "audio/mpeg": "mp3", "audio/wav": "wav", "audio/x-wav": "wav", "audio/aac": "mp4"}
+
+
+@router.post("/voice")
+async def voice(file: UploadFile = File(...), user: User = Depends(require("assistant.use")), db: Session = Depends(get_db)):
+    """Speech to text for the assistant's microphone button (Whisper through OpenRouter). The audio is not stored."""
+    import asyncio
+    from app.assistant import ai
+    from app.services import transcribe
+    cfg = ai.get_config(db)
+    if not cfg.get("key_enc"):
+        raise HTTPException(status_code=409, detail="Voice needs the OpenRouter key (Admin, AI assistant).")
+    kind = (file.content_type or "").split(";")[0].strip().lower()
+    ext = VOICE_TYPES.get(kind)
+    if not ext:
+        raise HTTPException(status_code=415, detail="That recording format is not supported.")
+    audio = await file.read(VOICE_MAX + 1)
+    if not audio or len(audio) > VOICE_MAX:
+        raise HTTPException(status_code=413, detail="Keep voice questions under about two minutes.")
+    db.commit()  # nothing held while the model listens
+    try:
+        text = await asyncio.to_thread(transcribe.transcribe_audio, {**cfg, "transcribe_model": cfg.get("transcribe_model") or ai.TRANSCRIBE_MODEL}, audio, ext)
+    except ai.AiFailed as e:
+        raise HTTPException(status_code=502, detail=f"Could not understand the recording just now ({e}).")
+    text = "" if text.strip().upper().startswith("NO_SPEECH") else text.strip()
+    return {"text": text[:2000]}
 
 
 @router.post("/proposals/{pid}/confirm")

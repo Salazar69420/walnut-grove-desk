@@ -192,3 +192,10 @@ def test_older_calls_fill_in_system_made_contacts_without_tasks(env, router):
         assert ct.display_name == "Dana Wu" and ct.kind == "patient" and s.scalar(select(Pet.name).where(Pet.contact_id == ct.id)) == "Biscuit"
         assert staff_made.display_name == "Rob Staffmade" and staff_made.kind == "inquiry"  # never touched
         assert len(s.scalars(select(Task)).all()) == tasks_before and a.intent == "refill" and a.call_type == "patient"
+
+
+def test_voice_questions_are_written_down_and_not_kept(env, bridge, router, garg):
+    r = garg.c.post("/api/assistant/voice", files={"file": ("voice.webm", b"x" * 4000, "audio/webm")}, headers={"X-CSRF-Token": garg.csrf})
+    assert r.status_code == 200, r.text
+    assert "food for Rex" in r.json()["text"]
+    assert garg.c.post("/api/assistant/voice", files={"file": ("v.exe", b"x" * 4000, "application/x-msdownload")}, headers={"X-CSRF-Token": garg.csrf}).status_code == 415
