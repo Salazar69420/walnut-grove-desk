@@ -143,9 +143,9 @@ def load_credentials(root: str, path: str | None = None) -> Credentials:
                        client_secret=env["TELUS_CLIENT_SECRET"], jwt=env["TELUS_JWT"])
 
 
-def write_credentials(root: str, values: dict[str, str], force: bool = False) -> str:
-    """Atomic write: umask 077, tmp file in the same directory, fsync, rename. Returns the path."""
-    path = credentials_path(root)
+def write_credentials(root: str, values: dict[str, str], force: bool = False, send: bool = False) -> str:
+    """Atomic write: umask 077, tmp file in the same directory, fsync, rename. Returns the path. send=True writes the texting login."""
+    path = send_credentials_path(root) if send else credentials_path(root)
     d = os.path.dirname(path)
     if os.path.lexists(path) and not force:
         raise TelusConfigError("credentials file already exists (use --force to replace it)")

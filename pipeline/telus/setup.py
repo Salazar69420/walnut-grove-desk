@@ -8,8 +8,9 @@ import sys
 from . import config as tc
 
 
-def run(root: str, force: bool) -> int:
-    path = tc.credentials_path(root)
+def run(root: str, force: bool, send: bool = False) -> int:
+    """send=True stores the TEXTING login (the app allowed to send texts) instead of the read-only one."""
+    path = tc.send_credentials_path(root) if send else tc.credentials_path(root)
     if os.path.lexists(path) and not force:
         print("error: credentials file already exists (use --force to replace it)", file=sys.stderr)
         return 2
@@ -22,13 +23,13 @@ def run(root: str, force: bool) -> int:
         values = {"TELUS_ENV": env, "TELUS_SERVER_URL": url}
         for key in ("TELUS_CLIENT_ID", "TELUS_CLIENT_SECRET", "TELUS_JWT"):
             values[key] = tc.check_value(key, getpass.getpass(f"{key}: ").strip())
-        tc.write_credentials(root, values, force=force)
+        tc.write_credentials(root, values, force=force, send=send)
     except tc.TelusConfigError as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
     except (EOFError, KeyboardInterrupt):
         print("error: cancelled, nothing saved", file=sys.stderr)
         return 2
-    print("saved")
+    print("saved as the texting login (the app that can send texts)" if send else "saved as the read-only login (calls, recordings, live sync)")
     print("keys stored: " + ", ".join(tc.KEYS))
     return 0

@@ -81,6 +81,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = add("telus-setup", "store TELUS/RingCentral credentials (hidden prompts, mode 600)")
     s.add_argument("--force", action="store_true", help="replace an existing credentials file")
+    s.add_argument("--send", action="store_true", help="store the TEXTING login (the app that may send texts) instead of the read-only one")
 
     add("telus-check", "log in read-only and print a permission summary (no numbers or names)")
 
@@ -164,7 +165,7 @@ def main(argv: list[str] | None = None) -> int:
         return leak.run(paths, args.paths, args.ignore_regex, args.list_files, args.seed)
     if cmd == "telus-setup":
         from .telus import setup as telus_setup
-        return telus_setup.run(paths.root, args.force)
+        return telus_setup.run(paths.root, args.force, getattr(args, "send", False))
     if cmd == "telus-match":
         from .telus import matchcheck
         return matchcheck.run(paths.db, paths.csv, getattr(args, "export", None))
