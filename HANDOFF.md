@@ -274,6 +274,12 @@ Backlog lives in section 7 (known gaps) and section 8 (next steps).
 
 ### 11.4 Journal (newest first)
 
+**2026-10-31 UTC, session 3 (latest): booking by text, product suggestions, playback error explained**
+- `app/assistant/booking.py` (bookable hours setting `booking_hours`, free times from those hours minus Calendar events booked or requested, offers 1/2/3, picks create a REQUESTED Calendar event plus a booking task), confirm endpoint `POST /api/calendar/events/{id}/confirm` (can text the client), Calendar panel "Booking by text" (OFF by default; pre-filled Mon-Fri 9:00-17:30, Sat 9:00-13:30, Sun closed from what staff say on calls; owner must check). Order in `replies.suggest`: emergency > medical > booking > AI > rules.
+- `app/assistant/upsell.py`, `products` table, Knowledge & Fees > Products (CSV import, approve one by one, suggestions switch OFF by default): at most one approved pitch when its triggers fit, never in hard moments, not again within `days_between`. The owner said a product file would be provided; it has NOT been received yet.
+- Playback error: the read helper refuses the all-permission TELUS login (by design). An override was blocked by the permission system as security weakening. Fix for the owner: create a TELUS app with only Read permissions and run `telus-setup --force` on the server.
+- Tests 386 backend, 284 pipeline. Migration 0009 live.
+
 **2026-10-31 UTC, session 3 (latest): AI-written replies through OpenRouter (pilot contact only)**
 - `app/assistant/ai.py`, `app/api/admin_assistant.py`, `frontend/src/views/AssistantTab.tsx` (Admin > AI assistant). Model default `deepseek/deepseek-v4.1-flash-1017` (checked on the live OpenRouter model list: exists, supports structured outputs, $0.15 / $0.60 per million tokens). Request uses `response_format` json_schema strict, `provider.require_parameters` and `provider.data_collection: deny` (owner can turn the privacy option off). Only first name and pet names are sent.
 - Order inside `replies.suggest`: emergency (fixed text) > medical (fixed text) > AI (only if on, key set, contact assistant on, number on the texting test list) > rules. AI replies are rejected unless they cite given ids, carry no number absent from the cited knowledge, and have no medicine wording; rejections fall back to the rules and log `ai_fallback` with a code.
