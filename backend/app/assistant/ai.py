@@ -304,6 +304,7 @@ def draft(db: Session, contact: Contact, text: str, note: str = "") -> dict[str,
         system += f"\n\nFOR THIS MESSAGE: {note}"
     started = time.monotonic()
     msgs = conversation(db, contact, text)
+    db.commit()  # release the database before waiting for the model (the inbound loop and the app share it)
     data = call(cfg, system, msgs)
     try:
         out = check(data, texts, text)

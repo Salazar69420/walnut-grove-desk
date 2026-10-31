@@ -78,6 +78,7 @@ def suggest_from_task(db: Session, task_id: int, user_id: int) -> KnowledgeEntry
                "messages": [{"role": "system", "content": PROMPT}, {"role": "user", "content": f"Client asked:\n{question}\n\nStaff answered:\n{staff}"}],
                "response_format": {"type": "json_schema", "json_schema": {"name": "learned_knowledge", "strict": True, "schema": SCHEMA}},
                "provider": {"require_parameters": True, **({"data_collection": "deny"} if cfg["deny_data_collection"] else {})}}
+    db.commit()  # release the database before waiting for the model
     try:
         with httpx.Client(timeout=ai.TIMEOUT, transport=llm_adapter.TRANSPORT) as h:
             r = h.post(ai.URL, json=payload, headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json", "X-Title": "Walnut Grove Desk"})

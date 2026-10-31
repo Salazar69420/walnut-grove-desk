@@ -72,6 +72,7 @@ def refresh(db: Session, c: Contact) -> bool:
         if not cfg.get("key_enc"):
             return False
         convo = "\n".join(f"{'Client' if m.direction == 'in' else 'Clinic'}: {(m.body or '').strip()[:400]}" for m in old)
+        db.commit()  # release the database before waiting for the model
         content = _post(cfg, {"model": cfg["model"], "temperature": 0.1, "max_tokens": 500,
                               "messages": [{"role": "system", "content": PROMPT},
                                            {"role": "user", "content": f"Old notes:\n{c.ai_memory or '(none)'}\n\nOlder texts:\n{convo}"}],

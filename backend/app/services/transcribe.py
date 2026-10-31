@@ -327,6 +327,7 @@ def step(db: Session) -> dict[str, int]:
         return counts
     rows = _candidates(db)
     in_flight = sum(1 for c in rows if c.transcript_state == "queued")  # a batch is still out: wait for it before asking again
+    ready_jobs: list[tuple[int, str, str]] = []
     for c in rows:
         if c.duration_seconds < MIN_SECONDS:
             c.transcript_state = "skipped"
@@ -334,24 +335,8 @@ def step(db: Session) -> dict[str, int]:
         if c.transcript_state == "queued":
             ready = phone_audio._ready(c.recording_id)
             if ready:
-                path, _type = ready
-                try:
-                    if os.path.getsize(path) > MAX_AUDIO:
-                        raise ai.AiFailed("too_big")
-                    with open(path, "rb") as fh:
-                        audio = fh.read()
-                    text = transcribe_audio(cfg, audio, path.rsplit(".", 1)[-1])
-                    if text.strip().upper().startswith("NO_SPEECH"):
-                        c.transcript_state, c.short_note = "done", c.short_note or "No conversation on the recording"
-                    else:
-                        file_call(db, c, text, analyse(cfg, text, timeutil.local(c.started_at).strftime("%A %Y-%m-%d %H:%M")))
-                    counts["done"] += 1
-                except Exception as e:  # noqa: BLE001 - nothing from the call is logged
-                    log.warning("transcript failed (%s %s)", type(e).__name__, str(e)[:20] if isinstance(e, ai.AiFailed) else "")
-                    c.transcript_state = "" if c.transcript_tries < MAX_TRIES else "failed"
-                    counts["failed"] += 1
-                _queued_at.pop(c.id, None)
-                db.commit()
+                if len(ready_jobs) < IN_FLIGHT:
+                    ready_jobs.append((c.id, ready[0], timeutil.local(c.started_at).strftime("%A %Y-%m-%d %H:%M")))
                 continue
             _queued_at.setdefault(c.id, time.monotonic())  # after a restart: count the wait from now, do not ask again at once
             if phone_audio._failed(c.recording_id) or time.monotonic() - _queued_at[c.id] > WAIT_FOR_COPY:
@@ -369,6 +354,34 @@ def step(db: Session) -> dict[str, int]:
     if counts["asked"]:
         _last_batch["at"] = time.monotonic()
     db.commit()
+    for cid, path, when in ready_jobs:
+        # the slow part (Whisper and the model) runs with NO database transaction open; the result is saved in a short one after
+        text, data, err = None, None, None
+        try:
+            if os.path.getsize(path) > MAX_AUDIO:
+                raise ai.AiFailed("too_big")
+            with open(path, "rb") as fh:
+                audio = fh.read()
+            text = transcribe_audio(cfg, audio, path.rsplit(".", 1)[-1])
+            if not text.strip().upper().startswith("NO_SPEECH"):
+                data = analyse(cfg, text, when)
+        except Exception as e:  # noqa: BLE001 - nothing from the call is logged
+            err = e
+            log.warning("transcript failed (%s %s)", type(e).__name__, str(e)[:20] if isinstance(e, ai.AiFailed) else "")
+        c = db.get(PhoneCall, cid)
+        if c is None:
+            continue
+        if err is not None:
+            c.transcript_state = "" if c.transcript_tries < MAX_TRIES else "failed"
+            counts["failed"] += 1
+        elif data is None:
+            c.transcript_state, c.short_note = "done", c.short_note or "No conversation on the recording"
+            counts["done"] += 1
+        else:
+            file_call(db, c, text, data)
+            counts["done"] += 1
+        _queued_at.pop(cid, None)
+        db.commit()
     return counts
 
 

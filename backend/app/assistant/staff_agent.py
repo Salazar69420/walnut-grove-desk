@@ -499,6 +499,7 @@ def run(db: Session, user: User, history: list[dict[str, str]]) -> dict[str, Any
     for _ in range(MAX_STEPS):
         payload = {"model": cfg["model"], "messages": msgs, "tools": defs, "tool_choice": "auto", "temperature": 0.1, "max_tokens": 900,
                    "provider": {"require_parameters": True, **({"data_collection": "deny"} if cfg["deny_data_collection"] else {})}}
+        db.commit()  # never hold the database while waiting for the model (every transaction takes the write lock)
         try:
             with httpx.Client(timeout=40, transport=llm_adapter.TRANSPORT) as c:
                 r = c.post(ai.URL, json=payload, headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json", "X-Title": "Walnut Grove Desk"})
