@@ -31,6 +31,11 @@ async def _inbound_loop() -> None:
             await asyncio.to_thread(inbound.run_once)
         except Exception:  # noqa: BLE001 - keep looping
             log.error("inbound loop error")
+        try:
+            from app.services import calls_live
+            await asyncio.to_thread(calls_live.run_once)  # new calls from TELUS, only when telus-calls wrote a new file
+        except Exception:  # noqa: BLE001 - keep looping
+            log.error("live calls loop error")
         await asyncio.sleep(5)
 
 

@@ -1,0 +1,27 @@
+[Unit]
+Description=TELUS live calls: pull the latest calls (read-only) for the Phone page
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=20
+
+[Service]
+Type=oneshot
+User=walnut-pipeline
+Group=walnut-pipeline
+SupplementaryGroups=walnut-telus
+UMask=0007
+WorkingDirectory=/opt/walnut-desk
+ExecStart=/opt/walnut-desk/pipeline/.venv/bin/python -m pipeline telus-calls
+TimeoutStartSec=2min
+# hardening: reads the read-only credentials, writes only the bridge folder
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/walnut-private /var/lib/walnut-desk-telus
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true

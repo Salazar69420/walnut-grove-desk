@@ -98,6 +98,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--since", required=True, help="ISO 8601 start, for example 2025-07-01")
     s.add_argument("--export", required=True, help="file for the app (pipeline/app_numbers.py), usually in the bridge folder")
 
+    s = add("telus-calls", "latest calls from the TELUS call log for the app's Phone page (read-only, every few minutes)")
+    s.add_argument("--bridge", default="/var/lib/walnut-desk-telus", help="bridge folder shared with the app")
+    s.add_argument("--hours", type=int, default=48)
+
     s = add("telus-send-worker", "send the texts and start the calls the web app asked for (separate send credentials)")
     s.add_argument("--bridge", default="/var/lib/walnut-desk-telus", help="bridge folder shared with the app")
     s.add_argument("--inbound", action="store_true", help="first hand new incoming texts to the app (reply syncing)")
@@ -219,6 +223,15 @@ def main(argv: list[str] | None = None) -> int:
             print(f"error: {e}", file=sys.stderr)
             return 2
         return tmsg.run(creds, args.days)
+    if cmd == "telus-calls":
+        from .telus import calls_live
+        from .telus import config as tcfg
+        try:
+            creds = tcfg.load_credentials(paths.root)
+        except tcfg.TelusConfigError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 2
+        return calls_live.run(creds, args.bridge, max(1, min(args.hours, 168)))
     if cmd == "telus-numbers":
         from .telus import config as tcfg
         from .telus import numbers as tnum

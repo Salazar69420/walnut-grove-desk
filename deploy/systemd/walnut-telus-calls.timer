@@ -1,0 +1,11 @@
+[Unit]
+Description=Pull the latest TELUS calls for the Phone page every 3 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=3min
+AccuracySec=10s
+Unit=walnut-telus-calls.service
+
+[Install]
+WantedBy=timers.target
