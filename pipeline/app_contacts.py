@@ -92,7 +92,7 @@ def link_contacts(db: Session, infos: list[Info], now: datetime) -> dict[str, in
             call.call_type = "patient" if contact.kind == "patient" else "inquiry"
             outbound = call.direction == "outbound"
             db.add(Message(contact_id=contact.id, channel="call", direction="out" if outbound else "in", sender_kind="staff" if outbound else "client",
-                           body=call.short_note, delivery_state="received", created_at=call.started_at, is_demo=False))
+                           body=call.short_note, delivery_state="received", created_at=call.started_at, phone_call_id=call.id, is_demo=False))
             if call.started_at > contact.last_active_at:
                 contact.last_active_at = call.started_at
             if call.started_at < contact.created_at:

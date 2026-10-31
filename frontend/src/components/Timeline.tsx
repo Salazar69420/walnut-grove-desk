@@ -3,6 +3,7 @@ import { api } from '../api/client'
 import { onEntity } from '../live'
 import { Avatar, Clock, Skeleton } from './ui'
 import { Icon } from './icons'
+import { CallButtons, PlayRow, TranscriptModal, usePlayer } from './CallTools'
 import { bytes, dayKey, dayLabel, exact, firstName } from '../lib/fmt'
 import { VISIT_LABEL, type Row, type TItem } from '../lib/types'
 
@@ -112,15 +113,7 @@ export function Item({ it, contact }: { it: TItem; contact: Row }) {
       </div>
     )
   }
-  if (it.channel === 'call') {
-    return (
-      <div className="callline">
-        <span className="sl-ic call"><Icon n="phone" size={15} /></span>
-        <div><b>{it.direction === 'in' ? 'Call from ' + firstName(contact.display_name) : 'Call to ' + firstName(contact.display_name)}</b>{it.body && <div className="mute">{it.body}</div>}</div>
-        <Clock iso={it.at} />
-      </div>
-    )
-  }
+  if (it.channel === 'call') return <CallLine it={it} contact={contact} />
   const out = it.direction === 'out'
   const ai = it.sender?.kind === 'ai'
   const dt = deliveryText(it)
@@ -202,5 +195,25 @@ export function Timeline({ tl, contact }: { tl: TL; contact: Row }) {
       </div>
       {fresh && <button className="fresh" onClick={() => { const el = ref.current; if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' }); setFresh(false) }}>New activity <Icon n="chevD" size={14} /></button>}
     </div>
+  )
+}
+
+
+function CallLine({ it, contact }: { it: TItem; contact: { display_name: string } }) {
+  const player = usePlayer()
+  const [tr, setTr] = useState<number | null>(null)
+  const call = it.meta?.call
+  const v = call ? player.st[call.id] : undefined
+  return (
+    <>
+      <div className="callline">
+        <span className="sl-ic call"><Icon n="phone" size={15} /></span>
+        <div><b>{it.direction === 'in' ? 'Call from ' + firstName(contact.display_name) : 'Call to ' + firstName(contact.display_name)}</b>{it.body && <div className="mute">{it.body}</div>}</div>
+        {call && <CallButtons call={call} player={player} onTranscript={setTr} />}
+        <Clock iso={it.at} />
+      </div>
+      {call && v && <table className="callplay"><tbody><PlayRow id={call.id} v={v} player={player} cols={1} /></tbody></table>}
+      <TranscriptModal callId={tr} onClose={() => setTr(null)} />
+    </>
   )
 }

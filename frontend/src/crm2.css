@@ -168,3 +168,10 @@ i.h{background:var(--accent)}i.a{background:var(--vio)}i.m{background:var(--crit
 .spin{display:inline-block;width:16px;height:16px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;flex:none}
 @keyframes spin{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion:reduce){.spin{animation-duration:2.4s}}
+
+/* call line in a contact's timeline: listen, read and download buttons */
+.cbtns{display:inline-flex;gap:6px;align-items:center;margin-left:auto;margin-right:10px}
+.playb.sm{width:34px;height:34px;text-decoration:none}
+a.playb{color:var(--acc-t)}
+.callline .cbtns+time{margin-left:0}
+.callplay{width:100%;min-width:0;margin:2px 0 8px}.callplay td{border:0}

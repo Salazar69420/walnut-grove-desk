@@ -1,10 +1,11 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
 import { useApp } from '../ctx'
 import { useLive } from '../live'
 import { Empty, KindBadge, Modal, Segmented, Sheet, SkeletonRows, Time } from '../components/ui'
 import { Icon } from '../components/icons'
+import { PlayRow, TranscriptModal, usePlayer } from '../components/CallTools'
 import type { PCall, Row } from '../lib/types'
 
 type Tab = 'log' | 'center'
@@ -16,64 +17,6 @@ export function Handler({ c }: { c: PCall }) {
   if (c.handled_by === 'ai') return <span className="tag ai"><Icon n="sparkle" size={12} /> AI assistant</span>
   if (c.handled_by === 'none') return <span className="tag warn">Nobody</span>
   return <span className="tag">{c.agent_label || 'Staff'}</span>
-}
-
-type PlayState = { state: 'waiting' | 'working' | 'ready' | 'failed'; message?: string; since: number }
-
-/** Asks the server to fetch a recording, then checks quickly until it is ready (first check after 0.6 s, then every second, up to 2 minutes). */
-function usePlayer() {
-  const { toast } = useApp()
-  const [st, setSt] = useState<Record<number, PlayState>>({})
-  const [, tick] = useState(0)
-  const timers = useRef<Record<number, number>>({})
-  const put = (id: number, v: Omit<PlayState, 'since'> | null) => setSt((s) => {
-    const n = { ...s }
-    if (v) n[id] = { ...v, since: s[id]?.since ?? Date.now() }; else delete n[id]
-    return n
-  })
-  const stop = (id: number) => { window.clearTimeout(timers.current[id]); delete timers.current[id] }
-  const close = useCallback((id: number) => { stop(id); put(id, null) }, [])
-  const pending = Object.values(st).some((v) => v.state === 'waiting' || v.state === 'working')
-  useEffect(() => { if (!pending) return; const t = window.setInterval(() => tick((n) => n + 1), 1000); return () => window.clearInterval(t) }, [pending])
-  const play = useCallback(async (id: number) => {
-    stop(id)
-    setSt((s) => ({ ...s, [id]: { state: 'waiting', since: Date.now() } }))
-    try {
-      const r = await api<{ state: string }>(`/phone/calls/${id}/listen`, { method: 'POST', quiet: true })
-      if (r.state === 'ready') { put(id, { state: 'ready' }); return }
-    } catch (x) { put(id, null); toast(errText(x) || 'Could not start the recording.'); return }
-    const started = Date.now()
-    const poll = async () => {
-      try {
-        const r = await api<{ state: string; message?: string }>(`/phone/calls/${id}/listen`, { quiet: true })
-        if (r.state === 'ready') { put(id, { state: 'ready' }); return }
-        if (r.state === 'failed') { put(id, { state: 'failed', message: r.message }); return }
-        put(id, { state: r.state === 'working' ? 'working' : 'waiting' })
-      } catch { /* try again below */ }
-      if (Date.now() - started > 120000) { put(id, { state: 'failed', message: 'The recording is taking too long. Try again in a minute.' }); return }
-      timers.current[id] = window.setTimeout(poll, 1000)
-    }
-    timers.current[id] = window.setTimeout(poll, 600)
-  }, [toast])
-  useEffect(() => () => { Object.keys(timers.current).forEach((k) => window.clearTimeout(timers.current[Number(k)])) }, [])
-  return { st, play, close }
-}
-
-function PlayRow({ id, v, player, cols }: { id: number; v: PlayState; player: ReturnType<typeof usePlayer>; cols: number }) {
-  const secs = Math.max(0, Math.round((Date.now() - v.since) / 1000))
-  return (
-    <tr className="playr"><td colSpan={cols}>
-      {v.state === 'ready' ? (
-        <div className="aplay"><audio controls autoPlay ref={(el) => { el?.play().catch(() => { /* the browser asked for a tap: the controls are right here */ }) }} src={`/api/phone/calls/${id}/audio`} aria-label="Call recording" /><button className="btn small ghost" onClick={() => player.close(id)}>Close</button></div>
-      ) : v.state === 'failed' ? (
-        <div className="aplay"><span className="errt" role="alert">{v.message}</span><button className="btn small" onClick={() => player.play(id)}>Try again</button><button className="btn small ghost" onClick={() => player.close(id)}>Close</button></div>
-      ) : (
-        <div className="aplay" role="status" aria-live="polite"><span className="spin" aria-hidden="true" />
-          <span>{v.state === 'working' ? 'Downloading the recording from TELUS' : secs > 25 ? 'Still waiting for the download helper to start' : 'Asking the server for the recording'}<span className="mute"> ({secs} s)</span></span>
-          <button className="btn small ghost" onClick={() => player.close(id)}>Cancel</button></div>
-      )}
-    </td></tr>
-  )
 }
 
 export function Phone() {
@@ -190,7 +133,7 @@ function CallSheet({ id, onClose, canTranscript, canEdit, onSaved }: { id: numbe
               {hits.length > 0 && <div className="opts inline">{hits.map((h) => <button key={h.id} type="button" onClick={() => patch({ contact_id: h.id }, 'Matched')}>{h.display_name}<span className="mute"> {h.pet_names.join(', ')}</span></button>)}</div>}
             </>}
             {c.has_transcript && (canTranscript
-              ? <button className="btn" onClick={openTranscript}><Icon n="eye" size={16} /> View transcript</button>
+              ? <div className="rowbtn"><button className="btn" onClick={openTranscript}><Icon n="eye" size={16} /> View transcript</button><a className="btn" href={`/api/phone/calls/${c.id}/transcript.txt`} download><Icon n="download" size={16} /> Download</a></div>
               : <p className="note">A transcript exists. Only the owner can open it, and each time it is opened it is written to the access log.</p>)}
           </div>
         )}

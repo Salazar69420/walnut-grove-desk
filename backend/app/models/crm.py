@@ -136,6 +136,8 @@ class Message(Base):
     subject: Mapped[str] = mapped_column(String(150), default="")
     body: Mapped[str] = mapped_column(Text, default="")
     delivery_state: Mapped[str] = mapped_column(String(20), default="received")
+    # For a call line: the phone call it describes (transcript and recording buttons).
+    phone_call_id: Mapped[int | None] = mapped_column(Integer, index=True)
     scheduled_for: Mapped[datetime | None] = mapped_column(UTCDateTime)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     is_demo: Mapped[bool] = mapped_column(Boolean, default=False)

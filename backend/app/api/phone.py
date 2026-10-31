@@ -193,3 +193,22 @@ def export_calls(f: CallFilters = Depends(), user: User = Depends(require("phone
     db.commit()
     return Response(to_csv(header, data), media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": 'attachment; filename="phone-calls.csv"', "Cache-Control": "no-store"})
+
+
+@router.get("/phone/calls/{call_id}/transcript.txt")
+def download_transcript(call_id: int, user: User = Depends(require("phone.transcript")), db: Session = Depends(get_db)):
+    r = db.get(PhoneCall, call_id)
+    if r is None or not r.transcript:
+        raise HTTPException(status_code=404, detail="There is no transcript for this call.")
+    loc = timeutil.local(r.started_at)
+    head = [
+        "Call transcript", f"Date: {loc.strftime('%Y-%m-%d %H:%M')} (Vancouver time)",
+        f"Direction: {r.direction}", f"Length: {r.duration_seconds // 60}:{r.duration_seconds % 60:02d}",
+        "Source: automatic transcription of the recording. It can contain mistakes.", "", "",
+    ]
+    crm.log_access(db, user, r.contact_id, "export", detail="phone transcript download")
+    ev.record(db, ev.PHONE, "transcript_downloaded", f"{user.display_name} downloaded a call transcript", user, "phone_call", r.id, publish=False)
+    db.commit()
+    name = f"call-{loc.strftime('%Y-%m-%d-%H%M')}.txt"
+    return Response("\r\n".join(head) + r.transcript.replace("\r\n", "\n").replace("\n", "\r\n") + "\r\n", media_type="text/plain; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})

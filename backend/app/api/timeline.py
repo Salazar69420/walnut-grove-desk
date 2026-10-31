@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.api.schemas import Strict
 from app.db import get_db
-from app.models import Attachment, Contact, Message, Note, NoteMention, Pet, Reminder, Task, User, Visit
+from app.models import Attachment, Contact, Message, Note, NoteMention, Pet, PhoneCall, Reminder, Task, User, Visit
 from app.security.auth import require
 from app.services import crm
 from app.services import events as ev
@@ -93,13 +93,20 @@ def build_items(db: Session, contact: Contact, *, messages: list[Message] = (), 
     pet_ids = {v.pet_id for v in visits if v.pet_id}
     pets = {p.id: p for p in db.scalars(select(Pet).where(Pet.id.in_(pet_ids))).all()} if pet_ids else {}
 
+    calls: dict[int, dict[str, Any]] = {}
+    call_ids = {m.phone_call_id for m in messages if m.phone_call_id}
+    if call_ids:
+        for pid, rec, secs, has_t in db.execute(select(PhoneCall.id, PhoneCall.recording_id, PhoneCall.duration_seconds,
+                                                         PhoneCall.transcript.is_not(None)).where(PhoneCall.id.in_(call_ids))).all():
+            calls[pid] = {"id": pid, "has_recording": bool(rec), "has_transcript": bool(has_t), "seconds": secs}
+
     out: list[dict[str, Any]] = []
     for m in messages:
         out.append({
             "id": m.id, "type": "message", "channel": m.channel, "direction": m.direction,
             "sender": _sender_dict(m.sender_kind, users.get(m.sender_user_id), contact), "subject": m.subject, "body": m.body,
             "at": timeutil.iso(m.created_at), "delivery_state": m.delivery_state, "scheduled_for": timeutil.iso(m.scheduled_for),
-            "attachments": atts_by_msg.get(m.id, []), "mentions": [], "meta": {},
+            "attachments": atts_by_msg.get(m.id, []), "mentions": [], "meta": {"call": calls[m.phone_call_id]} if m.phone_call_id in calls else {},
         })
     for n in notes:
         out.append({

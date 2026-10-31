@@ -94,6 +94,9 @@ def build_parser() -> argparse.ArgumentParser:
     s = add("telus-match", "compare a transcripts CSV with the TELUS call log, counts only (--csv)")
     s.add_argument("--export", help="also write direction and result per matched recording to this file (for the app importer)")
 
+    s = add("telus-messages-probe", "count SMS and voicemail in the TELUS message store (counts only)")
+    s.add_argument("--days", type=int, default=120)
+
     s = add("telus-sync", "pull a window of the call log and write the live Brief numbers (analytics.json)")
     s.add_argument("--bridge", default="/var/lib/walnut-desk-telus", help="bridge folder shared with the app")
     s.add_argument("--days", type=int, default=35, help="call-log window to pull, 1 to 90 (default 35)")
@@ -159,6 +162,15 @@ def main(argv: list[str] | None = None) -> int:
             print("error: --days must be between 1 and 90", file=sys.stderr)
             return 2
         return worker.Worker(paths.root, args.bridge, paths.db, paths.salt).run_sync_command(args.days)
+    if cmd == "telus-messages-probe":
+        from .telus import config as tcfg
+        from .telus import messages as tmsg
+        try:
+            creds = tcfg.load_credentials(paths.root)
+        except tcfg.TelusConfigError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 2
+        return tmsg.run(creds, args.days)
     if cmd in ("telus-check", "telus-pull-calllog"):
         from .telus import config as tcfg
         try:

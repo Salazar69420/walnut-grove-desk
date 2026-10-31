@@ -128,3 +128,48 @@ def test_purge_removes_every_demo_row_keeps_real_rows_and_blocks_reset(env, garg
     assert r.status_code == 409 and "real data" in r.json()["detail"]
     with env.session() as s:
         assert [c.display_name for c in s.scalars(select(Contact)).all()] == ["Real Person"]
+
+
+def test_call_lines_carry_their_call_so_the_timeline_can_offer_the_transcript(env, garg, priya, tmp_path):
+    p = tmp_path / "c.csv"
+    _csv(p)
+    _run(env, p)
+    cid = garg.get("/api/contacts?q=Fletcher").json()["items"][0]["id"]
+    with env.session() as s:
+        msgs = s.scalars(select(Message).where(Message.contact_id == cid, Message.channel == "call")).all()
+        assert msgs and all(m.phone_call_id for m in msgs)
+    items = [i for i in garg.get(f"/api/contacts/{cid}/timeline?limit=50").json()["items"] if i["channel"] == "call"]
+    assert items and all(i["meta"]["call"]["has_transcript"] for i in items)
+    call_id = items[0]["meta"]["call"]["id"]
+    # owner downloads it; the desk cannot
+    r = garg.get(f"/api/phone/calls/{call_id}/transcript.txt")
+    assert r.status_code == 200 and r.headers["content-disposition"].startswith("attachment; filename=\"call-2026-08-")
+    assert "Walnut Grove Animal Hospital" in r.text and r.text.startswith("Call transcript")
+    assert "Morgan" not in r.headers["content-disposition"]  # the file name never carries a name
+    assert priya.get(f"/api/phone/calls/{call_id}/transcript.txt").status_code == 403
+    with env.session() as s:
+        from app.models import AccessLog
+        assert s.scalar(select(AccessLog).where(AccessLog.detail == "phone transcript download")) is not None
+
+
+def test_the_migration_links_existing_call_lines(tmp_path):
+    """Rows written before migration 0007 had no link; the migration matches them on contact and start time."""
+    import sqlite3
+    from alembic import command
+    from app import migrate
+    path = str(tmp_path / "old.db")
+    cfg = migrate.alembic_config(path)
+    command.upgrade(cfg, "0006")
+    con = sqlite3.connect(path)
+    con.execute("INSERT INTO contacts(id,kind,display_name,email_consent,sms_consent,consent_source,source,ai_enabled,preference_notes,created_at,last_active_at,is_demo) "
+                "VALUES (9001,'inquiry','Link Test','none','none','x','phone',0,'', '2026-08-01 09:00:00','2026-08-01 09:00:00',0)")
+    con.execute("INSERT INTO phone_calls(id,started_at,direction,handled_by,agent_label,contact_id,duration_seconds,result,call_type,short_note,source,is_demo) "
+                "VALUES (9002,'2026-08-01 16:15:00','inbound','human','',9001,60,'answered','inquiry','n','import',0)")
+    con.execute("INSERT INTO messages(contact_id,channel,direction,sender_kind,subject,body,delivery_state,created_at,is_demo) "
+                "VALUES (9001,'call','in','client','','n','received','2026-08-01 16:15:00',0)")
+    con.commit()
+    con.close()
+    command.upgrade(cfg, "head")
+    con = sqlite3.connect(path)
+    assert con.execute("select phone_call_id from messages where contact_id=9001").fetchone()[0] == 9002
+    con.close()
