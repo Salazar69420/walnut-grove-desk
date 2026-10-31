@@ -289,7 +289,7 @@ def test_setup_writes_600_atomic_and_prints_only_keys(tmp_path, monkeypatch, cap
     prompts = feed(monkeypatch, ["sandbox", "", FAKE_ID, FAKE_SECRET, FAKE_JWT])
     assert cli.main(["telus-setup", "--root", root]) == 0
     out = capsys.readouterr()
-    assert out.out.splitlines()[0] == "saved" and "TELUS_CLIENT_SECRET" in out.out
+    assert out.out.splitlines()[0].startswith("saved as the read-only login") and "TELUS_CLIENT_SECRET" in out.out
     assert_clean(out.out + out.err + "".join(prompts))
     p = tc.credentials_path(root)
     assert oct(os.stat(p).st_mode & 0o777) == "0o600"
