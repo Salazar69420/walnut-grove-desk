@@ -76,6 +76,7 @@ PHONE_NUMBERS_PATH = f"{ACCT}/extension/~/phone-number"
 SEND_POST_PATHS = (SMS_PATH, RINGOUT_PATH)
 SEND_GET_ALLOWLIST = [re.compile(p) for p in (
     re.escape(PHONE_NUMBERS_PATH),                       # find the extension's SMS-capable number
+    re.escape(MESSAGE_STORE_PATH),                       # incoming texts (reply syncing)
     re.escape(RINGOUT_PATH) + f"/{_ID}",                 # status of a call started with RingOut
     re.escape(MESSAGE_STORE_PATH) + f"/{_ID}",           # delivery status of one text
 )]

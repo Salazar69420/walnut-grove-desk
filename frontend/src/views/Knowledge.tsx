@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { api, ApiError } from '../api/client'
 import { useApp } from '../ctx'
 import { useLive } from '../live'
@@ -43,6 +43,7 @@ export function Knowledge() {
   const [draft, setDraft] = useState('')
   const [declining, setDeclining] = useState<KEntry | null>(null)
   const [reason, setReason] = useState('')
+  const [review, setReview] = useState<number | null>(null)
 
   const status = tab === 'history' ? 'all' : tab === 'fees' ? 'approved' : tab
   const qs = new URLSearchParams({ status })
@@ -107,6 +108,7 @@ export function Knowledge() {
                 <label className="ck"><input type="checkbox" checked={allSel} onChange={(e) => setSel(e.target.checked ? new Set(items.map((i) => i.id)) : new Set())} /> Select all {items.length}</label>
                 <label className="ck"><input type="checkbox" checked={conflictsOnly} onChange={(e) => setConflictsOnly(e.target.checked)} /> Conflicting edits only{counts ? ` (${counts.conflicts})` : ''}</label>
                 <span className="spacer" />
+                {decide && items.length > 0 && <button className="btn primary small" onClick={() => setReview(0)}>Review one by one</button>}
                 {decide && <><button className="btn okb small" disabled={!sel.size} onClick={() => bulk('approve')}>Approve {sel.size || ''}</button><button className="btn danger small" disabled={!sel.size} onClick={() => bulk('decline')}>Decline {sel.size || ''}</button></>}
               </div>
             </div>
@@ -152,6 +154,7 @@ export function Knowledge() {
         </section>
       )}
 
+      {review !== null && <OneByOne items={items} start={review} onClose={() => { setReview(null); list.reload() }} />}
       <Suggest state={suggest} cats={cats} onClose={() => setSuggest(null)} onDone={() => { setSuggest(null); toast('Sent to Pending for approval'); setTab('pending'); list.reload() }} />
       <Modal open={!!declining} onClose={() => setDeclining(null)} title="Decline this entry?" footer={<><button className="btn" onClick={() => setDeclining(null)}>Keep it</button>
         <button className="btn danger solid" onClick={async () => { if (declining && await act(`/knowledge/${declining.id}/decline`, { reason }, 'Declined')) setDeclining(null) }}>Decline</button></>}>
@@ -234,5 +237,54 @@ function Fees() {
         <button className="btn primary" disabled={f.service.trim().length < 2} onClick={add}>Send for approval</button>
       </div>
     </section>
+  )
+}
+
+
+/** Pending knowledge, one entry at a time: Approve (A), Reject (R), Edit, Skip (S). */
+function OneByOne({ items, start, onClose }: { items: KEntry[]; start: number; onClose: () => void }) {
+  const { toast } = useApp()
+  const [queue] = useState(() => items.slice(start))
+  const [i, setI] = useState(0)
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+  const [done, setDone] = useState({ approved: 0, rejected: 0, skipped: 0 })
+  const e = queue[i]
+  const next = (k: 'approved' | 'rejected' | 'skipped') => { setDone((d) => ({ ...d, [k]: d[k] + 1 })); setEditing(false); setI((n) => n + 1) }
+  async function decide(what: 'approve' | 'decline') {
+    if (!e) return
+    try {
+      if (what === 'approve' && editing && draft.trim() && draft.trim() !== e.body) await api(`/knowledge/${e.id}`, { method: 'PATCH', body: { body: draft.trim() }, quiet: true })
+      await api(`/knowledge/${e.id}/${what}`, { method: 'POST', body: {}, quiet: true })
+      next(what === 'approve' ? 'approved' : 'rejected')
+    } catch (x) { toast(x instanceof ApiError && x.message && x.message !== 'error' ? x.message : 'Not saved.'); next('skipped') }
+  }
+  useEffect(() => {
+    const f = (ev: KeyboardEvent) => {
+      if (editing || (ev.target as HTMLElement)?.tagName === 'TEXTAREA') return
+      const k = ev.key.toLowerCase()
+      if (k === 'a') decide('approve'); else if (k === 'r') decide('decline'); else if (k === 's') next('skipped')
+    }
+    document.addEventListener('keydown', f)
+    return () => document.removeEventListener('keydown', f)
+  })
+  return (
+    <Modal open onClose={onClose} title={e ? `Pending knowledge ${i + 1} of ${queue.length}` : 'All done'} footer={e ? <>
+      <button className="btn ghost" onClick={() => next('skipped')}>Skip (S)</button>
+      <button className="btn danger" onClick={() => decide('decline')}>Reject (R)</button>
+      <button className="btn okb" onClick={() => decide('approve')}>{editing ? 'Save and approve' : 'Approve (A)'}</button></> : <button className="btn primary" onClick={onClose}>Close</button>}>
+      {e ? (
+        <div className="obo">
+          <p className="small mute">{e.category_label}{e.proposed_by === 'ai' ? ' · suggested by the assistant' : e.proposed_by === 'import' ? ' · from the call recordings' : ''}</p>
+          <h3>{e.title}</h3>
+          {editing ? <textarea value={draft} onChange={(x) => setDraft(x.target.value)} rows={6} maxLength={4000} aria-label="Edit before approving" data-autofocus />
+            : <p className="quote">{e.body}</p>}
+          {e.previous_body && !editing && <p className="small"><b>Replaces:</b> {e.previous_body}</p>}
+          {(e.source_ref || e.source_quote) && <p className="small mute">Source: {e.source_ref}{e.source_quote ? `. ${e.source_quote}` : ''}</p>}
+          {!editing && <button className="link-a" onClick={() => { setDraft(e.body); setEditing(true) }}>Edit before approving</button>}
+          <p className="note">Approved text is sent to clients word for word by the assistant.</p>
+        </div>
+      ) : <p>Approved {done.approved}, rejected {done.rejected}, skipped {done.skipped}.</p>}
+    </Modal>
   )
 }

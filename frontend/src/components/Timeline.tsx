@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { api } from '../api/client'
+import { api, ApiError } from '../api/client'
+import { useApp } from '../ctx'
 import { onEntity } from '../live'
-import { Avatar, Clock, Skeleton } from './ui'
+import { Avatar, Clock, Modal, Skeleton } from './ui'
 import { Icon } from './icons'
 import { CallButtons, PlayRow, TranscriptModal, usePlayer } from './CallTools'
 import { bytes, dayKey, dayLabel, exact, firstName } from '../lib/fmt'
@@ -142,6 +143,7 @@ export function Item({ it, contact }: { it: TItem; contact: Row }) {
         <Body text={it.body || ''} />
         <Attachments list={it.attachments} />
         <div className="bb-foot">
+          {ai && out && it.channel === 'sms' && typeof it.id === 'number' && <CorrectButton messageId={it.id} reply={it.body || ''} />}
           {ai ? <span className="aitag"><Icon n="sparkle" size={12} /> AI assistant</span> : <span>{out ? it.sender?.name : it.sender?.name || contact.display_name}</span>}
           <span aria-hidden="true">·</span><span>{it.channel === 'email' ? 'Email' : 'Text'}</span>
           <span aria-hidden="true">·</span>{it.pending ? <span>Sending</span> : <Clock iso={it.at} />}
@@ -232,6 +234,44 @@ function CallLine({ it, contact }: { it: TItem; contact: { display_name: string 
       </div>
       {call && v && <table className="callplay"><tbody><PlayRow id={call.id} v={v} player={player} cols={1} /></tbody></table>}
       <TranscriptModal callId={tr} onClose={() => setTr(null)} />
+    </>
+  )
+}
+
+
+/** "Correct this" on a reply the assistant sent: the right answer is saved as knowledge (approved at once when an owner saves it). */
+function CorrectButton({ messageId, reply }: { messageId: number; reply: string }) {
+  const { can, toast } = useApp()
+  const [open, setOpen] = useState(false)
+  const [answer, setAnswer] = useState('')
+  const [title, setTitle] = useState('')
+  const [cat, setCat] = useState('patient_communication')
+  const [busy, setBusy] = useState(false)
+  if (!can('knowledge.suggest')) return null
+  async function save() {
+    setBusy(true)
+    try {
+      const r = await api<{ item: { status: string } }>(`/messages/${messageId}/correct`, { method: 'POST', body: { answer, title: title.trim() || null, category: cat }, quiet: true })
+      toast(r.item.status === 'approved' ? 'Saved. The assistant will use this from now on.' : 'Saved for the owner to approve.')
+      setOpen(false)
+    } catch (x) { toast(x instanceof ApiError && x.message && x.message !== 'error' ? x.message : 'Not saved.') }
+    setBusy(false)
+  }
+  return (
+    <>
+      <button className="link-a correct-b" onClick={() => { setAnswer(''); setTitle(''); setOpen(true) }}>Correct this</button>
+      <Modal open={open} onClose={() => setOpen(false)} title="Correct the assistant" footer={<><button className="btn" onClick={() => setOpen(false)}>Cancel</button><button className="btn primary" disabled={busy || answer.trim().length < 2} onClick={save}>Save answer</button></>}>
+        <p className="small mute">It said:</p>
+        <p className="quote">{reply}</p>
+        <div className="form">
+          <label>What should it answer instead?<textarea value={answer} onChange={(e) => setAnswer(e.target.value)} rows={4} maxLength={2000} placeholder="Write the answer the way you would text it. It is used word for word." data-autofocus /></label>
+          <label>Short title (optional)<input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} placeholder="For example: Bird nail trims" /></label>
+          <label>Kind of answer<select value={cat} onChange={(e) => setCat(e.target.value)}>
+            <option value="clinic_info">Clinic info</option><option value="fees">Fees</option><option value="patient_knowledge">Patient knowledge</option>
+            <option value="patient_communication">Patient communication</option><option value="inquiry_communication">Inquiry communication</option><option value="specials">Specials</option></select></label>
+        </div>
+        <p className="note">Saved in Knowledge & Fees, so you never have to say it twice. Never put medical advice or doses here.</p>
+      </Modal>
     </>
   )
 }

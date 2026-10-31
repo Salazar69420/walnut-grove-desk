@@ -96,6 +96,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = add("telus-send-worker", "send the texts and start the calls the web app asked for (separate send credentials)")
     s.add_argument("--bridge", default="/var/lib/walnut-desk-telus", help="bridge folder shared with the app")
+    s.add_argument("--inbound", action="store_true", help="first hand new incoming texts to the app (reply syncing)")
     s = add("telus-send-setup", "copy the current TELUS credentials to the separate send credentials file (shows nothing)")
     s.add_argument("--force", action="store_true")
     add("telus-send-check", "log in with the send credentials and say which send permissions it has (no numbers)")
@@ -170,7 +171,7 @@ def main(argv: list[str] | None = None) -> int:
         return worker.Worker(paths.root, args.bridge, paths.db, paths.salt).run_sync_command(args.days)
     if cmd == "telus-send-worker":
         from .telus import send_worker
-        return send_worker.run(paths.root, args.bridge)
+        return send_worker.run(paths.root, args.bridge, inbound=args.inbound)
     if cmd == "telus-send-setup":
         from .telus import config as tcfg
         try:

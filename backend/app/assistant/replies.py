@@ -28,7 +28,7 @@ from app.services import timeutil
 STOP = set("""a an the and or but if so to of in on at for with from by is are was were be been am i you your my our we us it its this that these those
 there here what when where why how who which can could would should will do does did have has had not no yes please thanks thank hello hi hey just
 about any some more also get got need want know like ok okay""".split())
-PRICE_WORDS = {"price", "cost", "costs", "fee", "fees", "charge", "much", "pay", "quote"}
+PRICE_WORDS = {"price", "cost", "fee", "charge", "much", "pay", "quote"}
 MEDICAL = re.compile(
     r"\b(dose|dosage|how much (?:\w+ ){0,3}(?:give|should)|how many (?:mg|ml|pills|tablets)|\d+\s?(?:mg|ml|milligrams?)|can i give|is it safe to give|safe to give|"
     r"should i give|what can i give|what should i give|diagnos\w*|what is wrong|what's wrong|is (?:he|she|it|my \w+) (?:ok|okay|fine|going to be)|will (?:he|she|it) be (?:ok|okay|fine)|"
@@ -37,8 +37,26 @@ SKIP_CATEGORIES = {"laws_regulations"}
 MIN_SCORE = 2
 
 
+def _stem(w: str) -> str:
+    """Very light: "bird's" -> bird, "nails" -> nail, "puppies" -> puppy, "trims" -> trim. Enough for clinic questions."""
+    w = w.replace("\u2019", "'")
+    if w.endswith("'s"):
+        w = w[:-2]
+    w = w.strip("'")
+    if len(w) > 4 and w.endswith("ies"):
+        return w[:-3] + "y"
+    if len(w) > 3 and w.endswith("s") and not w.endswith(("ss", "us", "is")):
+        return w[:-1]
+    return w
+
+
 def _tokens(text: str) -> set[str]:
-    return {w for w in re.findall(r"[a-z0-9']+", (text or "").lower()) if len(w) >= 3 and w not in STOP}
+    out = set()
+    for w in re.findall(r"[a-z0-9'\u2019]+", (text or "").lower()):
+        w = _stem(w)
+        if len(w) >= 3 and w not in STOP:
+            out.add(w)
+    return out
 
 
 def latest_client_text(db: Session, contact: Contact) -> str | None:

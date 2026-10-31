@@ -6,6 +6,8 @@ Bridge layout (group walnut-telus):
     send_config.json          app writes: {"v":1,"mode":"practice"|"test_numbers_only"|"live","test_numbers":["+1..."],...}
     send/requests/<id>.json   app writes one per send; this worker reads, acts, deletes
     send/results/<id>.json    this worker writes: state sent|calling|failed|blocked and a fixed code. Never a number or text.
+    send/inbound/<id>.json    this worker writes one per incoming text (with --inbound); the app reads it into the
+                              conversation and deletes it. In test mode only texts FROM a test number are handed over.
 
 Defence in depth: the app checks consent and the mode, and THIS worker checks them again, because it is the one that can really send.
 * mode "practice" sends nothing. "test_numbers_only" sends only to numbers in the list. "live" sends to any valid Canadian number.
@@ -269,5 +271,78 @@ class SendWorker:
         return "calling", "calling", None
 
 
-def run(root: str, bridge: str, **kw) -> int:
-    return SendWorker(root, bridge, **kw).run()
+def _iso_ms(t: float) -> str:
+    return datetime.fromtimestamp(t, timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+
+def poll_inbound(w: "SendWorker", first_minutes: int = 10) -> int:
+    """Hand new incoming texts to the app. Returns how many were handed over. Nothing in practice mode."""
+    cfg = load_config(w.bridge)
+    if cfg.mode == "practice":
+        return 0
+    state_path = os.path.join(w.root, "telus", "inbound_state.json")
+    raw = _read(state_path, 64 * 1024)
+    try:
+        state = json.loads(raw.decode()) if raw else {}
+    except ValueError:
+        state = {}
+    since = float(state.get("since") or (w.now() - first_minutes * 60))
+    seen = [str(x) for x in (state.get("seen") or [])][-500:]
+    try:
+        creds = tcfg.load_send_credentials(w.root)
+    except tcfg.TelusConfigError:
+        return 0
+    out = 0
+    newest = since
+    with w.client_factory(creds) as client:
+        client.login()
+        if "ReadMessages" not in client.scopes:
+            log.error("telus inbound: login cannot read messages")
+            return 0
+        d = w._dir("inbound")
+        for _page, body in client.iter_pages(endpoints.MESSAGE_STORE_PATH, {"messageType": "SMS", "direction": "Inbound",
+                                                                            "dateFrom": _iso_ms(since - 120), "perPage": 100}, max_pages=5):
+            for r in body.get("records") or []:
+                mid = str(r.get("id") or "")
+                frm = str((r.get("from") or {}).get("phoneNumber") or "")
+                text = r.get("subject")
+                when = str(r.get("creationTime") or "")
+                if not re.fullmatch(r"[0-9]{1,24}", mid) or mid in seen or r.get("direction") != "Inbound":
+                    continue
+                seen.append(mid)
+                try:
+                    t = datetime.fromisoformat(when.replace("Z", "+00:00")).timestamp()
+                    newest = max(newest, t)
+                except ValueError:
+                    t = w.now()
+                if not re.fullmatch(E164, frm) or not isinstance(text, str) or not text.strip():
+                    continue
+                if cfg.mode == "test_numbers_only" and frm not in cfg.test_numbers:
+                    continue  # pilot: only the test numbers reach the app
+                body_out = {"v": 1, "id": mid, "from": frm, "text": text[:1600], "at": _iso_ms(t)}
+                tmp = os.path.join(d, f".{mid}.{os.getpid()}.tmp")
+                fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o660)
+                with os.fdopen(fd, "w") as fh:
+                    json.dump(body_out, fh, separators=(",", ":"))
+                os.chmod(tmp, 0o660)
+                os.chown(tmp, -1, os.stat(w.bridge).st_gid)
+                os.replace(tmp, os.path.join(d, f"{mid}.json"))
+                out += 1
+    os.makedirs(os.path.dirname(state_path), mode=0o700, exist_ok=True)
+    tmp = state_path + f".{os.getpid()}.tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as fh:
+        json.dump({"since": newest, "seen": seen[-500:]}, fh)
+    os.replace(tmp, state_path)
+    return out
+
+
+def run(root: str, bridge: str, inbound: bool = False, **kw) -> int:
+    w = SendWorker(root, bridge, **kw)
+    if inbound:
+        try:
+            n = poll_inbound(w)
+            print(f"telus-inbound handed_over={n}")
+        except Exception as e:  # never let text from TELUS reach the logs
+            log.error("telus inbound failed (%s)", type(e).__name__)
+    return w.run()

@@ -198,6 +198,14 @@ def reply_medical(first: str) -> Tpl:
     )
 
 
+AUTO_SIGNATURE = " (Walnut Grove automated assistant)"
+
+
+def auto_signed(text: str) -> Tpl:
+    """Every text the assistant sends by itself says it is automated."""
+    return _t(text.rstrip() + AUTO_SIGNATURE)
+
+
 def all_client_templates() -> list[str]:
     """Static strings, for tests that scan for forbidden words."""
     return [

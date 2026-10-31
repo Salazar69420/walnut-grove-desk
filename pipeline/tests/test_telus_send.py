@@ -280,3 +280,61 @@ def test_send_credentials_are_a_private_copy_and_not_overwritten_by_accident(env
     with pytest.raises(tc.TelusConfigError):
         tc.copy_current_to_send(env.root)
     tc.copy_current_to_send(env.root, force=True)
+
+
+# ---------------------------------------------------------------- reply syncing (incoming texts)
+class FakeInbox(FakeSend):
+    def __init__(self, records, **kw):
+        super().__init__(scope="SMS ReadMessages ReadAccounts", **kw)
+        self.records = records
+
+    def handler(self, request):
+        if request.method == "GET" and request.url.path == endpoints.MESSAGE_STORE_PATH:
+            self.log.append(("GET", request.url.path, dict(request.url.params), None))
+            return httpx.Response(200, json={"records": self.records, "paging": {"page": 1, "totalPages": 1}, "navigation": {}})
+        return super().handler(request)
+
+
+def rec(mid, frm, text="Are my results in?", when="2026-10-31T12:00:00.000Z", direction="Inbound"):
+    return {"id": mid, "from": {"phoneNumber": frm}, "subject": text, "creationTime": when, "direction": direction, "type": "SMS"}
+
+
+def inbox(e):
+    d = os.path.join(e.bridge, "send", "inbound")
+    return sorted(os.listdir(d)) if os.path.isdir(d) else []
+
+
+def poll(e, fake, now=1_793_000_000.0):
+    w = send_worker.SendWorker(e.root, e.bridge, client_factory=lambda c: SendClient(c, transport=httpx.MockTransport(fake.handler), sleep=lambda s: None), now=lambda: now)
+    return send_worker.poll_inbound(w)
+
+
+def test_only_texts_from_test_numbers_reach_the_app_in_test_mode(env):
+    config(env)
+    fake = FakeInbox([rec("101", TEST_NUM, "Hello?"), rec("102", OTHER, "From a stranger"), rec("103", TEST_NUM, "sent by us", direction="Outbound")])
+    assert poll(env, fake) == 1
+    assert inbox(env) == ["101.json"]
+    body = json.load(open(os.path.join(env.bridge, "send", "inbound", "101.json")))
+    assert body == {"v": 1, "id": "101", "from": TEST_NUM, "text": "Hello?", "at": "2026-10-31T12:00:00.000Z"}
+    get = [x for x in fake.log if x[0] == "GET" and x[1] == endpoints.MESSAGE_STORE_PATH][0]
+    assert get[2]["messageType"] == "SMS" and get[2]["direction"] == "Inbound"
+
+
+def test_each_text_is_handed_over_once(env):
+    config(env)
+    fake = FakeInbox([rec("201", TEST_NUM)])
+    assert poll(env, fake) == 1
+    os.unlink(os.path.join(env.bridge, "send", "inbound", "201.json"))  # the app took it
+    assert poll(env, fake) == 0 and inbox(env) == []
+
+
+def test_practice_mode_does_not_even_look(env):
+    config(env, "practice")
+    fake = FakeInbox([rec("301", TEST_NUM)])
+    assert poll(env, fake) == 0 and fake.log == []
+
+
+def test_live_mode_hands_over_any_valid_sender_and_skips_junk(env):
+    config(env, "live", ())
+    fake = FakeInbox([rec("401", OTHER), rec("402", "SHORTCODE"), rec("403", OTHER, ""), rec("../x", OTHER)])
+    assert poll(env, fake) == 1 and inbox(env) == ["401.json"]

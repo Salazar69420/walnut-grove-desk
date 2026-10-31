@@ -1,0 +1,11 @@
+[Unit]
+Description=Check TELUS for incoming texts every 20 seconds (only while texting is not in practice mode)
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=20s
+AccuracySec=2s
+Unit=walnut-telus-inbound.service
+
+[Install]
+WantedBy=timers.target

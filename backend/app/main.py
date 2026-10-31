@@ -23,6 +23,17 @@ log = logging.getLogger("walnut")
 NO_DOCS_NAMES = {"docs", "redoc", "openapi.json"}
 
 
+async def _inbound_loop() -> None:
+    """Every few seconds, fold incoming texts from the send helper into conversations (and let the assistant reply)."""
+    from app.services import inbound
+    while True:
+        try:
+            await asyncio.to_thread(inbound.run_once)
+        except Exception:  # noqa: BLE001 - keep looping
+            log.error("inbound loop error")
+        await asyncio.sleep(5)
+
+
 def create_app(settings: config.Settings | None = None) -> FastAPI:
     if settings is not None:
         config.set_settings(settings)
@@ -35,7 +46,10 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
             await asyncio.to_thread(migrate.upgrade_head, s.db_path)
         broadcaster.bind_loop(asyncio.get_running_loop())
         log.info("walnut-desk started (env=%s)", s.env)
+        task = None if s.env == "test" else asyncio.create_task(_inbound_loop())
         yield
+        if task:
+            task.cancel()
         broadcaster.reset()
 
     prod = s.is_production

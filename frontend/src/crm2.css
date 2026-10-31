@@ -191,3 +191,7 @@ a.playb{color:var(--acc-t)}
 .dry.d-sent{background:var(--ok-soft);color:var(--ok-t)}
 .dry.d-failed{background:var(--crit-soft);color:var(--crit-t)}
 .dfail{flex-basis:100%;color:var(--crit-t);font-size:12px}
+
+.correct-b{font-size:12px;padding:0 4px;min-height:0}
+.quote{margin:0;padding:8px 12px;background:var(--panel2);border-left:3px solid var(--line);border-radius:6px;white-space:pre-wrap}
+.obo{display:flex;flex-direction:column;gap:8px}.obo h3{margin:0}.obo textarea{width:100%}
