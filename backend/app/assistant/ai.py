@@ -77,14 +77,14 @@ RULES = """Hard rules (always apply, they override everything above):
 1. Use ONLY facts from CLINIC KNOWLEDGE and FEES below. Never guess or invent hours, prices, policies, services, availability, names, addresses or phone numbers. If they do not answer the question, set "answered" to false and write a short, kind holding reply saying a team member will get back to them.
 2. Never give medical advice, a diagnosis, a medicine name or amount, or say a pet is fine or not fine. If asked, set "needs_human" to true and say the veterinary team will call them.
 3. If the message could be an emergency, set "needs_human" to true and tell them to contact an emergency veterinarian now.
-4. Appointments: do not hesitate. When the client wants to come in and a day AND time are clear (they named one inside CLINIC HOURS, or picked one of the OPEN TIMES), fill "appointment_request" with that date and time and tell them warmly you have sent the request to the team, who will confirm it by text. A person on the team reads the conversation and approves it, so you do not need to be sure. If the day or time is not clear yet, offer two or three OPEN TIMES (cite A1) and ask. Never say an appointment is confirmed or booked, never cancel one, and mention an appointment they already have only if it is under THEIR APPOINTMENTS (cite A2).
+4. Appointments: do not hesitate. When the client wants to come in and a day AND time are clear (they named one inside CLINIC HOURS, or picked one of the OPEN TIMES), fill "appointment_request" with that date and time (a part of the day such as "morning" is fine) and tell them warmly you have sent the request to the team, who will confirm it by text. A person on the team reads the conversation and approves it, so you do not need to be sure. If the day or time is not clear yet, offer two or three OPEN TIMES (cite A1) and ask, with "wanted" false; set "wanted" true only in the reply where you say you sent the request. Never say an appointment is confirmed or booked, never cancel one, and mention an appointment they already have only if it is under THEIR APPOINTMENTS (cite A2).
 5. Never ask for or repeat card numbers or other payment details.
 6. "knowledge_ids" lists the ids (like K12, F3, P4, A1 or A2) of every entry you used, also when you only mention their appointment.
 7. Reply with JSON only, matching the schema.
 8. If OPTIONAL PRODUCTS are listed, you may add ONE short sentence suggesting ONE of them, using its wording, only when it clearly fits what the client asked about. Never suggest anything when they are worried about their pet's health, upset, grieving, or asking about an emergency. Include its id.
 9. If you are in any doubt at all, set "needs_human" to true. Handing over to a person is always fine. When "answered" is false or "needs_human" is true, fill "task_title" (a short, specific title for the team, like "Asks if we see rabbits") and "task_note" (what the client needs, what was missing, and the next step you suggest).
 10. Read the whole conversation above and reply to what they mean in context, like a person would. Use WHAT YOU REMEMBER ABOUT THEM naturally: never ask for something you already know (their name, their pet, what they told us before), and pick up where things were left. If the message is only thanks, a greeting, an okay or a goodbye, reply warmly and briefly (mention their appointment from THEIR APPOINTMENTS if there is one), set "answered" false, "needs_human" false and leave task_title empty: no task is needed for that.
-11. Write like a real person texting, never like a system: no numbered menus, no "reply 1, 2 or 3", no form-letter phrases. Use what they told you before, in texts and on calls (see WHAT YOU REMEMBER), the way a front-desk person who knows them would."""
+11. Write like a real person texting, never like a system: no numbered menus, no "reply 1, 2 or 3", no form-letter phrases, and never talk about how things work behind the scenes (do not say "within our hours", "open times list", "the system" or "the Calendar"). Use what they told you before, in texts and on calls (see WHAT YOU REMEMBER), the way a front-desk person who knows them would."""
 
 SCHEMA = {
     "type": "object",
@@ -115,7 +115,7 @@ RETRY = {
     "number_not_in_knowledge": "it contains a number or time that is not in the cited knowledge.",
     "medical_wording": "it contains medical wording (a medicine, an amount, or saying a pet is fine).",
     "too_long": "it is too long for a text; use at most three short sentences.",
-    "bad_time": "the appointment_request time is not a valid future time inside CLINIC HOURS; offer OPEN TIMES and ask instead, or fix the date and time.",
+    "bad_time": "the appointment_request is not a valid future time inside CLINIC HOURS. If you are still asking them what time suits, set wanted false; otherwise fix the date and time (a part of the day like morning is fine).",
 }
 
 
@@ -253,7 +253,7 @@ def call(cfg: dict[str, Any], system: str, messages: list[dict[str, str]]) -> di
     if not key:
         raise AiFailed("no_key")
     payload: dict[str, Any] = {
-        "model": cfg["model"], "messages": [{"role": "system", "content": system}, *messages], "temperature": 0.2, "max_tokens": 500,
+        "model": cfg["model"], "messages": [{"role": "system", "content": system}, *messages], "temperature": 0.3, "max_tokens": 1200,
         "response_format": {"type": "json_schema", "json_schema": {"name": "clinic_text_reply", "strict": True, "schema": SCHEMA}},
         "provider": {"require_parameters": True, **({"data_collection": "deny"} if cfg["deny_data_collection"] else {})},
     }
@@ -299,10 +299,24 @@ def check(data: dict[str, Any], texts: dict[str, str], client_text: str) -> dict
         from datetime import date as _date
         try:
             d = _date.fromisoformat(str(a.get("date")))
-            hh, mm = (int(x) for x in str(a.get("time")).split(":")[:2])
-            appt = {"date": d, "hour": hh, "minute": mm, "visit": re.sub(r"\s+", " ", str(a.get("visit") or "")).strip()[:60]}
+            visit = re.sub(r"\s+", " ", str(a.get("visit") or "")).strip()[:60]
+            t = str(a.get("time") or "").strip().lower()
+            part = next((p for p in ("morning", "afternoon", "evening") if p in t), "any" if t in ("", "any", "anytime", "any time") else None)
+            if part:  # "Monday morning": the first open time then; staff see what was asked and can adjust
+                appt = {"date": d, "part": part, "visit": visit}
+            else:
+                hh, mm = (int(x) for x in t.split(":")[:2])
+                appt = {"date": d, "hour": hh, "minute": mm, "visit": visit}
         except (ValueError, TypeError):
             raise AiFailed("bad_time") from None
+    if answered and not needs_human and not appt and not any(i[0] in "KFA" for i in ids) and "A1" in texts:
+        cal = [texts[k] for k in ("A0", "A1", "A2") if k in texts] + [client_text]
+        allowed_cal: list[Any] = [1]
+        for src in cal:
+            n_, t_ = numbercheck.extract(src)
+            allowed_cal += n_ + t_
+        if re.search(r"\d", reply) and numbercheck.check(reply, allowed_cal)[0]:
+            ids = ids + [k for k in ("A0", "A1", "A2") if k in texts and k not in ids]  # every time it named comes from the Calendar
     if answered and not needs_human and not appt and not any(i[0] in "KFA" for i in ids):
         raise AiFailed("no_source")
     reply = re.sub(r"\s*[\u2014\u2013]\s*", ", ", reply)  # house style: no long dashes in client texts
@@ -311,7 +325,7 @@ def check(data: dict[str, Any], texts: dict[str, str], client_text: str) -> dict
         raise AiFailed("medical_wording")
     allowed: list[Any] = [1]
     srcs = [texts[i] for i in ids] + [client_text]
-    if appt:  # the reply may name the requested day and time
+    if appt and "hour" in appt:  # the reply may name the requested day and time
         from datetime import time as _time
         srcs.append(f"{appt['date'].strftime('%A %B')} {appt['date'].day} {appt['date'].year} {appt['date'].isoformat()} "
                     f"{_time(appt['hour'], appt['minute']).strftime('%I:%M %p').lstrip('0')} {appt['hour']}:{appt['minute']:02d}")
@@ -332,6 +346,12 @@ def _checked(db: Session, data: dict[str, Any], texts: dict[str, str], text: str
     from app.services import timeutil as _tu
     out = check(data, texts, text)
     a = out.get("appointment")
+    if a and "part" in a:
+        free = booking.free_times(db, 30, n=1, day=a["date"], part=None if a["part"] == "any" else a["part"], staff=True)
+        if not free:
+            raise AiFailed("bad_time")
+        loc = _tu.local(free[0])
+        a.update(hour=loc.hour, minute=loc.minute, asked=f"{a['date'].strftime('%A')} {a['part'] if a['part'] != 'any' else ''}".strip())
     if a:
         start = _tu.at_local(a["date"], a["hour"], a["minute"])
         if not booking.within_hours(db, start) or start < _tu.now_utc() + __import__("datetime").timedelta(minutes=15):
@@ -350,7 +370,12 @@ def draft(db: Session, contact: Contact, text: str, note: str = "") -> dict[str,
     started = time.monotonic()
     msgs = conversation(db, contact, text)
     db.commit()  # release the database before waiting for the model (the inbound loop and the app share it)
-    data = call(cfg, system, msgs)
+    try:
+        data = call(cfg, system, msgs)
+    except AiFailed as e:
+        if str(e) != "bad_json":
+            raise
+        data = call(cfg, system, msgs)  # a cut-off or malformed answer: one more go
     try:
         out = _checked(db, data, texts, text)
     except AiFailed as first_try:

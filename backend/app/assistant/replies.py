@@ -189,7 +189,7 @@ def suggest(db: Session, contact: Contact, text: str, *, act: bool = False) -> d
             meta = {"model": r["model"], "seconds": r["seconds"], "usage": r["usage"], "ai": True}
             appt = r.get("appointment")
             if appt and appt.get("start"):
-                e = booking.request_from_conversation(db, contact, appt["start"], appt.get("visit") or "") if act else None
+                e = booking.request_from_conversation(db, contact, appt["start"], appt.get("visit") or "", asked=appt.get("asked", "")) if act else None
                 return {"kind": "booking", "draft": r["reply"], "sources": titles, "task": None, "event_id": e.id if e else None, "visit": appt.get("visit") or None,
                         "note": ("The time they asked for was sent to the Calendar for approval." if act
                                  else f"Sending this would ask for {booking.label(appt['start'])}; the automatic replies add it to the Calendar for approval."), **meta}

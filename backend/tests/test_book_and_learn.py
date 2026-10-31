@@ -283,3 +283,16 @@ def test_hazel_has_a_name_and_never_sends_a_numbered_menu(env, bridge, garg, rou
     assert msg and "1)" not in msg
     system = router.calls[-1]["messages"][0]["content"]
     assert system.startswith("Your name is Hazel.") and "no numbered menus" in system
+
+
+def test_a_part_of_the_day_is_enough_to_send_a_request(env, bridge, garg, router):
+    cid = pilot(env, garg, ai_on=True)
+    day = next_weekday(0)
+    router.reply = {"reply": "Of course! I have sent a request for Monday morning and the team will text you the exact time.", "answered": True, "needs_human": False,
+                    "knowledge_ids": [], "reason": "booking", "task_title": "", "task_note": "",
+                    "appointment_request": {"wanted": True, "date": day.isoformat(), "time": "morning", "visit": ""}}
+    say(env, bridge, "Can I bring Rishav in on Monday morning?")
+    with env.session() as s:
+        e = s.scalar(select(CalendarEvent).where(CalendarEvent.contact_id == cid))
+        assert e.status == "requested" and timeutil.local(e.starts_at).hour < 12 and timeutil.local(e.starts_at).date() == day
+        assert "They asked for Monday morning" in s.scalar(select(Task.reason).where(Task.contact_id == cid, Task.title.like("Confirm text booking%")))

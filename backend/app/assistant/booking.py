@@ -113,7 +113,7 @@ def within_hours(db: Session, start: datetime, minutes: int = 30) -> bool:
     return any(_hm(a) <= t0 and t1 <= _hm(b) for a, b in cfg["days"].get(DAYS[loc.weekday()], []))
 
 
-def request_from_conversation(db: Session, contact: Contact, start: datetime, visit: str = "", how: str = "by text") -> CalendarEvent | None:
+def request_from_conversation(db: Session, contact: Contact, start: datetime, visit: str = "", how: str = "by text", asked: str = "") -> CalendarEvent | None:
     """A time the client asked for goes into the Calendar as REQUESTED with a task; a person reads the conversation and approves it."""
     named = next((n for rx, n in VISIT_RULES if rx.search(visit or "")), None)
     vt = db.scalar(select(VisitType).where(VisitType.name == named)) if named else None
@@ -132,7 +132,8 @@ def request_from_conversation(db: Session, contact: Contact, start: datetime, vi
     for o in db.scalars(select(SmsOffer).where(SmsOffer.contact_id == contact.id, SmsOffer.status == "offered")).all():
         o.status = "requested"
     _task(db, contact, f"Confirm text booking: {contact.display_name}, {label(start)}",
-          f"{what} asked for {how} at {label(start)}." + (" Another appointment already overlaps this time: check before approving." if taken else "")
+          f"{what} asked for {how} at {label(start)}." + (f" They asked for {asked}; this is the first open time then, adjust it if needed." if asked else "")
+          + (" Another appointment already overlaps this time: check before approving." if taken else "")
           + " Read the conversation, then approve it in the Calendar (it can text them) and enter it in ImproMed.")
     ev.record(db, ev.CONTACTS, "booking_requested_by_text", f"An appointment was requested {how}: {contact.display_name}, {label(start)}", "AI assistant", "calendar_event", e.id)
     return e
