@@ -1,4 +1,4 @@
-export type NavItem = { to: string; label: string; perm?: string; admin?: boolean; icon: string }
+export type NavItem = { to: string; label: string; perm?: string; admin?: boolean; icon: string; href?: string }
 export const NAV: { group: string; items: NavItem[] }[] = [
   { group: 'Workspace', items: [
     { to: '/home', label: 'Home', perm: 'home.view', icon: 'home' },
@@ -15,6 +15,8 @@ export const NAV: { group: string; items: NavItem[] }[] = [
   { group: 'Website', items: [
     { to: '/website/content', label: 'Website content', perm: 'website.view', icon: 'list' },
     { to: '/website/seo', label: 'SEO agent', perm: 'website.view', icon: 'sparkle' },
+    // Contento runs as its own app on this server (its own logins and credits); it opens in a new tab
+    { to: 'contento', href: 'https://contento.77-42-69-194.sslip.io/admin/dashboard', label: 'Content studio', perm: 'website.run', icon: 'play' },
   ] },
   { group: 'Clinic', items: [
     { to: '/brief', label: 'Brief', perm: 'brief.view', icon: 'sparkle' },

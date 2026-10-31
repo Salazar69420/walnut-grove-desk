@@ -100,6 +100,11 @@ export function Shell() {
                 <div className="navh">{g.group}</div>
                 {list.map((i) => {
                   const [count, hot] = counts[i.to] || [null, false]
+                  if (i.href) return (
+                    <a key={i.to} href={i.href} target="_blank" rel="noreferrer" className="nav" style={{ textDecoration: 'none' }} title={`${i.label} opens in a new tab`}>
+                      <Icon n={i.icon} size={16} /><span style={{ flex: 1 }}>{i.label}</span><span className="mute" aria-hidden="true">↗</span>
+                    </a>
+                  )
                   return (
                     <NavLink key={i.to} to={i.to} className="nav" style={{ textDecoration: 'none' }}>
                       {({ isActive }) => (

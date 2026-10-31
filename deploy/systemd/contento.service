@@ -1,0 +1,26 @@
+[Unit]
+Description=Contento content studio (AI video maker), linked from the Walnut Desk sidebar
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=contento
+Group=contento
+WorkingDirectory=/opt/contento/app
+EnvironmentFile=/etc/contento/contento.env
+ExecStart=/usr/bin/env node node_modules/next/dist/bin/next start -p 3100 -H 127.0.0.1
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/contento
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

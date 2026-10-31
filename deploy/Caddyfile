@@ -17,3 +17,13 @@
 		format json
 	}
 }
+
+# Contento content studio (linked from the Walnut Desk sidebar)
+contento.77-42-69-194.sslip.io {
+	encode gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+	reverse_proxy 127.0.0.1:3100
+}
