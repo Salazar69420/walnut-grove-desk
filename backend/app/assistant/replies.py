@@ -156,8 +156,12 @@ def suggest(db: Session, contact: Contact, text: str, *, act: bool = False) -> d
         return {"kind": "medical", "draft": str(T.reply_medical(first, pet)), "sources": [], "task": {"id": t.id, "title": t.title},
                 "note": "This looks like a medical question, so the assistant does not answer it. A task was raised for the veterinary team."}
     from app.assistant import ai, booking, upsell
-    b = booking.handle(db, contact, text, act=act)
-    if b is not None and b.get("team_books") and ai.allowed_for(db, contact):
+    use_ai = ai.allowed_for(db, contact)
+    if use_ai and not booking.picks_offered_time(db, contact, text) and not booking.team_books(db, text):
+        b = None  # Hazel books in her own words (open times, the Calendar, appointment_request); the numbered menu is only a fallback
+    else:
+        b = booking.handle(db, contact, text, act=act)
+    if b is not None and b.get("team_books") and use_ai:
         # the team books this visit; the AI may still answer what they asked (drop-off times, fasting) around that fact
         try:
             r = ai.draft(db, contact, text, note=f"A {b['team_books'].lower()} is booked by our team, not by text. A task was raised; say warmly that someone will "
@@ -176,6 +180,8 @@ def suggest(db: Session, contact: Contact, text: str, *, act: bool = False) -> d
         try:
             r = ai.draft(db, contact, text)
         except ai.AiFailed as e:
+            if b is None and (fb := booking.handle(db, contact, text, act=act)) is not None:
+                return fb
             ev.record(db, ev.CONVERSATIONS, "ai_fallback", f"The AI reply could not be used ({e}), the rules answered instead", "AI assistant",
                       "contact", contact.id, {"code": str(e)}, publish=False)
         else:

@@ -247,18 +247,20 @@ function CreateSheet({ start, onClose, onSaved, staff }: { start: Date | null; o
 
 function ConfirmBox({ ev, onDone, toast }: { ev: Ev; onDone: () => void; toast: (m: string) => void }) {
   const [notify, setNotify] = useState(true)
-  async function go() {
+  async function go(action: 'confirm' | 'decline' = 'confirm') {
+    const word = action === 'confirm' ? 'Confirmed' : 'Declined'
     try {
-      const r = await api<{ texted: string | null }>(`/calendar/events/${ev.id}/confirm`, { method: 'POST', body: { notify }, quiet: true })
-      toast(r.texted && r.texted.startsWith('not sent') ? `Confirmed. The text was ${r.texted}` : notify && ev.contact ? 'Confirmed and the client was texted' : 'Confirmed')
+      const r = await api<{ texted: string | null }>(`/calendar/events/${ev.id}/${action}`, { method: 'POST', body: { notify }, quiet: true })
+      toast(r.texted && r.texted.startsWith('not sent') ? `${word}. The text was ${r.texted}` : notify && ev.contact ? `${word} and the client was texted` : word)
       onDone()
-    } catch (x) { toast(errText(x) || 'Not confirmed.') }
+    } catch (x) { toast(errText(x) || (action === 'confirm' ? 'Not confirmed.' : 'Not declined.')) }
   }
   return (
     <div className="pvw">
-      <p><b>{ev.title.includes("(agreed on a call)") ? "Agreed on a call" : "Requested by text"}, waiting for approval.</b> Any team member can approve it. Check the time works, confirm it here, and enter it in ImproMed.</p>
-      {ev.contact && <label className="ck"><input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} /> Text {ev.contact.display_name} that it is confirmed</label>}
-      <div className="rowbtn"><button className="btn primary" onClick={go}>Confirm booking</button></div>
+      <p><b>{ev.title.includes("(agreed on a call)") ? "Agreed on a call" : ev.title.includes("staff text") ? "Agreed in a staff text" : "Requested by text"}, waiting for approval.</b> Any team member can approve it. Check the time works, confirm it here, and enter it in ImproMed.</p>
+      {ev.contact && <label className="ck"><input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} /> Text {ev.contact.display_name} the answer</label>}
+      {ev.contact && <p className="mute"><Link to={`/contacts/${ev.contact.id}`}>Read the conversation</Link> before you decide.</p>}
+      <div className="rowbtn"><button className="btn primary" onClick={() => go('confirm')}>Confirm booking</button><button className="btn danger" onClick={() => go('decline')}>Decline</button></div>
     </div>
   )
 }

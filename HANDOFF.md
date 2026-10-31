@@ -288,6 +288,10 @@ Backlog lives in section 7 (known gaps) and section 8 (next steps).
 - Staff contact resolves tasks (`app/services/task_resolve.py`): a staff text or email, an answered call either way (10 s or more) or a voicemail left for them closes that contact's open tasks raised before it (not booking tasks), with a note; AI-raised ones then feed the learning step. A new message raises a new task as usual.
 - TELUS saved logins are kept per role (read-only vs texting) so the two never share one; a missing permission triggers one fresh login.
 - The AI no longer hesitates on bookings: when a day and time are clear (inside clinic hours, in the future) it fills `appointment_request`; automatic replies create a REQUESTED Calendar event plus a "Confirm text booking" task (overlaps are noted, staff decide). It always gets TODAY and CLINIC HOURS [A0]. A time outside hours is rejected and retried once.
+- The assistant is called Hazel (`assistant_ai.agent_name`, Admin > AI assistant). For AI contacts Hazel books in her own words (no numbered menu; the menu is only the fallback and now reads naturally; "Monday works" and "Monday at 9" pick an offered time). Rule 11: write like a person, use what was said before in texts and calls.
+- Hazel's memory includes the latest call transcript excerpt (last 60 days) besides call summaries.
+- Calendar: requested appointments can be Confirmed or Declined by any staff member (`POST /api/calendar/events/{id}/decline`, optional text).
+- A day and time a staff member agrees by text (`app/assistant/staff_booking.py`, after a staff text with a time word) become a REQUESTED event plus task.
 - Assistant memory (`app/assistant/memory.py`): last 20 texts as they are, plus `contacts.ai_memory` (older texts summarised every 10 texts), recent calls with summaries, open tasks and staff preference notes. Erased with the contact.
 
 **2026-10-31 UTC, session 3 (latest): replies that sound like a person; live TELUS calls**

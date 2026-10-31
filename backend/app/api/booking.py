@@ -96,6 +96,32 @@ def confirm(event_id: int, body: ConfirmIn, user: User = Depends(require("tasks.
     return {"item": crm.event_dicts(db, [e])[0], "texted": texted}
 
 
+@router.post("/calendar/events/{event_id}/decline")
+def decline(event_id: int, body: ConfirmIn, user: User = Depends(require("tasks.work")), db: Session = Depends(get_db)):
+    """Any staff member can turn down a requested appointment (it is cancelled; the client can be texted)."""
+    e = db.get(CalendarEvent, event_id)
+    if e is None:
+        raise HTTPException(status_code=404, detail="No such event")
+    if e.status != "requested":
+        raise HTTPException(status_code=409, detail="Only a requested appointment can be declined.")
+    e.status = "cancelled"
+    for t in db.scalars(select(Task).where(Task.contact_id == e.contact_id, Task.kind == "booking", Task.status != "done",
+                                          Task.title.like("Confirm % booking%"))).all():
+        t.status, t.done_at, t.done_by = "done", timeutil.now_utc(), user.id
+        t.reason = (t.reason + f"\nDeclined by {user.display_name}.")[:2000]
+    texted = None
+    if body.notify and e.contact_id:
+        c = db.get(Contact, e.contact_id)
+        first = (T.first_name(c.display_name) or "there")
+        try:
+            texted = sender.send_to_contact(db, c, user, channel="sms", body=str(T.booking_declined(first, booking.label(crm.aware(e.starts_at))))).delivery_state
+        except crm.CrmError as x:
+            texted = f"not sent: {x.detail}"
+    ev.record(db, ev.CONTACTS, "booking_declined", f"{user.display_name} declined a requested appointment", user, "calendar_event", e.id)
+    db.commit()
+    return {"item": crm.event_dicts(db, [e])[0], "texted": texted}
+
+
 # ---------------------------------------------------------------- booking from the app (the Book appointment button)
 def _overlaps(db: Session, start: datetime, end: datetime, booked_only: bool = False) -> list[CalendarEvent]:
     states = ("booked",) if booked_only else ("booked", "requested")

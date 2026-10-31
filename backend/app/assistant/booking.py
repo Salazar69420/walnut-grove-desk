@@ -238,7 +238,31 @@ def _choice(text: str, slots: list[datetime]) -> datetime | None:
                 hits.append(s)
         if len(hits) == 1:
             return hits[0]
+        day_hits = [x for x in hits if any(re.search(rf"\b{n}\b", t) and wd == timeutil.local(x).weekday() for n, wd in DAY_NAMES.items())]
+        if len(day_hits) == 1:
+            return day_hits[0]  # "Monday at 9"
+    if re.search(r"\b(works?|good|perfect|great|yes|please|sounds|that one|ok|okay)\b", t) or len(t.split()) <= 3:
+        on_day = [x for x in slots if any(re.search(rf"\b{n}\b", t) and wd == timeutil.local(x).weekday() for n, wd in DAY_NAMES.items())]
+        if len(on_day) == 1:
+            return on_day[0]  # "Monday works" when only one offered time is on Monday
     return None
+
+
+def picks_offered_time(db: Session, contact: Contact, text: str) -> bool:
+    """They are answering times we just offered ("the 9 am", "Monday works", "2")."""
+    offer = _active_offer(db, contact)
+    if offer is None:
+        return False
+    slots = [crm.aware(datetime.fromisoformat(x)) for x in json.loads(offer.slots_json or "[]")]
+    return _choice(text, slots) is not None
+
+
+def team_books(db: Session, text: str) -> bool:
+    """A booking request for a visit type the team books by phone (surgery and the like)."""
+    if not BOOK_RX.search(text) or not get_hours(db)["enabled"]:
+        return False
+    vt = _visit(db, text)
+    return vt is None or not vt.bookable
 
 
 def _pet(db: Session, contact: Contact) -> str | None:

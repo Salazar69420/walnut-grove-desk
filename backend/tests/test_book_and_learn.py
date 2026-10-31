@@ -256,3 +256,30 @@ def test_a_time_outside_clinic_hours_is_never_requested(env, bridge, garg, route
     say(env, bridge, "Could Rishav be seen on Wednesday at 11 pm?")
     with env.session() as s:
         assert s.scalar(select(CalendarEvent).where(CalendarEvent.contact_id == cid)) is None
+
+
+def test_a_time_agreed_in_a_staff_text_waits_in_the_calendar_and_can_be_declined(env, bridge, garg, router, anita):
+    from app.assistant import staff_booking
+    cid = pilot(env, garg, ai_on=True)
+    day = next_weekday(3)
+    assert garg.post(f"/api/contacts/{cid}/messages", {"channel": "sms", "body": "Hi Kartik, Thursday at 2 pm works for Rishav, see you then."}).status_code == 201
+    router.reply = {"agreed": True, "date": day.isoformat(), "time": "14:00", "visit": "check-up"}
+    staff_booking.check_now(cid)
+    with env.session() as s:
+        e = s.scalar(select(CalendarEvent).where(CalendarEvent.contact_id == cid, CalendarEvent.status == "requested"))
+        assert e is not None and "staff text" in e.title and timeutil.local(e.starts_at).strftime("%H:%M") == "14:00"
+        eid = e.id
+    r = anita.post(f"/api/calendar/events/{eid}/decline", {"notify": False}).json()
+    assert r["item"]["status"] == "cancelled"
+    with env.session() as s:
+        assert s.scalar(select(Task).where(Task.contact_id == cid, Task.title.like("Confirm text booking%"))).status == "done"
+
+
+def test_hazel_has_a_name_and_never_sends_a_numbered_menu(env, bridge, garg, router):
+    cid = pilot(env, garg, ai_on=True)
+    router.reply = {"reply": "Happy to help! I have Monday at 9 or Tuesday at 2 open. Would either suit you?", "answered": True, "needs_human": False,
+                    "knowledge_ids": ["A1"], "reason": "booking", "task_title": "", "task_note": "", "appointment_request": {"wanted": False, "date": "", "time": "", "visit": ""}}
+    msg = say(env, bridge, "Can I book a check-up?")
+    assert msg and "1)" not in msg
+    system = router.calls[-1]["messages"][0]["content"]
+    assert system.startswith("Your name is Hazel.") and "no numbered menus" in system

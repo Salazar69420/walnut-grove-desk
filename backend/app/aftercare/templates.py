@@ -242,9 +242,12 @@ def optin_confirmed(first: str) -> Tpl:
 
 # ---------------------------------------------------------------- booking by text (times always come from the code, never from a model)
 def booking_offer(first: str, visit: str | None, labels: list[str]) -> Tpl:
-    opts = " ".join(f"{i}) {l}." for i, l in enumerate(labels, 1))
-    what = f" for a {visit.lower()}" if visit else ""
-    return _t(f"Happy to help{_c(first)}! Here are a few open times{what}: {opts} Just reply with the number that suits you, or tell me a day and time that works better.")
+    what = (f" for {visit.lower()}" if visit.lower().endswith("s") else f" for a {visit.lower()}") if visit else ""
+    if len(labels) == 1:
+        opts = labels[0]
+    else:
+        opts = ", ".join(labels[:-1]) + f" or {labels[-1]}"
+    return _t(f"Happy to help{_c(first)}! I have {opts} open{what}. Would one of those work for you, or is there a day and time that suits you better?")
 
 
 def booking_requested(first: str, label: str, pet: str | None) -> Tpl:
@@ -258,6 +261,10 @@ def booking_none(first: str, visit: str) -> Tpl:
 
 def booking_by_team(first: str, visit: str) -> Tpl:
     return _t(f"{_hi(first)}, a {visit.lower()} needs a quick chat with our team first, so someone will contact you soon to set it up.")
+
+
+def booking_declined(first: str, label: str) -> Tpl:
+    return _t(f"Sorry{_c(first)}, {label} does not work for us after all. Someone from our team will be in touch to find a time that suits you.")
 
 
 def booking_confirmed(first: str, label: str, pet: str | None) -> Tpl:

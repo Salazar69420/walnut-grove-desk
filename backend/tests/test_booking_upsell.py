@@ -60,7 +60,7 @@ def test_the_clinic_hours_are_the_default_and_booking_by_text_can_be_switched_of
     assert h["enabled"] is True and h["days"]["mon"] == [["08:30", "19:00"]] and h["days"]["sat"] == h["days"]["sun"] == [["09:00", "17:00"]]
     assert garg.put("/api/calendar/booking-hours", {"enabled": False}).status_code == 200
     reply = say(env, bridge, "Can I book a check-up?")
-    assert reply and "1)" not in reply
+    assert reply and "Would one of those work" not in reply
     with env.session() as s:
         assert s.scalar(select(SmsOffer.id)) is None
 
@@ -73,7 +73,7 @@ def test_only_the_owner_sets_the_hours(env, bridge, priya):
 def test_offer_then_pick_creates_a_requested_appointment_and_a_task(env, bridge, garg):
     cid = setup(env, garg)
     offer = say(env, bridge, "Hi, can I book Biscuit in for his vaccines?")
-    assert "1)" in offer and "2)" in offer and "3)" in offer and "vaccines" in offer.lower()
+    assert "Would one of those work" in offer and "1)" not in offer and "for vaccines" in offer.lower()
     with env.session() as s:
         o = s.scalar(select(SmsOffer).where(SmsOffer.contact_id == cid))
         second = json.loads(o.slots_json)[1]
@@ -104,7 +104,7 @@ def test_asking_for_other_times_offers_later_ones(env, bridge, garg):
     with env.session() as s:
         first = json.loads(s.scalar(select(SmsOffer).where(SmsOffer.contact_id == cid)).slots_json)
     reply = say(env, bridge, "None of those work, something later?")
-    assert "1)" in reply
+    assert "Would one of those work" in reply
     with env.session() as s:
         o = s.scalars(select(SmsOffer).where(SmsOffer.contact_id == cid).order_by(SmsOffer.id)).all()
         assert o[0].status == "expired" and min(json.loads(o[-1].slots_json)) > max(first)
@@ -121,7 +121,7 @@ def test_a_day_and_part_of_day_are_respected(env, bridge, garg):
 def test_visits_that_are_not_bookable_by_text_go_to_the_team(env, bridge, garg):
     cid = setup(env, garg)
     reply = say(env, bridge, "Can I book a dental for my dog?")
-    assert "team" in reply and "1)" not in reply
+    assert "team" in reply and "Would one of those work" not in reply
     with env.session() as s:
         assert s.scalar(select(Task).where(Task.kind == "booking", Task.contact_id == cid)) is not None
 

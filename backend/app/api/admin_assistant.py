@@ -33,6 +33,7 @@ class AssistantIn(Strict):
     deny_data_collection: bool | None = None
     system_prompt: str | None = Field(default=None, max_length=6000)
     transcribe_enabled: bool | None = None
+    agent_name: str | None = Field(default=None, min_length=2, max_length=30)
     transcribe_model: str | None = Field(default=None, max_length=120)
 
 
@@ -72,6 +73,11 @@ def put_assistant(body: AssistantIn, user: User = Depends(require("admin.setting
     if body.clear_key:
         cfg["key_enc"], cfg["key_last4"] = "", None
         changed.append("key removed")
+    if body.agent_name is not None:
+        if not re.fullmatch(r"[A-Za-z][A-Za-z '\-]{1,29}", body.agent_name.strip()):
+            raise HTTPException(status_code=400, detail="Use a simple first name, letters only.")
+        cfg["agent_name"] = body.agent_name.strip()
+        changed.append("name")
     if body.transcribe_enabled is not None:
         cfg["transcribe_enabled"] = body.transcribe_enabled
         changed.append("call transcripts " + ("on" if body.transcribe_enabled else "off"))

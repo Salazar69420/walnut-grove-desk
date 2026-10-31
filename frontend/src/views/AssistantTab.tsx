@@ -4,7 +4,7 @@ import { useApp } from '../ctx'
 
 type View = {
   enabled: boolean; staff_enabled: boolean; model: string; has_key: boolean; key_last4: string | null; deny_data_collection: boolean
-  system_prompt: string; default_prompt: string; rules: string; active_for: string[]; knowledge_count: number; fee_count: number
+  system_prompt: string; default_prompt: string; agent_name?: string; rules: string; active_for: string[]; knowledge_count: number; fee_count: number
 }
 type Model = { id: string; name: string; context: number | null; in_per_million: number; out_per_million: number }
 type Tried = { kind: string; reply: string | null; model: string | null; code?: string; sources?: { title: string }[]; reason?: string; usage?: { cost?: number; prompt_tokens?: number; completion_tokens?: number } }
@@ -65,6 +65,7 @@ export function AssistantTab() {
               {shown.map((m) => <option key={m.id} value={m.id}>{m.id}  (${m.in_per_million} / ${m.out_per_million} per M)</option>)}
             </select></span></div>
         <p className="note">Only models that can return checked JSON are listed. Prices are per million tokens; one text usually costs a small fraction of a cent.</p>
+        <AgentName value={v.agent_name || 'Hazel'} busy={busy} onSave={(n) => put({ agent_name: n }, `The assistant is now called ${n}`)} />
         <div className="setrow"><b>Privacy</b>
           <label className="ck"><input type="checkbox" checked={v.deny_data_collection} disabled={busy} onChange={(e) => put({ deny_data_collection: e.target.checked }, 'Saved')} /> Only use providers that do not store or train on the messages</label></div>
       </section>
@@ -95,5 +96,15 @@ export function AssistantTab() {
         )}
       </section>
     </>
+  )
+}
+
+function AgentName({ value, busy, onSave }: { value: string; busy: boolean; onSave: (n: string) => void }) {
+  const [n, setN] = useState(value)
+  return (
+    <div className="rowbtn" style={{ alignItems: 'end' }}>
+      <label className="form" style={{ flex: 1 }}>Assistant's name (used in texts; it always says it is automated if asked)<input value={n} maxLength={30} onChange={(e) => setN(e.target.value)} /></label>
+      <button className="btn" disabled={busy || n.trim() === value || n.trim().length < 2} onClick={() => onSave(n.trim())}>Save name</button>
+    </div>
   )
 }

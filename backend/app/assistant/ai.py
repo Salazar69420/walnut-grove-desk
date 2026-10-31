@@ -38,6 +38,7 @@ KEY = "assistant_ai"
 URL = "https://openrouter.ai/api/v1/chat/completions"
 MODELS_URL = "https://openrouter.ai/api/v1/models"
 DEFAULT_MODEL = "deepseek/deepseek-v4.1-flash-1017"
+AGENT_NAME = "Hazel"  # the assistant's name in texts (owner can change it in Admin > AI assistant)
 TRANSCRIBE_MODEL = "openai/whisper-large-v3-turbo"  # OpenRouter speech-to-text; used only to turn call recordings into text
 TIMEOUT = 25.0
 MAX_REPLY = 640
@@ -82,7 +83,8 @@ RULES = """Hard rules (always apply, they override everything above):
 7. Reply with JSON only, matching the schema.
 8. If OPTIONAL PRODUCTS are listed, you may add ONE short sentence suggesting ONE of them, using its wording, only when it clearly fits what the client asked about. Never suggest anything when they are worried about their pet's health, upset, grieving, or asking about an emergency. Include its id.
 9. If you are in any doubt at all, set "needs_human" to true. Handing over to a person is always fine. When "answered" is false or "needs_human" is true, fill "task_title" (a short, specific title for the team, like "Asks if we see rabbits") and "task_note" (what the client needs, what was missing, and the next step you suggest).
-10. Read the whole conversation above and reply to what they mean in context, like a person would. Use WHAT YOU REMEMBER ABOUT THEM naturally: never ask for something you already know (their name, their pet, what they told us before), and pick up where things were left. If the message is only thanks, a greeting, an okay or a goodbye, reply warmly and briefly (mention their appointment from THEIR APPOINTMENTS if there is one), set "answered" false, "needs_human" false and leave task_title empty: no task is needed for that."""
+10. Read the whole conversation above and reply to what they mean in context, like a person would. Use WHAT YOU REMEMBER ABOUT THEM naturally: never ask for something you already know (their name, their pet, what they told us before), and pick up where things were left. If the message is only thanks, a greeting, an okay or a goodbye, reply warmly and briefly (mention their appointment from THEIR APPOINTMENTS if there is one), set "answered" false, "needs_human" false and leave task_title empty: no task is needed for that.
+11. Write like a real person texting, never like a system: no numbered menus, no "reply 1, 2 or 3", no form-letter phrases. Use what they told you before, in texts and on calls (see WHAT YOU REMEMBER), the way a front-desk person who knows them would."""
 
 SCHEMA = {
     "type": "object",
@@ -124,7 +126,7 @@ class AiFailed(Exception):
 # ---------------------------------------------------------------- settings
 def defaults() -> dict[str, Any]:
     return {"enabled": False, "staff_enabled": False, "model": DEFAULT_MODEL, "key_enc": "", "key_last4": None, "deny_data_collection": True, "system_prompt": DEFAULT_PROMPT,
-            "transcribe_enabled": True, "transcribe_model": TRANSCRIBE_MODEL}
+            "transcribe_enabled": True, "transcribe_model": TRANSCRIBE_MODEL, "agent_name": AGENT_NAME}
 
 
 def get_config(db: Session) -> dict[str, Any]:
@@ -142,7 +144,7 @@ def get_config(db: Session) -> dict[str, Any]:
 def public(cfg: dict[str, Any]) -> dict[str, Any]:
     return {"enabled": bool(cfg["enabled"]), "staff_enabled": bool(cfg["staff_enabled"]), "model": cfg["model"], "has_key": bool(cfg["key_enc"]), "key_last4": cfg["key_last4"],
             "deny_data_collection": bool(cfg["deny_data_collection"]), "system_prompt": cfg["system_prompt"],
-            "transcribe_enabled": bool(cfg["transcribe_enabled"]), "transcribe_model": cfg["transcribe_model"], "default_prompt": DEFAULT_PROMPT,
+            "transcribe_enabled": bool(cfg["transcribe_enabled"]), "transcribe_model": cfg["transcribe_model"], "agent_name": cfg["agent_name"], "default_prompt": DEFAULT_PROMPT,
             "rules": RULES}
 
 
@@ -217,7 +219,10 @@ def system_prompt(db: Session, products: list | None = None, contact: Contact | 
             texts[f"P{p.id}"] = f"{p.name}. {upsell.line(p)}"
             lines.append(f"[P{p.id}] {p.name}: {upsell.line(p)}{(' (fits: ' + p.triggers + ')') if p.triggers else ''}")
         extra += "\n".join(lines)
-    return f"{cfg['system_prompt'].strip()}\n\n{RULES}\n\n{kb}{extra}", texts
+    name = (cfg.get("agent_name") or AGENT_NAME).strip()[:30]
+    who = (f"Your name is {name}. Mention your name only when it is natural (for example the first time you text someone). If anyone asks whether "
+           f"they are texting a person, say you are {name}, Walnut Grove's automated assistant, and that a team member can help too.\n\n")
+    return f"{who}{cfg['system_prompt'].strip()}\n\n{RULES}\n\n{kb}{extra}", texts
 
 
 def conversation(db: Session, contact: Contact, latest: str) -> list[dict[str, str]]:

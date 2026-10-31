@@ -42,6 +42,10 @@ def block(db: Session, c: Contact) -> str:
             what = p.summary or INTENTS.get(p.intent or "", "") or p.short_note or p.result
             lines.append(f"- {timeutil.local(p.started_at).strftime('%b %d')}: {'they called' if p.direction == 'inbound' else 'we called'} ({p.result}). {what}"[:300])
         parts.append("Recent phone calls:\n" + "\n".join(lines))
+        last = next((p for p in calls if p.transcript and (timeutil.now_utc() - crm.aware(p.started_at)).days <= 60), None)
+        if last is not None:  # what was actually said on the latest call, so texts carry on from it naturally
+            excerpt = re.sub(r"\s+", " ", last.transcript).strip()
+            parts.append(f"Latest call ({timeutil.local(last.started_at).strftime('%b %d')}) transcript excerpt:\n" + (excerpt[:1200] + (" ..." if len(excerpt) > 1200 else "")))
     tasks = db.scalars(select(Task).where(Task.contact_id == c.id, Task.status != "done").order_by(Task.created_at.desc()).limit(3)).all()
     if tasks:
         parts.append("Open with the team (do not promise more than this): " + "; ".join(t.title for t in tasks))
