@@ -109,6 +109,9 @@ def send_to_contact(
     crm.touch_contact(db, contact, now)
     word = "text" if channel == "sms" else "email"
     who = user.display_name if user else "The assistant"
+    if user is not None and sender_kind == "staff" and scheduled_for is None:
+        from app.services import task_resolve
+        task_resolve.resolve_for_contact(db, contact.id, f"{user.display_name} replied by {word}", now, user)
     ev.record(
         db, ev.CONVERSATIONS, "message_scheduled" if scheduled_for else "message_queued" if real else "message_practice",
         f"{who} {'scheduled' if scheduled_for else 'sent'} a {word}" + ("" if real else " (practice mode)"), user or "AI assistant", "message", msg.id,

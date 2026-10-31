@@ -76,3 +76,48 @@ def test_a_missed_call_raises_one_callback_task_and_an_answered_call_closes_it(e
     with env.session() as s:
         calls_live.ingest(s, {"v": 1, "calls": [{"id": "m3", "at": iso(5), "d": "outbound", "r": "answered", "s": 90, "n": "+16045550123", "rec": None}]})
         assert s.scalar(select(Task).where(Task.kind == "callback", Task.contact_id == cid)).status == "done"
+
+
+def test_any_staff_contact_resolves_the_earlier_tasks(env, garg):
+    from datetime import timedelta
+    from app.models import Task
+    from app.services import timeutil
+    now = timeutil.now_utc()
+    with env.session() as s:
+        c = s.scalar(select(Contact).where(Contact.is_demo.is_(True)).order_by(Contact.id).limit(1))
+        c.phone, c.sms_consent = "+16045550133", "full"
+        s.query(Task).filter(Task.contact_id == c.id).delete()
+        old = Task(kind="unknown_knowledge", title="No answer", contact_id=c.id, status="open", raised_by="ai", created_at=now - timedelta(hours=2))
+        book = Task(kind="booking", title="Confirm text booking", contact_id=c.id, status="open", raised_by="ai", created_at=now - timedelta(hours=2))
+        s.add_all([old, book])
+        s.commit()
+        cid, oid, bid = c.id, old.id, book.id
+    assert garg.post(f"/api/contacts/{cid}/messages", {"channel": "email", "body": "Hi, here is the answer."}).status_code in (201, 409)
+    with env.session() as s:
+        t = s.get(Task, oid)
+        if t.status != "done":  # no email on file: use a call instead
+            calls_live.ingest(s, {"v": 1, "calls": [{"id": "r1", "at": timeutil.iso(now - timedelta(minutes=5)), "d": "outbound", "r": "voicemail", "s": 25,
+                                                      "n": "+16045550133", "rec": None}]})
+            s.expire_all()
+            t = s.get(Task, oid)
+        assert t.status == "done" and "Resolved automatically" in t.reason
+        assert s.get(Task, bid).status == "open"  # bookings close when the appointment is approved
+
+
+def test_a_staff_text_resolves_and_a_later_task_stays(env, garg, tmp_path):
+    from datetime import timedelta
+    from app.models import Task
+    from app.services import timeutil
+    now = timeutil.now_utc()
+    with env.session() as s:
+        c = s.scalar(select(Contact).where(Contact.is_demo.is_(True)).order_by(Contact.id.desc()).limit(1))
+        c.phone, c.sms_consent = "+16045550144", "full"
+        s.query(Task).filter(Task.contact_id == c.id).delete()
+        s.add(Task(kind="callback", title="Call back", contact_id=c.id, status="open", raised_by="rule", created_at=now - timedelta(hours=1)))
+        s.add(Task(kind="callback", title="Later", contact_id=c.id, status="open", raised_by="rule", created_at=now + timedelta(minutes=5)))
+        s.commit()
+        cid = c.id
+    assert garg.post(f"/api/contacts/{cid}/messages", {"channel": "sms", "body": "Hi, calling you back now."}).status_code == 201
+    with env.session() as s:
+        states = {t.title: t.status for t in s.scalars(select(Task).where(Task.contact_id == cid)).all()}
+        assert states == {"Call back": "done", "Later": "open"}

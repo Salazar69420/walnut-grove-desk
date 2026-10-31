@@ -234,6 +234,12 @@ class SendWorker:
                     return "failed", "login_failed", None
                 need = "SMS" if req.kind == "sms" else "RingOut"
                 if need not in client.scopes:
+                    client._drop_token()  # a saved login can predate a permission change in the TELUS console: log in fresh once
+                    try:
+                        client.login()
+                    except TelusError:
+                        return "failed", "login_failed", None
+                if need not in client.scopes:
                     return "failed", "no_permission", None
                 if req.kind == "sms":
                     return self._sms(client, req)

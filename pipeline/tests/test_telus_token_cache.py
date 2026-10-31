@@ -50,3 +50,13 @@ def test_without_a_token_dir_nothing_is_saved(tmp_path):
         with ReadOnlyClient(CREDS, transport=httpx.MockTransport(router(state))) as c:
             c.login()
     assert state["logins"] == 2
+
+
+def test_the_send_and_read_logins_never_share_a_saved_token(tmp_path):
+    from pipeline.telus.send_client import SendClient
+    state = {"logins": 0}
+    with ReadOnlyClient(CREDS, transport=httpx.MockTransport(router(state)), token_dir=str(tmp_path)) as c:
+        c.login()
+    with SendClient(CREDS, transport=httpx.MockTransport(router(state)), token_dir=str(tmp_path)) as c:
+        c.login()
+    assert state["logins"] == 2 and len(list(tmp_path.iterdir())) == 2

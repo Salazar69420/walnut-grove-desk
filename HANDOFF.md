@@ -285,6 +285,8 @@ Backlog lives in section 7 (known gaps) and section 8 (next steps).
 - TELUS logins are reused for their hour (token file per app and JWT in the private store, mode 600, dropped on 401); before this the texting worker logged in every 20 s and TELUS answered 429.
 - Older calls: `python -m app.services.backlog` (app user) runs the same analysis over every call that already has a transcript, in historical mode: labels, reports, call notes (at most 60 pending from history), contacts the system created get full name, pets and patient/inquiry by majority of their calls (contacts staff made are never touched), named callers with a number become prospects; no tasks or Calendar requests.
 - Every model call now happens with no database transaction open (all transactions take the write lock; waiting inside one caused "database is locked").
+- Staff contact resolves tasks (`app/services/task_resolve.py`): a staff text or email, an answered call either way (10 s or more) or a voicemail left for them closes that contact's open tasks raised before it (not booking tasks), with a note; AI-raised ones then feed the learning step. A new message raises a new task as usual.
+- TELUS saved logins are kept per role (read-only vs texting) so the two never share one; a missing permission triggers one fresh login.
 - Assistant memory (`app/assistant/memory.py`): last 20 texts as they are, plus `contacts.ai_memory` (older texts summarised every 10 texts), recent calls with summaries, open tasks and staff preference notes. Erased with the contact.
 
 **2026-10-31 UTC, session 3 (latest): replies that sound like a person; live TELUS calls**

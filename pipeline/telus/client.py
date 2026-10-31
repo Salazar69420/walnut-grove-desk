@@ -88,7 +88,8 @@ class ReadOnlyClient:
         self._creds = creds
         # Reuse one login for its whole hour instead of logging in on every run (TELUS limits logins). The token is kept in the
         # private store next to the credentials (mode 600), one file per app and JWT; it is never printed or sent anywhere else.
-        self._token_file = (os.path.join(token_dir, "token-" + hashlib.sha256(f"{creds.client_id}:{creds.jwt}".encode()).hexdigest()[:16] + ".json")
+        role = type(self).__name__  # ReadOnlyClient and SendClient never share a saved login
+        self._token_file = (os.path.join(token_dir, f"token-{role}-" + hashlib.sha256(f"{creds.client_id}:{creds.jwt}".encode()).hexdigest()[:16] + ".json")
                             if token_dir else None)
         self._secrets: list[str] = list(creds.secret_values())
         self._base = creds.server_url.rstrip("/")

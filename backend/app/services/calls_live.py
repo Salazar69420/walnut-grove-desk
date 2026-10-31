@@ -95,6 +95,7 @@ def ingest(db: Session, data: dict) -> dict[str, int]:
     counts["linked"] = relink(db, touched)
     counts["callbacks"] = callback_tasks(db, new_calls)
     close_answered_callbacks(db, new_calls)
+    resolve_by_calls(db, new_calls)
     ensure_call_messages(db)
     if counts["added"] or counts["numbers_added"] or counts["linked"] or counts["callbacks"]:
         ev.record(db, ev.PHONE, "calls_synced", f"{counts['added']} new calls from TELUS", "TELUS", "phone_call", None, counts)
@@ -161,7 +162,7 @@ def close_answered_callbacks(db: Session, calls: list[PhoneCall]) -> int:
     from app.services import timeutil
     n = 0
     for c in calls:
-        if c.result != "answered" or not c.phone:
+        if not c.phone or not (c.result == "answered" or (c.direction == "outbound" and c.result == "voicemail")):
             continue
         from sqlalchemy import func
         last_missed = db.scalar(select(func.max(PhoneCall.started_at)).where(PhoneCall.phone == c.phone, PhoneCall.direction == "inbound",
@@ -173,6 +174,23 @@ def close_answered_callbacks(db: Session, calls: list[PhoneCall]) -> int:
             t.status, t.done_at = "done", timeutil.now_utc()
             t.reason = (t.reason + f"\nClosed automatically: a call with this number was answered at {timeutil.local(c.started_at).strftime('%I:%M %p').lstrip('0')}.")[:2000]
             n += 1
+    return n
+
+
+def resolve_by_calls(db: Session, calls: list[PhoneCall]) -> int:
+    """We spoke with them (an answered call either way) or left them a voicemail: their earlier open tasks are resolved."""
+    from app.services import task_resolve
+    n = 0
+    for c in calls:
+        if not c.contact_id:
+            continue
+        if c.result == "answered" and c.duration_seconds >= 10:
+            how = "the team called them" if c.direction == "outbound" else "they called and the team answered"
+        elif c.direction == "outbound" and c.result == "voicemail":
+            how = "the team left them a voicemail"
+        else:
+            continue
+        n += len(task_resolve.resolve_for_contact(db, c.contact_id, how, c.started_at))
     return n
 
 
