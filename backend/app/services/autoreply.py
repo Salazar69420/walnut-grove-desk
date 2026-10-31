@@ -59,6 +59,6 @@ def maybe_reply(db: Session, contact: Contact, inbound: Message) -> Message | No
                     reason=f"The assistant could not send its reply: {e.detail}"[:2000], contact_id=contact.id, priority="high", status="open",
                     raised_by="ai", created_at=timeutil.now_utc()))
         return None
-    ev.record(db, ev.CONVERSATIONS, "auto_reply_sent", f"The assistant replied by itself ({out['kind']})", "AI assistant", "message", msg.id,
-              {"kind": out["kind"], "sources": [s["id"] for s in out["sources"]]})
+    ev.record(db, ev.CONVERSATIONS, "auto_reply_sent", f"The assistant replied by itself ({out['kind']}{', ' + out['model'] if out.get('model') else ', rules'})",
+              "AI assistant", "message", msg.id, {"kind": out["kind"], "sources": [s["id"] for s in out["sources"]], "model": out.get("model"), "usage": out.get("usage")})
     return msg

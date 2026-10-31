@@ -4,12 +4,13 @@ import { useApp } from '../ctx'
 import { useLive } from '../live'
 import { Head, Loading } from '../components/bits'
 import { TelusTab } from './TelusTab'
+import { AssistantTab } from './AssistantTab'
 
-type Tab = 'users' | 'audit' | 'import' | 'settings' | 'telus'
+type Tab = 'users' | 'audit' | 'import' | 'settings' | 'telus' | 'assistant'
 
 export function Admin() {
   const [tab, setTab] = useState<Tab>('users')
-  const tabs: [Tab, string][] = [['users', 'Users'], ['audit', 'Audit log'], ['import', 'Import'], ['settings', 'Settings'], ['telus', 'TELUS']]
+  const tabs: [Tab, string][] = [['users', 'Users'], ['audit', 'Audit log'], ['import', 'Import'], ['settings', 'Settings'], ['telus', 'TELUS'], ['assistant', 'AI assistant']]
   return (
     <>
       <Head title="Admin" lead="Accounts, the audit log, data imports and settings. Only admins see this page." />
@@ -21,6 +22,7 @@ export function Admin() {
       {tab === 'import' && <Import />}
       {tab === 'settings' && <Settings />}
       {tab === 'telus' && <TelusTab />}
+      {tab === 'assistant' && <AssistantTab />}
     </>
   )
 }

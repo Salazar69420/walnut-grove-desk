@@ -94,6 +94,16 @@ def match_knowledge(db: Session, text: str) -> list[dict[str, Any]]:
     return [x[1] for x in scored[:2]]
 
 
+def _titles(db: Session, ids: list[str]) -> list[dict[str, Any]]:
+    out = []
+    for i in ids:
+        if i.startswith("K") and i[1:].isdigit() and (e := db.get(KnowledgeEntry, int(i[1:]))):
+            out.append({"id": e.id, "title": e.title, "kind": "knowledge"})
+        elif i.startswith("F") and i[1:].isdigit() and (f := db.get(Fee, int(i[1:]))):
+            out.append({"id": f.id, "title": f.service, "kind": "fee"})
+    return out
+
+
 def _task(db: Session, contact: Contact, kind: str, title: str, reason: str, priority: str) -> Task:
     """One open task of this kind per person per day, so a flurry of messages does not make a pile."""
     since = timeutil.now_utc() - timedelta(hours=24)
@@ -120,6 +130,23 @@ def suggest(db: Session, contact: Contact, text: str) -> dict[str, Any]:
         t = _task(db, contact, "escalation", f"Medical question from {who}", "The client asked something medical. The assistant gave no advice. A veterinary team member should answer.", "high")
         return {"kind": "medical", "draft": str(T.reply_medical(first)), "sources": [], "task": {"id": t.id, "title": t.title},
                 "note": "This looks like a medical question, so the assistant does not answer it. A task was raised for the veterinary team."}
+    from app.assistant import ai
+    if ai.allowed_for(db, contact):
+        try:
+            r = ai.draft(db, contact, text)
+        except ai.AiFailed as e:
+            ev.record(db, ev.CONVERSATIONS, "ai_fallback", f"The AI reply could not be used ({e}), the rules answered instead", "AI assistant",
+                      "contact", contact.id, {"code": str(e)}, publish=False)
+        else:
+            titles = _titles(db, r["ids"])
+            meta = {"model": r["model"], "seconds": r["seconds"], "usage": r["usage"], "ai": True}
+            if r["answered"]:
+                return {"kind": "answer", "draft": r["reply"], "sources": titles, "task": None,
+                        "note": f"Written by the AI from approved knowledge ({r['model']}). Every number was checked against the knowledge.", **meta}
+            kind, title = ("escalation", f"The assistant asked for a person: {who}") if r["needs_human"] else ("unknown_knowledge", f"No approved answer for {who}")
+            t = _task(db, contact, kind, title, f"AI note: {r['reason'] or 'not covered by approved knowledge'}", "normal")
+            return {"kind": "unknown", "draft": r["reply"], "sources": [], "task": {"id": t.id, "title": t.title},
+                    "note": "The AI had no approved answer, so it wrote a holding reply and raised a task. Add the answer in Knowledge & Fees to teach it.", **meta}
     hits = match_knowledge(db, text)
     if hits:
         return {"kind": "answer", "draft": str(T.reply_answers(first, [h["text"] for h in hits])),

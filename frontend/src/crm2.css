@@ -195,3 +195,6 @@ a.playb{color:var(--acc-t)}
 .correct-b{font-size:12px;padding:0 4px;min-height:0}
 .quote{margin:0;padding:8px 12px;background:var(--panel2);border-left:3px solid var(--line);border-radius:6px;white-space:pre-wrap}
 .obo{display:flex;flex-direction:column;gap:8px}.obo h3{margin:0}.obo textarea{width:100%}
+
+.modelpick{display:flex;flex-direction:column;gap:6px;flex:1;min-width:0}.modelpick select{width:100%;font-family:var(--mono);font-size:12px}
+.promptbox{width:100%;font-family:var(--mono);font-size:13px;line-height:1.5}
