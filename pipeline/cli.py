@@ -91,6 +91,8 @@ def build_parser() -> argparse.ArgumentParser:
     s = add("telus-worker", "process TELUS requests from the web app bridge folder, then exit")
     s.add_argument("--bridge", default="/var/lib/walnut-desk-telus", help="bridge folder shared with the app")
 
+    add("telus-match", "compare a transcripts CSV with the TELUS call log, counts only (--csv)")
+
     s = add("telus-sync", "pull a window of the call log and write the live Brief numbers (analytics.json)")
     s.add_argument("--bridge", default="/var/lib/walnut-desk-telus", help="bridge folder shared with the app")
     s.add_argument("--days", type=int, default=35, help="call-log window to pull, 1 to 90 (default 35)")
@@ -144,6 +146,9 @@ def main(argv: list[str] | None = None) -> int:
     if cmd == "telus-setup":
         from .telus import setup as telus_setup
         return telus_setup.run(paths.root, args.force)
+    if cmd == "telus-match":
+        from .telus import matchcheck
+        return matchcheck.run(paths.db, paths.csv)
     if cmd == "telus-worker":
         from .telus import worker
         return worker.run(paths.root, args.bridge, paths.db, paths.salt)
