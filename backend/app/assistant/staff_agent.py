@@ -72,7 +72,10 @@ def t_overview(db: Session, user: User, **_) -> dict:
         "pending_fees": db.scalar(select(func.count()).select_from(Fee).where(Fee.status == "pending")),
         "settings": {"texting_mode": m["mode"], "test_numbers_count": len(m["test_numbers"]), "automatic_replies": bool(settings_store.get_raw(db, "auto_reply", False)),
                      "booking_by_text": booking.get_hours(db)["enabled"], "product_suggestions": upsell.get(db)["enabled"],
-                     "ai_writes_client_replies": bool(ai.get_config(db)["enabled"]), "ai_model": ai.get_config(db)["model"]},
+                     "ai_writes_client_replies": bool(ai.get_config(db)["enabled"]), "ai_model": ai.get_config(db)["model"],
+                     "client_assistant_name": ai.get_config(db).get("agent_name"), "call_transcripts": bool(ai.get_config(db).get("transcribe_enabled")),
+                     "transcript_model": ai.get_config(db).get("transcribe_model")},
+        "callback_tasks_open": db.scalar(select(func.count()).select_from(Task).where(Task.kind == "callback", Task.status.in_(("open", "in_progress")))),
     }
 
 
@@ -110,6 +113,8 @@ def t_contact(db: Session, user: User, contact_id: int = 0, **_) -> dict:
         "open_tasks": [{"id": t.id, "title": t.title, "priority": t.priority} for t in db.scalars(select(Task).where(Task.contact_id == c.id, Task.status.in_(("open", "in_progress")))).all()],
         "upcoming": [{"id": e.id, "title": e.title, "at": timeutil.iso(e.starts_at), "status": e.status} for e in db.scalars(select(CalendarEvent).where(CalendarEvent.contact_id == c.id, CalendarEvent.starts_at >= timeutil.now_utc())).all()],
         "calls": db.scalar(select(func.count()).select_from(PhoneCall).where(PhoneCall.contact_id == c.id)),
+        "patient_or_inquiry": c.kind, "what_the_client_assistant_remembers": (c.ai_memory or "")[:800],
+        "recent_calls": [_call(r, user) for r in db.scalars(select(PhoneCall).where(PhoneCall.contact_id == c.id).order_by(PhoneCall.started_at.desc()).limit(5)).all()],
         "recent_messages": [{"channel": m.channel, "direction": m.direction, "by": m.sender_kind, "text": (m.body or "")[:240], "at": timeutil.iso(m.created_at), "status": m.delivery_state} for m in msgs],
     }
 
@@ -160,8 +165,20 @@ def t_calls(db: Session, user: User, from_date: str = "", to_date: str = "", han
     by_result = dict(db.execute(select(PhoneCall.result, func.count()).where(PhoneCall.started_at >= crm.local_day_start(a), PhoneCall.started_at < crm.local_day_start(b + timedelta(days=1))).group_by(PhoneCall.result)).all())
     rows = db.scalars(stmt.order_by(PhoneCall.started_at.desc()).limit(min(int(limit or 20), 40))).all()
     return {"from": a.isoformat(), "to": b.isoformat(), "total": total, "by_result": by_result,
-            "calls": [{"id": r.id, "at": timeutil.iso(r.started_at), "direction": r.direction, "handled_by": r.handled_by, "line": r.agent_label, "seconds": r.duration_seconds,
-                       "result": r.result, "note": r.short_note, "contact_id": r.contact_id} for r in rows]}
+            "by_reason": dict(db.execute(select(PhoneCall.intent, func.count()).where(PhoneCall.started_at >= crm.local_day_start(a), PhoneCall.started_at < crm.local_day_start(b + timedelta(days=1)),
+                                                                     PhoneCall.intent.is_not(None)).group_by(PhoneCall.intent)).all()),
+            "patients_vs_inquiries": dict(db.execute(select(PhoneCall.call_type, func.count()).where(PhoneCall.started_at >= crm.local_day_start(a), PhoneCall.started_at < crm.local_day_start(b + timedelta(days=1)))
+                                                     .group_by(PhoneCall.call_type)).all()),
+            "calls": [_call(r, user) for r in rows]}
+
+
+def _call(r: PhoneCall, user: User) -> dict:
+    out = {"id": r.id, "at": timeutil.iso(r.started_at), "direction": r.direction, "handled_by": r.handled_by, "line": r.agent_label, "seconds": r.duration_seconds,
+           "result": r.result, "note": r.short_note, "reason": r.intent, "patient_or_inquiry": r.call_type, "contact_id": r.contact_id, "has_recording": bool(r.recording_id),
+           "transcribed": bool(r.transcript)}
+    if r.summary and has_perm(user, "phone.transcript"):
+        out["summary"] = r.summary  # owners only, like on the Phone page; full transcripts stay on the Phone page
+    return out
 
 
 def t_texts(db: Session, user: User, limit: int = 15, **_) -> dict:
@@ -178,7 +195,7 @@ def t_knowledge(db: Session, user: User, status: str = "approved", query: str = 
         like = crm.like_pattern(query)
         stmt = stmt.where(or_(KnowledgeEntry.title.like(like, escape="\\"), KnowledgeEntry.body.like(like, escape="\\")))
     rows = db.scalars(stmt.order_by(KnowledgeEntry.id).limit(60)).all()
-    return {"entries": [{"id": e.id, "status": e.status, "category": e.category, "title": e.title, "text": e.body[:500]} for e in rows]}
+    return {"entries": [{"id": e.id, "status": e.status, "category": e.category, "title": e.title, "text": e.body[:500], "source": e.source_ref or e.source_kind} for e in rows]}
 
 
 def t_fees(db: Session, user: User, status: str = "all", **_) -> dict:
@@ -324,6 +341,10 @@ def _a_setting(db, user, p):
         settings_store.put_raw(db, upsell.KEY, {**cur, "enabled": on}, by=user.display_name)
     elif what == "automatic_replies":
         settings_store.put_raw(db, "auto_reply", on, by=user.display_name)
+    elif what == "call_transcripts":
+        cfg = ai.get_config(db)
+        cfg["transcribe_enabled"] = on
+        ai.save(db, cfg, user.display_name)
     elif what == "ai_writes_client_replies":
         cfg = ai.get_config(db)
         if on and not cfg["key_enc"]:
@@ -366,6 +387,110 @@ def _a_prompt(db, user, p):
     return "Added to the assistant's base prompt."
 
 
+def t_booking_requests(db: Session, user: User, **_) -> dict:
+    """Appointments waiting for a person to approve or decline (asked by text, agreed on a call, or agreed in a staff text)."""
+    rows = db.scalars(select(CalendarEvent).where(CalendarEvent.status == "requested").order_by(CalendarEvent.starts_at).limit(30)).all()
+    return {"waiting": [{"event_id": e.id, "at": booking.label(crm.aware(e.starts_at)), "title": e.title,
+                         "from": "a call" if "agreed on a call" in e.title else "a staff text" if "staff text" in e.title else "a text",
+                         "contact": _cbrief(db.get(Contact, e.contact_id)) if e.contact_id else None} for e in rows]}
+
+
+def t_website(db: Session, user: User, **_) -> dict:
+    """The clinic website: the latest SEO audit (Google, Maps, AI search), what to fix, and the deployment agent's changes."""
+    from app.models import WebsiteAudit, WebsiteChange
+    from app.services import deploy_agent, website
+    a = db.scalar(select(WebsiteAudit).where(WebsiteAudit.status == "done").order_by(WebsiteAudit.id.desc()).limit(1))
+    out: dict[str, Any] = {"site": website.get_settings(db)["url"], "audit": None}
+    if a is not None:
+        sm = json.loads(a.summary_json or "{}")
+        out["audit"] = {"finished_at": timeutil.iso(a.finished_at), "score": sm.get("score"), "scores_by_area": sm.get("areas"), "pages": sm.get("pages"),
+                        "pagespeed": (sm.get("pagespeed") or {}).get("scores"), "compared_with_previous": sm.get("compare"),
+                        "issues": [{k: i.get(k) for k in ("area", "severity", "title", "count", "fix")} for i in json.loads(a.issues_json or "[]")][:20],
+                        "has_ai_fix_plan": bool(a.ai_plan)}
+    out["deployment_agent"] = {**{k: v for k, v in deploy_agent.public(deploy_agent.get_cfg(db)).items() if k != "token_last4"},
+                               "recent_changes": [{k: v for k, v in deploy_agent.view(c).items() if k in ("id", "status", "mode", "summary", "pr_url", "created_at", "error")}
+                                                  for c in db.scalars(select(WebsiteChange).order_by(WebsiteChange.id.desc()).limit(5)).all()]}
+    return out
+
+
+def t_blog(db: Session, user: User, **_) -> dict:
+    from app.services import blog
+    cfg = blog.get_cfg(db)
+    if not blog.public(cfg)["ready"]:
+        return {"connected": False, "note": "The website CMS is not connected yet (Website content, Blog posts)."}
+    try:
+        return {"connected": True, "posts": blog.list_posts(db)[:30]}
+    except Exception:  # noqa: BLE001
+        return {"connected": True, "error": "The CMS could not be reached."}
+
+
+def t_chats(db: Session, user: User, **_) -> dict:
+    """This person's own team chats (only conversations they are in): unread counts and the latest messages."""
+    from app.api.chats import _everyone, _thread_dicts
+    from app.models import ChatMember, ChatMessage, ChatThread
+    _everyone(db)
+    tids = db.scalars(select(ChatMember.thread_id).where(ChatMember.user_id == user.id)).all()
+    threads = list(db.scalars(select(ChatThread).where(ChatThread.id.in_(tids))).all()) if tids else []
+    items = _thread_dicts(db, user, threads)
+    for it in items[:6]:
+        rows = db.scalars(select(ChatMessage).where(ChatMessage.thread_id == it["id"]).order_by(ChatMessage.created_at.desc()).limit(5)).all()
+        people = {u.id: u.display_name for u in db.scalars(select(User).where(User.id.in_({r.user_id for r in rows if r.user_id}))).all()}
+        it["latest"] = [{"who": people.get(r.user_id, ""), "text": r.body[:300], "at": timeutil.iso(r.created_at)} for r in reversed(rows)]
+    return {"conversations": items[:12]}
+
+
+def _a_booking(db, user, p):
+    from app.api import booking as booking_api
+    e = db.get(CalendarEvent, int(p["event_id"]))
+    if e is None or e.status != "requested":
+        raise crm.CrmError(409, "That appointment is not waiting for approval.")
+    body = booking_api.ConfirmIn(notify=bool(p.get("text_client")))
+    out = booking_api.confirm(e.id, body, user, db) if p.get("decision") == "confirm" else booking_api.decline(e.id, body, user, db)
+    return f"Appointment {'confirmed' if p.get('decision') == 'confirm' else 'declined'}" + (f"; text: {out.get('texted')}" if out.get("texted") else "") + "."
+
+
+def _a_chat(db, user, p):
+    from app.api.chats import NewMessage, NewThread, _everyone, new_thread, send
+    to = str(p.get("to") or "").strip()
+    if to.lower() in ("everyone", "all", "team"):
+        tid = _everyone(db).id
+    else:
+        u = db.scalar(select(User).where(func.lower(User.display_name) == to.lower(), User.active.is_(True))) or \
+            db.scalar(select(User).where(func.lower(User.display_name).like(f"{to.lower().split()[0]}%"), User.active.is_(True)))
+        if u is None or u.id == user.id:
+            raise crm.CrmError(400, "Nobody by that name.")
+        tid = new_thread(NewThread(user_ids=[u.id]), user, db)["item"]["id"]
+    send(tid, NewMessage(body=str(p["text"])[:4000]), user, db)
+    return f"Message sent to {to}."
+
+
+def _a_website(db, user, p):
+    from app.models import WebsiteAudit
+    from app.services import deploy_agent, website
+    if p.get("do") == "audit":
+        website.start(db, user.display_name)
+        return "The website audit started; results show in SEO agent in under a minute."
+    a = db.scalar(select(WebsiteAudit).where(WebsiteAudit.status == "done").order_by(WebsiteAudit.id.desc()).limit(1))
+    if a is None:
+        raise crm.CrmError(409, "Run an audit first.")
+    try:
+        c = deploy_agent.start(db, a, [], user.display_name, p.get("mode") if p.get("mode") in ("auto", "approve") else None)
+    except ValueError as e:
+        raise crm.CrmError(409, "Add the GitHub token in SEO agent first." if str(e) == "no_token" else "The OpenRouter key is not set.")
+    return f"The deployment agent is writing the fixes ({c.mode} mode); follow it in SEO agent."
+
+
+def _a_agent_name(db, user, p):
+    name = str(p["name"]).strip()
+    if not re.fullmatch(r"[A-Za-z][A-Za-z '\-]{1,29}", name):
+        raise crm.CrmError(400, "Use a simple first name.")
+    cfg = ai.get_config(db)
+    cfg["agent_name"] = name
+    ai.save(db, cfg, user.display_name)
+    ev.record(db, ev.ADMIN, "assistant_name_changed", f"{user.display_name} renamed the client assistant to {name}", user, "setting", ai.KEY)
+    return f"The client assistant is now called {name}."
+
+
 ACTIONS: dict[str, tuple[str, Callable]] = {
     "add_knowledge": ("knowledge.suggest", _a_add_knowledge),
     "decide_knowledge": ("knowledge.decide", _a_knowledge_decide),
@@ -374,6 +499,10 @@ ACTIONS: dict[str, tuple[str, Callable]] = {
     "contact_assistant": ("contacts.edit", _a_contact_assistant),
     "fee": ("knowledge.suggest", _a_fee),
     "base_prompt": ("admin.settings", _a_prompt),
+    "booking_decision": ("tasks.work", _a_booking),
+    "chat_message": ("home.view", _a_chat),
+    "website": ("website.run", _a_website),
+    "assistant_name": ("admin.settings", _a_agent_name),
 }
 ACTION_PERM_OVERRIDE = {("setting", "booking_by_text"): "afterhours.edit", ("setting", "product_suggestions"): "knowledge.decide",
                         ("setting", "automatic_replies"): "admin.telus", ("fee", "approve"): "knowledge.decide"}
@@ -390,7 +519,7 @@ def _perm_for(action: str, params: dict) -> str:
 def propose(db: Session, user: User, action: str, params: dict, summary: str) -> dict:
     if action not in ACTIONS:
         return {"error": f"unknown action; use one of {list(ACTIONS)}"}
-    if action == "setting" and params.get("setting") not in ("booking_by_text", "product_suggestions", "automatic_replies", "ai_writes_client_replies"):
+    if action == "setting" and params.get("setting") not in ("booking_by_text", "product_suggestions", "automatic_replies", "ai_writes_client_replies", "call_transcripts"):
         return {"error": "unknown setting"}
     perm = _perm_for(action, params)
     if not has_perm(user, perm):
@@ -446,16 +575,22 @@ TOOLS: list[tuple[str, str, Callable, dict]] = [
     ("knowledge.view", "knowledge", t_knowledge, _fn("knowledge", "Clinic knowledge entries. status: approved, pending, declined, retired or all.", {"status": {"type": "string"}, "query": {"type": "string"}})),
     ("knowledge.view", "fees_and_products", t_fees, _fn("fees_and_products", "Fees and products with prices and status.", {"status": {"type": "string"}})),
     ("campaigns.view", "campaigns", t_campaigns, _fn("campaigns", "Text and email campaigns and their counts.")),
-    ("admin.settings", "system_status", t_system, _fn("system_status", "The server and app: version, database size, disk, backups, the TELUS helper, texting state and queue, recent assistant activity.")),
+    ("admin.settings", "system_status", t_system, _fn("system_status", "The server and app: version, database size, disk, backups, the TELUS helper (live calls, reading login), texting state and queue, recent assistant activity.")),
     ("admin.users", "staff_list", t_users, _fn("staff_list", "Staff accounts: name, role, admin, active, last time they used the app.")),
     ("admin.audit", "audit_log", t_audit, _fn("audit_log", "The latest entries of the audit log (who did what), including sign-ins and admin changes.", {"limit": {"type": "integer"}, "contains": {"type": "string"}})),
+    ("calendar.view", "booking_requests", t_booking_requests, _fn("booking_requests", "Appointments waiting for approval or decline (asked by text, agreed on a call or in a staff text), with the client.")),
+    ("website.view", "website", t_website, _fn("website", "The clinic website: latest SEO audit with scores for Google, Maps and AI search, issues to fix, Google PageSpeed, and the deployment agent's recent changes (pull requests).")),
+    ("website.view", "blog_posts", t_blog, _fn("blog_posts", "The blog posts on the clinic website.")),
+    ("home.view", "my_chats", t_chats, _fn("my_chats", "This person's own team chats (Everyone, direct, groups): unread counts and latest messages. Only conversations they are in.")),
     ("reports.view", "report", t_report, _fn("report", "Run a report: agents, pending_knowledge, conversion, recall, call_volume or campaigns.", {"key": {"type": "string"}, "from_date": DATE, "to_date": DATE}, ["key"])),
 ]
 PROPOSE = _fn("propose_change", "Propose a change. It is shown to the person with a Confirm button and only happens if they press it. Actions and params: "
               "add_knowledge {category, title, text, approve}; decide_knowledge {id, decision: approve|decline, text (optional edit)}; "
               "task {id (to update) or title (to create), reason, priority, status, assign_to (a staff name), contact_id}; "
               "setting {setting: booking_by_text|product_suggestions|automatic_replies|ai_writes_client_replies, on: true|false}; "
-              "contact_assistant {contact_id, on}; fee {id (to approve) or service, dollars, unit, note}; base_prompt {instruction: one line about tone or behaviour}.",
+              "contact_assistant {contact_id, on}; fee {id (to approve) or service, dollars, unit, note}; base_prompt {instruction: one line about tone or behaviour}; "
+              "booking_decision {event_id, decision: confirm|decline, text_client: true|false}; chat_message {to: a staff name or everyone, text}; "
+              "website {do: audit|fix, mode: approve|auto (for fix)}; assistant_name {name}. setting also takes call_transcripts.",
               {"action": {"type": "string"}, "params": {"type": "object"}, "summary": {"type": "string", "description": "one plain sentence describing the change"}}, ["action", "params", "summary"])
 
 
@@ -470,7 +605,7 @@ def tools_for(user: User) -> tuple[list[dict], dict[str, Callable]]:
     return defs, impl
 
 
-def system(user: User) -> str:
+def system(user: User, agent_name: str = ai.AGENT_NAME) -> str:
     now = timeutil.local(timeutil.now_utc())
     owner = ""
     if user.role == "owner":
@@ -479,6 +614,13 @@ def system(user: User) -> str:
                  "AND unassigned tasks (they are responsible for those too) and say which is which.")
     return f"""You are the office assistant inside Walnut Grove Desk, the staff app of Walnut Grove Animal Hospital (a vet clinic in Langley, BC).
 You are talking with {user.display_name} ({user.role}). It is {now.strftime('%A %B %d %Y, %I:%M %p')} in Vancouver.{owner}
+What the app has (so you can point people to the right place): Home, Tasks (callback tasks from missed calls and voicemails, tasks the
+client assistant raises, booking confirmations), Contacts (texts, emails, calls with play and transcript, notes; contacts found on calls
+start "not opted in"), Calendar (requested appointments to Confirm or Decline), Knowledge & Fees (pending suggestions from call notes,
+the website and corrections), Phone (live TELUS calls, transcripts and summaries, "Why people call"), Campaigns, Reports, Website content
+(the site's pages and blog posts), SEO agent (Google, Maps and AI-search audits, AI fix plan, deployment agent that opens pull requests),
+Content studio (Contento, a separate video app), Chats (team chat), and Admin. The client text assistant is called
+{agent_name} and only texts the numbers on the test list until the owner switches texting to live.
 - Use the tools to look things up. Never guess a number, name, date or setting; if a tool does not have it, say so.
 - Times in tool results are UTC (ending in Z or +00:00). Always say times in Vancouver time, never UTC.
 - Answer briefly in plain words. Use short bullet lines starting with "- " for lists. Mention contact names, not ids.
@@ -493,7 +635,7 @@ def run(db: Session, user: User, history: list[dict[str, str]]) -> dict[str, Any
     if not key:
         raise AgentFailed("no_key")
     defs, impl = tools_for(user)
-    msgs: list[dict[str, Any]] = [{"role": "system", "content": system(user)}, *history[-12:]]
+    msgs: list[dict[str, Any]] = [{"role": "system", "content": system(user, cfg.get("agent_name") or ai.AGENT_NAME)}, *history[-12:]]
     proposals: list[dict] = []
     used: list[str] = []
     for _ in range(MAX_STEPS):

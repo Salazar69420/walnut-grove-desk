@@ -130,3 +130,37 @@ def test_owner_tools_and_personal_prompt(env, garg, priya, monkeypatch):
     chat(priya, "hi")
     desk = {t["function"]["name"] for t in s2.requests[0]["tools"]}
     assert not ({"system_status", "staff_list", "audit_log"} & desk) and "owner and head" not in s2.requests[0]["messages"][0]["content"]
+
+
+def test_it_knows_the_new_areas_and_can_act_on_them(env, garg, priya, monkeypatch):
+    from datetime import timedelta
+    from app.models import CalendarEvent, ChatMessage, Contact
+    from app.services import timeutil
+    on(garg)
+    with env.session() as s:
+        c = s.scalar(select(Contact).where(Contact.is_demo.is_(True)).order_by(Contact.id).limit(1))
+        e = CalendarEvent(kind="checkup", classification="patient", title=f"Check-up: {c.display_name} (agreed on a call)", contact_id=c.id,
+                          starts_at=timeutil.now_utc() + timedelta(days=2), ends_at=timeutil.now_utc() + timedelta(days=2, minutes=30), status="requested", source="app")
+        s.add(e)
+        s.commit()
+        eid = e.id
+    s1 = use(monkeypatch, [{"tools": [("booking_requests", {}), ("website", {}), ("my_chats", {}), ("phone_calls", {})]}, {"content": "Here is the summary."}])
+    r = chat(garg, "What needs my approval and how is the website doing?").json()
+    names = {t["function"]["name"] for t in s1.requests[0]["tools"]}
+    assert {"booking_requests", "website", "blog_posts", "my_chats"} <= names
+    tool_out = " ".join(m.get("content", "") for m in s1.requests[1]["messages"] if m.get("role") == "tool")
+    assert "agreed on a call" in tool_out and "deployment_agent" in tool_out and "by_reason" in tool_out
+    assert "Hazel" in s1.requests[0]["messages"][0]["content"] and "SEO agent" in s1.requests[0]["messages"][0]["content"]
+    use(monkeypatch, [{"tools": [("propose_change", {"action": "booking_decision", "params": {"event_id": eid, "decision": "confirm", "text_client": False}, "summary": "Confirm it."}),
+                                 ("propose_change", {"action": "chat_message", "params": {"to": "Priya", "text": "Please call the client back."}, "summary": "Message Priya."})]},
+                      {"content": "Press Confirm."}])
+    props = chat(garg, "Confirm that booking and tell Priya to call them").json()["proposals"]
+    for p in props:
+        assert garg.post(f"/api/assistant/proposals/{p['id']}/confirm").status_code == 200
+    with env.session() as s:
+        assert s.get(CalendarEvent, eid).status == "booked"
+        assert s.scalar(select(ChatMessage).where(ChatMessage.body == "Please call the client back.")) is not None
+    s3 = use(monkeypatch, [{"content": "ok"}])
+    chat(priya, "hi")
+    pnames = {t["function"]["name"] for t in s3.requests[0]["tools"]}
+    assert "my_chats" in pnames and "website" in pnames and not any(n == "system_status" for n in pnames)
