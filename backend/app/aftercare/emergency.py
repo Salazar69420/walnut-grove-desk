@@ -4,6 +4,7 @@ detect(text, keywords, layer2=None) -> {"emergency": bool, "matched": [...], "la
 """
 from __future__ import annotations
 
+import difflib
 import re
 from functools import lru_cache
 from typing import Callable
@@ -32,6 +33,33 @@ RX_RETCH = _near(r"vomit\w*|retch\w*|throw\w* up|heav\w*|gag\w*", r"nothing (?:c
 RX_ATTACK = _near(r"attacked|bitten|mauled|fight|bit", r"dog|coyote|deep|bleeding|wound|puncture|bad", 30)
 RX_URINE = _near(r"pee|peeing|urinat\w*|litter box|litter", r"cant|cannot|straining|strain\w*|nothing comes|blocked|no urine|not peeing|unable", 30)
 RX_EYE = _near(r"eye|eyeball", r"popped|out of (?:the )?socket|bulging|hanging", 20)
+
+# Descriptive rules, added after an independent test showed that people mostly DESCRIBE emergencies
+# ("tongue is huge and bright red", "cut opened up and I can see stuff") instead of naming them.
+RX_HEAT = r"re:\bleft\b.{0,40}\bin (?:a |the |my |our )?(?:hot )?(?:car|truck|van|vehicle)\b|\b(?:heat ?stroke|overheat\w*|too hot)\b"
+RX_TONGUE = _near(r"tongue", r"huge|swollen|bright red|purple|blue|dark|hanging|big", 30)
+RX_DROOL = _near(r"drool\w*|salivat\w*", r"thick|ropey|ropy|nonstop|non stop|sudden\w*|burn\w*|pain\w*|weak|cant|panting|foam\w*|mouth", 40)
+RX_FOAM = r"re:\b(?:foaming|frothing|foam(?:ing)? at the mouth)\b"
+RX_STUMBLE = r"re:\b(?:stumbl\w*|stagger\w*|wobbl\w*|dragging (?:his|her|its) (?:back |hind )?legs?|paralys\w*|paraliz\w*|paralyz\w*|cant (?:stand|walk)|wont (?:stand|get up))\b"
+RX_BIRTH = _near(r"pushing|labou?r|contractions|whelp\w*|giving birth|delivering|straining", r"stuck|halfway|half way|half out|not coming|wont come|cant deliver|green discharge|for (?:over |more than )?\w+ hours?|over \w+ hours?", 60)
+RX_BIRTH2 = r"re:\b(?:puppy|pup|kitten|baby)\b.{0,30}\b(?:stuck|halfway|half way|half out)\b|\b(?:stuck|halfway|half way)\b.{0,30}\b(?:puppy|pup|kitten|baby)\b"
+RX_STING = _near(r"stung|stings?|bees?|wasps?|hornets?|snake|spider|bitten by a (?:snake|spider)", r"swell\w*|swollen|huge|face|hives|wheez\w*|throat|lips|eyes", 50)
+RX_BAIT = (r"re:\b(?:rat|mouse|mice|rodent|slug|snail)s? (?:bait|poison|block|pellet|killer)s?\b"
+           r"|\b(?:bait|rodenticide|poison\w*|pesticide|insecticide|fertili[sz]er|weed ?killer|herbicide)\b.{0,40}\b(?:ate|eaten|mouth|licked|swallow\w*|chew\w*|got into|drank|some)\b"
+           r"|\b(?:ate|eaten|swallow\w*|chewed|licked|drank|got into)\b.{0,40}\b(?:bait|pesticide|insecticide|fertili[sz]er|weed ?killer|herbicide|bleach|detergent|pool chemicals?|chemicals?)\b")
+RX_CHEM_BURN = _near(r"mouth|tongue|lips|paws?|skin|eyes?", r"burn\w*|blister\w*|red raw|chemical\w*", 40)
+RX_WOUND = _near(r"cut|incision|stitch\w*|suture\w*|staples?|surgery site|wound|spay|neuter", r"opened up|open up|came open|came apart|burst|split open|gaping|coming out|see inside|guts|intestin\w*|organs?|fell out|bulging", 60)
+RX_GUMS2 = _near(r"gu?mm?s?", r"paper|chalk|ghost|yellow|porcelain|snow|white|pale|grey|gray|blue|purple", 25)
+RX_SQUAT = _near(r"squat\w*|strain\w*|posturing|keeps trying to (?:go|pee|poop|urinate)", r"nothing|no urine|just (?:a )?few drops|drops of|red|blood|whimper\w*|cry\w*", 50)
+RX_FALL = r"re:\b(?:fell|fall|fallen|jumped|thrown|dropped)\b.{0,6}\b(?:off|from|out of|down|over)\b.{0,40}\b(?:balcony|window|stairs|staircase|roof|deck|porch|ledge|cliff|storey|story|floor)\b|\blying on (?:her|his|its|their) side\b"
+RX_SWEET = r"re:\b(?:sugar ?less|sugar ?free|birch (?:sugar|bark)|artificial sweetener)\b"
+RX_BELLYPAIN = _near(r"belly|tummy|stomach|abdomen|neck", r"howl\w*|scream\w*|yelp\w*|crying out|wont let (?:anyone|anybody|me|us) (?:touch|near|go near)|flinch\w*|hunched|arched back|praying position", 60)
+RX_FOREIGN = r"re:\b(?:swallow\w*|ate|eaten|eating|chewed)\b.{0,12}\b(?:sock|socks|toy|bone|bones|string|ribbon|corn ?cob|rock|stone|needle|hook|battery|batteries|magnet|coin|penny|underwear|knickers|stocking|hair ?tie|rubber band|tinsel|skewer)\b"
+RX_WEAK = (r"re:\b(?:super|very|so|extremely|really) (?:weak|limp|floppy|lethargic|listless)\b|\b(?:limp|floppy)\b"
+           r"|\bwont (?:lift|raise|hold up) (?:his|her|its) head\b|\bwont (?:wake|respond|react)\b|\bnot responding\b|\bglassy eyes?\b"
+           r"|\bcant keep (?:anything|water|food) down\b|\bvomit\w* (?:everything|even water|nonstop|non stop|constantly|repeatedly|all night)\b")
+RX_ATTACK2 = r"re:\b(?:grabbed|bit|bitten|mauled|attacked|savaged|shook)\b.{0,40}\b(?:neck|throat|chest|belly|stomach|head|face)\b|\bblood on (?:her|his|its|the) (?:chest|neck|belly|face|fur|coat)\b"
+RX_BREATH2 = r"re:\bwheez\w*\b|\bbreathing (?:funny|weird|strange|odd|noisy|loud)\b|\bmouth open\b.{0,30}\b(?:breath\w*|gasp\w*|pant\w*)\b|\bpanting (?:non ?stop|constantly|and shaking|heavily)\b"
 
 DEFAULT_KEYWORDS: list[str] = [
     # breathing
@@ -70,6 +98,8 @@ DEFAULT_KEYWORDS: list[str] = [
     RX_HIT,
     RX_LABOUR,
     RX_BREATH, RX_BLOOD, RX_BELLY, RX_GUMS, RX_RETCH, RX_ATTACK, RX_URINE, RX_EYE,
+    RX_HEAT, RX_TONGUE, RX_DROOL, RX_FOAM, RX_STUMBLE, RX_BIRTH, RX_BIRTH2, RX_STING, RX_BAIT, RX_CHEM_BURN, RX_WOUND,
+    RX_GUMS2, RX_SQUAT, RX_FALL, RX_SWEET, RX_BELLYPAIN, RX_FOREIGN, RX_WEAK, RX_ATTACK2, RX_BREATH2,
 ]
 
 # One example sentence for every `re:` entry above (a test makes sure each regex has one).
@@ -87,6 +117,26 @@ EMERGENCY_REGEX_SAMPLES: dict[str, list[str]] = {
     RX_ATTACK: ["attacked by another dog and has a deep bite", "bitten by a coyote"],
     RX_URINE: ["straining in the litter box", "he cant pee"],
     RX_EYE: ["her eye popped out", "eyeball is bulging"],
+    RX_HEAT: ["we left the dog in the hot car for an hour", "I think he has heatstroke"],
+    RX_TONGUE: ["his tongue is huge and bright red", "her tongue looks purple"],
+    RX_DROOL: ["the drool is thick and nonstop", "she is drooling and her mouth looks sore"],
+    RX_FOAM: ["he is foaming at the mouth", "frothing and shaking"],
+    RX_STUMBLE: ["he is stumbling around the kitchen", "she is dragging her back legs", "he cant stand up"],
+    RX_BIRTH: ["she has been pushing for two hours and nothing", "in labour for hours and not coming"],
+    RX_BIRTH2: ["a puppy is halfway out and stuck", "the kitten is stuck"],
+    RX_STING: ["stung by bees and her face is swollen", "bitten by a snake and swelling fast"],
+    RX_BAIT: ["I think he ate some mouse bait", "she got into the rat poison", "he licked the weed killer"],
+    RX_CHEM_BURN: ["her mouth looks burned", "chemical on her paws and skin is blistering"],
+    RX_WOUND: ["the incision opened up and I can see inside", "his stitches burst and something is coming out"],
+    RX_GUMS2: ["her gumms are white as paper", "gums look like chalk"],
+    RX_SQUAT: ["he keeps squatting and nothing comes out", "straining with just a few drops of blood"],
+    RX_FALL: ["she fell off the balcony", "the kitten fell from the window"],
+    RX_SWEET: ["he ate sugarless gum", "birch sugar candy was in her bag"],
+    RX_BELLYPAIN: ["howling and will not let anybody touch his tummy", "screaming when I press her belly"],
+    RX_FOREIGN: ["he swallowed a sock", "she ate a corn cob", "ate a hair tie"],
+    RX_WEAK: ["he is super weak", "she is limp", "wont lift his head", "vomiting everything even water"],
+    RX_ATTACK2: ["a big dog grabbed her by the neck", "bitten on the chest and bleeding"],
+    RX_BREATH2: ["he is wheezing", "breathing funny", "panting nonstop"],
 }
 
 _APOS = re.compile(r"['‘’`´]")
@@ -137,16 +187,40 @@ def check_regex(entry: str) -> str | None:
     return None
 
 
+_FUZZY_VOCAB = ["gasping", "breathing", "breathe", "bleeding", "seizure", "seizures", "seizing", "convulsing", "collapsed",
+                "unresponsive", "poison", "poisoned", "chocolate", "vomiting", "swollen", "lethargic", "paralyzed", "choking",
+                "drooling", "stumbling", "xylitol", "antifreeze", "wheezing", "unconscious", "gums", "belly", "stomach"]
+_FUZZY_SET = set(_FUZZY_VOCAB)
+_FUZZY_SKIP = {"breeding", "feeding", "speeding", "weeding", "reading", "leading", "bedding", "belief", "believe"}
+
+
+def canonicalize(norm: str) -> str:
+    """Repair typos of the few words that matter most ("gaspin", "gumms", "seizeure") before matching.
+    Over-correcting is the safe direction here: a false emergency costs a trip, a miss can cost a pet."""
+    out = []
+    for tok in norm.split():
+        if len(tok) >= 5 and tok not in _FUZZY_SET and tok not in _FUZZY_SKIP:
+            hit = difflib.get_close_matches(tok, _FUZZY_VOCAB, n=1, cutoff=0.86)
+            if hit and hit[0][0] == tok[0]:
+                tok = hit[0]
+        out.append(tok)
+    return " ".join(out)
+
+
 def layer1(text: str, keywords: list[str]) -> list[str]:
     norm = normalize(text)
     if not norm:
         return []
+    forms = [norm]
+    fixed = canonicalize(norm)
+    if fixed != norm:
+        forms.append(fixed)
     matched: list[str] = []
     for kw in keywords:
         pat = compile_entry(kw)
         if pat is None:
             continue
-        if pat.search(norm):
+        if any(pat.search(f) for f in forms):
             matched.append(kw)
     return matched
 

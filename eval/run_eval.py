@@ -36,7 +36,7 @@ def snapshot(src: str) -> str:
     return dst
 
 
-def run(db_path: str, scen_path: str, out_path: str) -> int:
+def run(db_path: str, scen_path: str, out_path: str, title: str = "After-hours assistant evaluation", json_out: str | None = None) -> int:
     snap = snapshot(db_path)
     os.environ["WALNUT_DB_PATH"] = snap
     os.environ.setdefault("WALNUT_ENV", "test")
@@ -70,67 +70,90 @@ def run(db_path: str, scen_path: str, out_path: str) -> int:
         final_kind = out["kind"] if out else None
         advice = [t for t in bot_all if ADVICE.search(t)]
         cat = sc["category"]
-        if cat == "emergency":
+        exp = sc.get("expect") or {"emergency": "emergency", "booking": "booking",
+                                   "refill_or_message": "callback", "adversarial": "no_advice"}[cat]
+        if exp == "emergency":
             ok = first_kind == "emergency"
-        elif cat == "booking":
+        elif exp == "booking":
             ok = final_kind == "booking"
-        elif cat == "refill_or_message":
+        elif exp == "callback":
             ok = final_kind == "callback"
-        else:  # adversarial: no advice ever; routing to emergency or a message is acceptable
+        else:  # no_advice: nothing the assistant says may be advice; routing to emergency or a message is fine
             ok = not advice
-        results.append({**sc, "first_kind": first_kind, "final_kind": final_kind, "turns": turns,
+        results.append({**sc, "expect": exp, "first_kind": first_kind, "final_kind": final_kind, "turns": turns,
                         "advice": advice, "ok": ok and not advice})
 
-    by = collections.defaultdict(list)
-    for r in results:
-        by[r["category"]].append(r)
-    em = by["emergency"]
-    em_recall = sum(r["first_kind"] == "emergency" for r in em) / len(em)
-    advice_cases = [r for r in results if r["advice"]]
-    bk = by["booking"]
-    bk_done = sum(r["final_kind"] == "booking" for r in bk) / len(bk)
-    msg = by["refill_or_message"]
-    msg_ok = sum(r["final_kind"] == "callback" for r in msg) / len(msg)
-    adv = by["adversarial"]
-    adv_em = sum(r["first_kind"] == "emergency" for r in adv)
-    real = sum(1 for r in results if r["source"] != "synthetic")
+    def stats(rs):
+        em = [r for r in rs if r["expect"] == "emergency"]
+        bk = [r for r in rs if r["expect"] == "booking"]
+        cb = [r for r in rs if r["expect"] == "callback"]
+        na = [r for r in rs if r["expect"] == "no_advice"]
+        return {
+            "n": len(rs),
+            "emergency": (sum(r["first_kind"] == "emergency" for r in em), len(em)),
+            "booking": (sum(r["final_kind"] == "booking" for r in bk), len(bk)),
+            "callback": (sum(r["final_kind"] == "callback" for r in cb), len(cb)),
+            "no_advice": (sum(not r["advice"] for r in na), len(na)),
+            "advice_replies": sum(1 for r in rs if r["advice"]),
+        }
 
-    L = ["# After-hours assistant evaluation", "",
-         f"Scenarios: {len(results)} ({', '.join(f'{k} {len(v)}' for k, v in by.items())}). "
-         f"{real} are paraphrased openings of real non-private calls (source call_ref listed in eval/scenarios.jsonl), "
-         f"the rest are synthetic variants written for coverage and marked as such.",
-         "", "Engine: the deterministic state machine with layer 1 keywords (settings plus config/emergency_keywords.yaml). "
-         "Layer 2 (model check) was off, so these numbers hold with no AI key. The client side is scripted: it sends the opening "
-         "message, then picks the first offered option each turn (or names a pet and visit if asked).", "",
-         "## Results", "",
-         "| Measure | Result | Target |", "|---|---|---|",
-         f"| Emergency recall (first reply routes to emergency) | {em_recall:.3f} ({sum(r['first_kind']=='emergency' for r in em)} of {len(em)}) | 1.000 |",
-         f"| Replies containing medical advice or a dose, all scenarios | {len(advice_cases)} | 0 |",
-         f"| Booking completion | {bk_done:.3f} ({sum(r['final_kind']=='booking' for r in bk)} of {len(bk)}) | high |",
-         f"| Refill or message ends as a callback card | {msg_ok:.3f} ({sum(r['final_kind']=='callback' for r in msg)} of {len(msg)}) | high |",
-         f"| Adversarial routed to emergency (safe, counted as pass) | {adv_em} of {len(adv)} | n/a |",
-         "", "Advice check: every assistant reply is matched against a pattern for doses (mg, ml, tablets), instructions to give or wait, "
-         "and reassurance (\"he is fine\"). The engine only emits fixed templates, so this is a second guard, not the main one.",
-         "", "## Every failure, by scenario id", ""]
+    def frac(t):
+        k, n = t
+        return f"{k / n:.3f} ({k} of {n})" if n else "n/a"
+
+    groups = [("all", results)]
+    if any("sealed" in r for r in results):
+        groups += [("open (not sealed)", [r for r in results if not r.get("sealed")]),
+                   ("sealed", [r for r in results if r.get("sealed")])]
+    by = collections.Counter(r["category"] for r in results)
+    real = sum(1 for r in results if r["source"] != "synthetic" and not r["source"].startswith("independent"))
+
+    L = [f"# {title}", "",
+         f"Scenarios: {len(results)} ({', '.join(f'{k} {v}' for k, v in by.items())}). Paraphrased from real non-private calls: {real}. "
+         "The client side is scripted: it sends the opening message, then picks the first offered option each turn "
+         "(or names a pet and visit if asked). Layer 2 (model check) is off, so these numbers hold with no AI key.", "",
+         "| Measure | " + " | ".join(g for g, _ in groups) + " | Target |", "|---|" + "---|" * (len(groups) + 1)]
+    st = {g: stats(rs) for g, rs in groups}
+    rows = [("Emergency recall (first reply routes to emergency)", "emergency", "1.000"),
+            ("Booking completion", "booking", "high"),
+            ("Refill or message ends as a callback card", "callback", "high"),
+            ("Adversarial replies with no advice or dose", "no_advice", "all")]
+    for label, key, target in rows:
+        L.append(f"| {label} | " + " | ".join(frac(st[g][key]) for g, _ in groups) + f" | {target} |")
+    L.append("| Replies containing advice or a dose, any scenario | " + " | ".join(str(st[g]["advice_replies"]) for g, _ in groups) + " | 0 |")
+    L += ["", "Advice check: every assistant reply is matched against a pattern for doses (mg, ml, tablets), instructions to give or wait, "
+          "and reassurance (\"he is fine\"). The engine only emits fixed templates, so this is a second guard, not the main one.",
+          "", "## Every failure, by scenario id", ""]
     fails = [r for r in results if not r["ok"]]
     if not fails:
         L.append("None.")
     for r in fails:
+        want = {"emergency": "emergency on first reply", "booking": "booking", "callback": "callback", "no_advice": "no advice"}[r["expect"]]
         why = ("advice in reply: " + "; ".join(r["advice"])[:200]) if r["advice"] else \
-              f"expected {'emergency on first reply' if r['category']=='emergency' else 'booking' if r['category']=='booking' else 'callback'}, " \
-              f"got first={r['first_kind']} final={r['final_kind']} after {r['turns']} turns"
-        L.append(f"- **{r['id']}** ({r['category']}, {r['source']}): \"{r['text']}\". {why}")
+              f"expected {want}, got first={r['first_kind']} final={r['final_kind']} after {r['turns']} turns"
+        tag = "sealed" if r.get("sealed") else r["source"]
+        shown = "(text withheld: sealed hold-out)" if r.get("sealed") else f"\"{r['text']}\""
+        L.append(f"- **{r['id']}** ({r['category']}, {tag}): {shown}. {why}")
     open(out_path, "w", encoding="utf-8").write("\n".join(L) + "\n")
+    if json_out:
+        with open(json_out, "w", encoding="utf-8") as f:
+            json.dump({"stats": st, "failures": [r["id"] for r in fails]}, f, indent=1)
     os.unlink(snap)
-    print(f"emergency_recall={em_recall:.3f} advice_cases={len(advice_cases)} booking_completion={bk_done:.3f} "
-          f"message_ok={msg_ok:.3f} failures={len(fails)}")
-    return 0 if em_recall == 1.0 and not advice_cases else 1
+    em_all = st["all"]["emergency"]
+    print(f"emergency_recall={em_all[0]}/{em_all[1]} advice_replies={st['all']['advice_replies']} "
+          f"booking={st['all']['booking'][0]}/{st['all']['booking'][1]} callback={st['all']['callback'][0]}/{st['all']['callback'][1]} "
+          f"failures={len(fails)}")
+    return 0 if em_all[0] == em_all[1] and not st["all"]["advice_replies"] else 1
 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--db", required=True)
     ap.add_argument("--scenarios", default=os.path.join(HERE, "scenarios.jsonl"))
-    ap.add_argument("--out", default=os.path.join(HERE, "..", "docs", "ASSISTANT_EVAL.md"))
+    ap.add_argument("--out", default=None, help="markdown report; default docs/ASSISTANT_EVAL.md for the original set, else eval/results_<name>.md")
+    ap.add_argument("--title", default="After-hours assistant evaluation")
+    ap.add_argument("--json-out", default=None)
     a = ap.parse_args()
-    sys.exit(run(a.db, a.scenarios, a.out))
+    out = a.out or (os.path.join(HERE, "..", "docs", "ASSISTANT_EVAL.md") if os.path.basename(a.scenarios) == "scenarios.jsonl"
+                    else os.path.join(HERE, "results_" + os.path.splitext(os.path.basename(a.scenarios))[0] + ".md"))
+    sys.exit(run(a.db, a.scenarios, out, a.title, a.json_out))
