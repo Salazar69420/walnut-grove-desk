@@ -98,7 +98,13 @@ def analyse(cfg: dict[str, Any], transcript: str) -> dict[str, Any]:
     content = _post(cfg, {"model": cfg["model"], "temperature": 0.1, "max_tokens": 600,
                           "messages": [{"role": "system", "content": ANALYSE_PROMPT}, {"role": "user", "content": transcript[:24000]}],
                           "response_format": {"type": "json_schema", "json_schema": {"name": "call_summary", "strict": True, "schema": SCHEMA}}})
-    data = json.loads(re.search(r"\{.*\}", content, re.S).group(0))
+    m = re.search(r"\{.*\}", content, re.S)
+    try:
+        data = json.loads(m.group(0)) if m else None
+    except ValueError:
+        data = None
+    if not isinstance(data, dict):
+        raise ai.AiFailed("bad_json")
     if data.get("intent") not in INTENTS:
         data["intent"] = "other"
     return data
@@ -173,7 +179,7 @@ def step(db: Session) -> dict[str, int]:
                         file_call(db, c, text, analyse(cfg, text))
                     counts["done"] += 1
                 except Exception as e:  # noqa: BLE001 - nothing from the call is logged
-                    log.warning("transcript failed (%s)", type(e).__name__)
+                    log.warning("transcript failed (%s %s)", type(e).__name__, str(e)[:20] if isinstance(e, ai.AiFailed) else "")
                     c.transcript_state = "" if c.transcript_tries < MAX_TRIES else "failed"
                     counts["failed"] += 1
                 _queued_at.pop(c.id, None)
