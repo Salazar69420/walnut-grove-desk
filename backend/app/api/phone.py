@@ -28,7 +28,7 @@ RESULT_LABELS = {
     "answered": "Answered", "booked": "Booking made", "callback_task": "Callback task raised", "voicemail": "Voicemail",
     "missed": "Missed", "emergency_routed": "Emergency routed", "info_given": "Information given",
 }
-Direction = Literal["inbound", "outbound"]
+Direction = Literal["inbound", "outbound", "unknown"]
 Handled = Literal["human", "ai", "none"]
 Result = Literal["answered", "booked", "callback_task", "voicemail", "missed", "emergency_routed", "info_given"]
 CallType = Literal["inquiry", "patient", "unknown"]
@@ -126,7 +126,7 @@ def summary(days: int = Query(default=7, ge=1, le=90), user: User = Depends(requ
     ai = sum(1 for r in handled if r.handled_by == "ai")
     talk = [r.duration_seconds for r in handled if r.duration_seconds > 0]
     return {
-        "days": days, "total": len(rows), "inbound": len(inbound), "outbound": len(rows) - len(inbound),
+        "days": days, "total": len(rows), "inbound": len(inbound), "outbound": sum(1 for r in rows if r.direction == "outbound"),
         "missed": sum(1 for r in inbound if r.handled_by == "none"),
         "ai_handled": ai, "human_handled": len(handled) - ai,
         "ai_share_pct": round(100 * ai / len(handled)) if handled else 0,

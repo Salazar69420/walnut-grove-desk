@@ -100,3 +100,7 @@ Each entry gives what was chosen and why.
 ### Analytics small cells suppressed
 - **Chose:** any count under 5 is dropped before it reaches the app (196 of 423 rows).
 - **Why:** reduces the chance of singling out a caller from a rare combination of hour, weekday and intent.
+
+## 2026-10-31: real call transcripts go into the app's Phone log (owner request)
+
+The owner asked to load the existing transcripts into the app. Done as `pipeline/app_import.py` with these limits: only calls the rules labeler judges to be clinic work are imported (private, staff-only, personal and uncertain calls are skipped, same "when in doubt, private" policy as the private store); transcript text is stored in the app database and is visible to owners only, every open written to `access_log`; no phone numbers or file names are stored (a keyed hash of the file name makes the import repeatable); notes come from fixed vocabularies, not call text; direction is `unknown` when the labeler cannot tell, because the export's direction column is unreliable. The import removes the invented example calls. This moves real client information into the web app database, which `docs/SECURITY.md` says needs the owner's privacy approval (BC PIPA). The owner chose to proceed; the written approval, retention period and hosting-location decision are still open items in HANDOFF section 8. To remove it again: `delete from phone_calls where source = 'import'` in the app database.

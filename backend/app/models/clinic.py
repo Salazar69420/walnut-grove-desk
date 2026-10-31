@@ -84,12 +84,13 @@ class PhoneCall(Base):
 
     __tablename__ = "phone_calls"
     __table_args__ = (
-        CheckConstraint("direction in ('inbound','outbound')", name="direction"),
+        CheckConstraint("direction in ('inbound','outbound','unknown')", name="direction"),
         CheckConstraint("handled_by in ('human','ai','none')", name="handled_by"),
         CheckConstraint("result in ('answered','booked','callback_task','voicemail','missed','emergency_routed','info_given')", name="result"),
         CheckConstraint("call_type in ('inquiry','patient','unknown')", name="call_type"),
-        CheckConstraint("source in ('demo','telus','retell')", name="source"),
+        CheckConstraint("source in ('demo','telus','retell','import')", name="source"),
         Index("ix_phone_calls_started_at", "started_at"),
+        Index("uq_phone_calls_external_ref", "external_ref", unique=True),
         Index("ix_phone_calls_contact_id", "contact_id"),
     )
 
@@ -107,6 +108,8 @@ class PhoneCall(Base):
     # Only invented demo text lives here. Real transcripts stay in the private store.
     transcript: Mapped[str | None] = mapped_column(Text)
     source: Mapped[str] = mapped_column(String(8), default="demo")
+    # Keyed hash of the source recording's identity, so an import can be run again without duplicates. Never a file name or number.
+    external_ref: Mapped[str | None] = mapped_column(String(40))
     is_demo: Mapped[bool] = mapped_column(Boolean, default=False)
 
 

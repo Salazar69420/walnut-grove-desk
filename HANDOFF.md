@@ -274,6 +274,12 @@ Backlog lives in section 7 (known gaps) and section 8 (next steps).
 
 ### 11.4 Journal (newest first)
 
+**2026-10-31 UTC, session 3 (later): real call import built**
+- Owner asked to "add existing data" and chose to load full transcripts into the app. Built `pipeline/app_import.py` (migration 0005 adds `phone_calls.external_ref`, source `import`, direction `unknown`), tests (292 backend tests pass), UI handles unknown direction. Details and limits in `docs/DECISIONS.md` (2026-10-31).
+- Dry run on the owner's file against a scratch database: 3,637 rows, 2,629 would be imported, 973 skipped as private or uncertain, 35 as staff or personal, 0 bad rows. Only counts were printed.
+- **Not yet run on the live database** (production write; run by the owner). Command and removal in the Phone import section below. After it runs: the Phone page shows real calls (no caller numbers, so no contact matching), demo calls are gone, and "Reset demo data" keeps the real calls and does not re-add demo ones.
+- Phone import command (run on the server): `cd /opt/walnut-desk && cp /path/to/all_transcripts.csv /tmp/calls.csv && chmod 644 /tmp/calls.csv && sudo -u walnut-app bash -c 'set -a; . /etc/walnut-desk/app.env; set +a; PYTHONPATH=backend .venv/bin/python -m pipeline.app_import --csv /tmp/calls.csv --dry-run'` then the same without `--dry-run`, then `shred -u /tmp/calls.csv`. Migration 0005 must be applied first (`systemctl restart walnut-desk`).
+
 **2026-10-31 UTC, session 3: CRM phases 3 to 5, 7 and 8 built; call analysis; deploy blocked**
 - Took over from the uncommitted CRM work found on the server (phases 1 and 2, TELUS live sync). Tests and build passed (261), leak scan clean, committed in two logical commits and pushed (`75c3049`, `25595fd`).
 - Built backend (migration 0004, models `models/clinic.py`, services `knowledge.py` and `campaigns.py`, APIs `knowledge.py`, `phone.py`, `campaigns.py`, `reports.py`, seed `seed/clinic_seed.py`, 29 tests in `tests/test_clinic.py`) and frontend (`views/CalendarPage.tsx`, `Knowledge.tsx`, `Phone.tsx`, `Campaigns.tsx`, `Reports.tsx`, `crm2.css`). Nav gained Calendar and an Operations group.

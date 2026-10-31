@@ -251,3 +251,77 @@ def test_pending_report_counts_match_the_queue(garg):
     q = garg.get("/api/knowledge?status=pending").json()["counts"]["pending"]
     rep = garg.get("/api/reports/pending_knowledge").json()
     assert rep["stats"][0]["value"] == q
+
+
+# ---------------------------------------------------------------- real-call import (pipeline/app_import.py)
+def _run_import(env, csv_path, *extra):
+    import subprocess
+    import sys
+    from pathlib import Path
+    repo = Path(__file__).resolve().parents[2]
+    return subprocess.run([sys.executable, "-m", "pipeline.app_import", "--csv", str(csv_path), "--db", str(env.path), *extra],
+                          cwd=repo, capture_output=True, text=True, env={**__import__("os").environ, "WALNUT_ENV": "test", "WALNUT_SECRET_KEY": "x" * 40})
+
+
+def _write_csv(path):
+    import csv
+    work = ("Speaker 1: Walnut Grove Animal Hospital, how can I help you?\nSpeaker 2: Hi, I would like to book an appointment for my dog for vaccines next week.\n"
+            "Speaker 1: Sure, how about Thursday at ten?\nSpeaker 2: That works, thank you.")
+    refill = ("Speaker 1: Walnut Grove Animal Hospital, how can I help?\nSpeaker 2: I need a refill on my cat's medication please.\n"
+              "Speaker 1: I will have the doctor approve it and call you back tomorrow.\nSpeaker 2: Thank you.")
+    rows = [
+        ("20260801-091500_102_+16045550123_Outgoing_Auto_111.mp3", "2026-08-01", "09:15:00", "+16045550123", 62, "eng", work),
+        ("20260801-101500_101_null_Outgoing_Auto_222.mp3", "2026-08-01", "10:15:00", "", 71, "eng", refill),
+        ("20260801-111500_103_null_Outgoing_Auto_333.mp3", "2026-08-01", "11:15:00", "", 80, "hin", "yeh ek hindi baat cheet hai"),
+        ("20260801-121500_102_null_Outgoing_Auto_444.mp3", "2026-08-01", "12:15:00", "", 20, "eng", "Speaker 1: Are you coming for lunch later?\nSpeaker 2: Yes, I will bring the salad."),
+        ("20260801-091500_102_+16045550123_Outgoing_Auto_111.mp3", "2026-08-01", "09:15:00", "+16045550123", 62, "eng", work),  # same file twice
+    ]
+    with open(path, "w", encoding="utf-8-sig", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["file", "date", "time", "number", "direction", "audio_seconds", "cost_usd", "language", "transcript", "plain_text"])
+        for f, d, t, n, secs, lang, text in rows:
+            w.writerow([f, d, t, n, "Outgoing", secs, 0.01, lang, text, text.replace("Speaker 1: ", "").replace("Speaker 2: ", "")])
+    return len(rows)
+
+
+def test_import_is_safe_and_repeatable(env, garg, tmp_path):
+    p = tmp_path / "calls.csv"
+    n = _write_csv(p)
+    dry = _run_import(env, p, "--dry-run")
+    assert dry.returncode == 0, dry.stderr
+    with env.session() as s:
+        assert s.scalar(select(PhoneCall.id).where(PhoneCall.source == "import")) is None  # dry run wrote nothing
+    first = _run_import(env, p)
+    assert first.returncode == 0, first.stderr
+    out = dict(kv.split("=") for kv in first.stdout.split("Done. ")[1].strip().split(", "))
+    imported = int(out["imported"])
+    assert imported >= 1 and int(out["rows"]) == n
+    assert imported + int(out["already_there"]) + int(out["skipped_private_or_uncertain"]) + int(out["skipped_staff_or_personal"]) + int(out["bad_rows"]) == n
+    assert int(out["skipped_private_or_uncertain"]) + int(out["skipped_staff_or_personal"]) >= 1  # the Hindi and the lunch chat stay out
+    with env.session() as s:
+        real = s.scalars(select(PhoneCall).where(PhoneCall.source == "import")).all()
+        assert len(real) == imported and all(r.phone is None and r.contact_id is None and r.external_ref.startswith("imp-") for r in real)
+        assert all(r.transcript for r in real)
+        blob = " ".join(str(v) for r in real for v in (r.short_note, r.agent_label, r.external_ref))
+        assert "5550123" not in blob and ".mp3" not in blob and "Outgoing" not in blob
+        assert s.scalar(select(PhoneCall.id).where(PhoneCall.is_demo.is_(True))) is None  # example calls are gone
+    again = _run_import(env, p)
+    assert "imported=0" in again.stdout and f"already_there={imported + 1}" in again.stdout  # the file lists one recording twice
+    listed = garg.get("/api/phone/calls?per_page=100").json()
+    assert listed["total"] == imported
+    cid = listed["items"][0]["id"]
+    assert garg.get(f"/api/phone/calls/{cid}").json()["item"]["transcript"]
+
+
+def test_reset_demo_keeps_real_calls_and_does_not_add_demo_calls(env, garg):
+    from app.models import PhoneCall as PC
+    from app.seed import reset_demo
+    with env.session() as s:
+        s.query(PC).delete()
+        s.add(PC(started_at=__import__("app.services.timeutil", fromlist=["now_utc"]).now_utc(), direction="unknown", handled_by="human", result="answered",
+                 call_type="unknown", source="import", external_ref="imp-test", transcript="x", is_demo=False))
+        s.commit()
+        reset_demo(s, None)
+        s.commit()
+        rows = s.scalars(select(PC)).all()
+        assert [r.external_ref for r in rows] == ["imp-test"]

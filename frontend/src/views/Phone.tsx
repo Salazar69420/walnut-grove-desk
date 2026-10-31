@@ -49,7 +49,7 @@ function Log() {
         <label className="searchf"><Icon n="search" size={16} /><input value={f.q} onChange={(e) => set('q', e.target.value)} placeholder="Search notes, people, numbers" aria-label="Search calls" maxLength={80} /></label>
         <label>From<input type="date" value={f.from} onChange={(e) => set('from', e.target.value)} /></label>
         <label>To<input type="date" value={f.to} onChange={(e) => set('to', e.target.value)} /></label>
-        <select value={f.direction} onChange={(e) => set('direction', e.target.value)} aria-label="Direction"><option value="">In and out</option><option value="inbound">Inbound</option><option value="outbound">Outbound</option></select>
+        <select value={f.direction} onChange={(e) => set('direction', e.target.value)} aria-label="Direction"><option value="">In and out</option><option value="inbound">Inbound</option><option value="outbound">Outbound</option><option value="unknown">Not known</option></select>
         <select value={f.handled_by} onChange={(e) => set('handled_by', e.target.value)} aria-label="Handled by"><option value="">Anyone</option><option value="human">People</option><option value="ai">AI assistant</option><option value="none">Nobody (missed)</option></select>
         <select value={f.result} onChange={(e) => set('result', e.target.value)} aria-label="Result"><option value="">Any result</option>{RESULTS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
         <select value={f.call_type} onChange={(e) => set('call_type', e.target.value)} aria-label="Caller type"><option value="">Everyone</option><option value="patient">Patients</option><option value="inquiry">Inquiries</option><option value="unknown">Unknown</option></select>
@@ -61,7 +61,7 @@ function Log() {
             <tbody>{list.data.items.map((c) => (
               <tr key={c.id} className="clk" tabIndex={0} onClick={() => setOpen(c.id)} onKeyDown={(e) => { if (e.key === 'Enter') setOpen(c.id) }}>
                 <td><Time iso={c.started_at} /></td>
-                <td><span className={'dir ' + c.direction}>{c.direction === 'inbound' ? 'In' : 'Out'}</span></td>
+                <td><span className={'dir ' + c.direction} title={c.direction === 'unknown' ? 'Direction not known from the recording' : undefined}>{c.direction === 'inbound' ? 'In' : c.direction === 'outbound' ? 'Out' : '?'}</span></td>
                 <td>{c.contact ? <Link to={`/contacts/${c.contact.id}`} onClick={(e) => e.stopPropagation()}>{c.contact.display_name}</Link> : <span className="mute">{c.phone_display || 'Unknown'}</span>}</td>
                 <td><Handler c={c} /></td>
                 <td className="mute">{c.call_type === 'unknown' ? '-' : c.call_type === 'patient' ? 'Patient' : 'Inquiry'}</td>
@@ -112,7 +112,7 @@ function CallSheet({ id, onClose, canTranscript, canEdit, onSaved }: { id: numbe
       <Sheet open={!!id} onClose={onClose} title="Call details">
         {!c ? <SkeletonRows n={4} h={40} /> : (
           <div className="evd">
-            <p><Handler c={c} /> <span className="tag">{c.direction === 'inbound' ? 'Inbound' : 'Outbound'}</span> <span className="tag">{c.source === 'demo' ? 'Example call' : c.source}</span></p>
+            <p><Handler c={c} /> <span className="tag">{c.direction === 'inbound' ? 'Inbound' : c.direction === 'outbound' ? 'Outbound' : 'Direction not known'}</span> <span className="tag">{c.source === 'demo' ? 'Example call' : c.source === 'import' ? 'Imported recording' : c.source}</span></p>
             <dl className="dl">
               <dt>When</dt><dd>{new Date(c.started_at).toLocaleString([], { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</dd>
               <dt>Length</dt><dd>{mmss(c.duration_seconds)}</dd>

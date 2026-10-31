@@ -148,7 +148,9 @@ def seed_clinic(db: Session, now: datetime) -> dict[str, int]:
     db.flush()
 
     contacts = list(db.scalars(select(Contact).where(Contact.is_demo.is_(True)).order_by(Contact.id)).all())
-    calls = _call_rows(now, contacts, rng)
+    # Once real calls have been imported, do not mix invented ones into the log.
+    has_real = db.scalar(select(PhoneCall.id).where(PhoneCall.source == "import").limit(1)) is not None
+    calls = [] if has_real else _call_rows(now, contacts, rng)
     db.add_all(calls)
     db.flush()
 
