@@ -20,9 +20,13 @@ class Router:
     def __init__(self):
         self.calls: list[dict] = []
         self.analysis = {"summary": "Sam called about a refill of Rex's food. Wants a call back.", "intent": "refill", "outcome": "follow_up_needed",
-                         "follow_up_needed": True, "follow_up_note": "Call Sam to confirm the food is ready."}
+                         "follow_up_needed": True, "follow_up_note": "Call Sam to confirm the food is ready.", "caller_type": "patient",
+                         "caller_first_name": "Sam", "caller_last_name": "Lee", "pet_name": "Rex", "species": "dog", "urgent": False}
 
     def handler(self, request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/audio/transcriptions"):
+            self.calls.append({"model": "whisper", "multipart": True, "raw": request.content[:400]})
+            return httpx.Response(200, json={"text": "Walnut Grove, how can I help? Hi, this is Sam, I need more food for Rex."})
         body = json.loads(request.content)
         self.calls.append(body)
         if body["model"] == ai.TRANSCRIBE_MODEL:
@@ -77,12 +81,12 @@ def test_a_voicemail_is_transcribed_and_its_task_learns_what_it_was_about(env, b
         assert transcribe.step(s)["done"] == 1
     with env.session() as s:
         p = s.get(PhoneCall, pid)
-        assert p.transcript.startswith("Speaker 1:") and p.intent == "refill" and p.short_note == "Refill; follow-up needed" and "Rex" in p.summary
+        assert p.transcript.startswith("Walnut Grove") and p.intent == "refill" and p.call_type == "patient" and p.short_note == "Refill; follow-up needed" and "Rex" in p.summary
         t = s.scalar(select(Task).where(Task.kind == "callback", Task.contact_id == cid))
         assert "refill of Rex" in t.reason and t.title.endswith("refill")
         assert s.scalar(select(Message.body).where(Message.phone_call_id == pid)) == "Refill; follow-up needed"
-    audio_call = next(c for c in router.calls if c["model"] == ai.TRANSCRIBE_MODEL)
-    assert audio_call["messages"][0]["content"][1]["type"] == "input_audio" and audio_call["provider"]["data_collection"] == "deny"
+    audio_call = next(c for c in router.calls if c["model"] == "whisper")
+    assert b"whisper-large-v3-turbo" in audio_call["raw"] or b"filename" in audio_call["raw"]
 
 
 def test_reasons_show_in_the_phone_report(env, bridge, router, garg, monkeypatch):
@@ -107,3 +111,28 @@ def test_the_assistant_remembers_older_texts(env, bridge, router):
         msgs = ai.conversation(s, c, "Hi again")
         assert "WHAT YOU REMEMBER" in msgs[-1]["content"] and "Rex" in msgs[-1]["content"]
         assert len(msgs) <= ai.HISTORY + 1
+
+
+def test_an_unknown_caller_becomes_a_prospect_that_is_never_texted(env, bridge, router, monkeypatch):
+    from app.api import admin_telus
+    from app.models import Pet
+    monkeypatch.setattr(admin_telus, "read_settings", lambda: {"recordings_enabled": True})
+    router.analysis.update(caller_type="inquiry", caller_first_name="Priya", caller_last_name="Shah", pet_name="Mochi", species="cat", urgent=True,
+                           intent="booking", summary="Priya wants to book a first visit for her kitten Mochi.")
+    now = timeutil.now_utc()
+    with env.session() as s:
+        calls_live.ingest(s, {"v": 1, "calls": [{"id": "u1", "at": timeutil.iso(now - timedelta(minutes=5)), "d": "inbound", "r": "answered", "s": 60,
+                                                  "n": "+17785550142", "rec": "5151"}]})
+        transcribe.step(s)
+    (bridge / "play" / "5151.mp3").write_bytes(b"ID3fakeaudio")
+    (bridge / "play" / "5151.json").write_text(json.dumps({"state": "ready", "ext": "mp3"}))
+    with env.session() as s:
+        transcribe.step(s)
+        c = s.scalar(select(Contact).where(Contact.phone == "+17785550142"))
+        assert c.display_name == "Priya Shah" and c.kind == "inquiry" and c.sms_consent == "none" and c.ai_enabled is False
+        assert s.scalar(select(Pet.name).where(Pet.contact_id == c.id)) == "Mochi"
+        p = s.scalar(select(PhoneCall).where(PhoneCall.external_ref == "tel-u1"))
+        assert p.contact_id == c.id and p.call_type == "inquiry"
+        assert s.scalar(select(Message.id).where(Message.phone_call_id == p.id)) is not None
+        t = s.scalar(select(Task).where(Task.contact_id == c.id))
+        assert t.priority == "high" and t.title.startswith("Urgent")

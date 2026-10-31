@@ -38,7 +38,7 @@ KEY = "assistant_ai"
 URL = "https://openrouter.ai/api/v1/chat/completions"
 MODELS_URL = "https://openrouter.ai/api/v1/models"
 DEFAULT_MODEL = "deepseek/deepseek-v4.1-flash-1017"
-TRANSCRIBE_MODEL = "google/gemini-2.5-flash-lite"  # takes audio; used only to turn call recordings into text
+TRANSCRIBE_MODEL = "openai/whisper-large-v3-turbo"  # OpenRouter speech-to-text; used only to turn call recordings into text
 TIMEOUT = 25.0
 MAX_REPLY = 640
 HISTORY = 20  # the last texts go to the model as they are; older ones live in the contact's memory (assistant/memory.py)
@@ -127,6 +127,8 @@ def get_config(db: Session) -> dict[str, Any]:
     stored = settings_store.get_raw(db, KEY, None)
     if isinstance(stored, dict):
         cfg.update({k: v for k, v in stored.items() if k in cfg})
+    if cfg.get("transcribe_model") == "google/gemini-2.5-flash-lite":
+        cfg["transcribe_model"] = TRANSCRIBE_MODEL  # the owner chose Whisper (2026-10-31)
     if not str(cfg.get("system_prompt") or "").strip() or cfg["system_prompt"].strip() == OLD_DEFAULT_PROMPT.strip():
         cfg["system_prompt"] = DEFAULT_PROMPT  # nobody edited the old default: use the new, warmer one
     return cfg

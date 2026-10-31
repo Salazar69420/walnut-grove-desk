@@ -1,10 +1,12 @@
 """Every new recorded call is transcribed, summarised and filed, a few at a time, in the background.
 
 1. Ask the download helper for a short-lived copy of the recording (the same path the play button uses; nothing is kept).
-2. Send the audio to the transcript model on OpenRouter (an audio model, google/gemini-2.5-flash-lite by default, no data
-   collection) and store the text on the call (owners read it, as with imported transcripts).
-3. The assistant model reads the transcript and returns a summary, the reason for the call (a fixed list, for reports) and whether
-   someone must follow up. The call note becomes fixed words ("Refill; follow-up needed"), the summary goes to the call (owners) and
+2. Send the audio to the transcript model on OpenRouter (openai/whisper-large-v3-turbo by default, the owner's choice, through
+   /audio/transcriptions; a chat model that takes audio also works) and store the text on the call (owners read it).
+3. The assistant model reads the transcript and returns a summary, the reason for the call (a fixed list, for reports), whether it
+   was an existing patient or a new inquiry, the caller's own name and pet (only when they say them), urgency, and whether someone
+   must follow up. A number with no contact becomes a prospect contact (not opted in, marked to check); nothing staff entered is
+   ever overwritten. The call note becomes fixed words ("Refill; follow-up needed"), the summary goes to the call (owners) and
    to the task: an open callback task gets the summary added, and a call that needs follow-up and has no task gets one.
 Only TELUS calls of 8 seconds or more from the last 30 days; imported calls already have transcripts.
 """
@@ -53,8 +55,15 @@ SCHEMA = {
         "outcome": {"type": "string", "enum": list(OUTCOMES)},
         "follow_up_needed": {"type": "boolean"},
         "follow_up_note": {"type": "string", "description": "what the team should do next, or empty"},
+        "caller_type": {"type": "string", "enum": ["patient", "inquiry"], "description": "patient: already a client of the clinic; inquiry: new or not clear"},
+        "caller_first_name": {"type": "string", "description": "only if the CALLER says their own name, else empty"},
+        "caller_last_name": {"type": "string", "description": "only if the caller says it, else empty"},
+        "pet_name": {"type": "string", "description": "the caller's pet discussed, else empty"},
+        "species": {"type": "string", "enum": ["", "dog", "cat", "rabbit", "bird", "other"]},
+        "urgent": {"type": "boolean", "description": "true if the caller described signs that may need a vet today"},
     },
-    "required": ["summary", "intent", "outcome", "follow_up_needed", "follow_up_note"],
+    "required": ["summary", "intent", "outcome", "follow_up_needed", "follow_up_note", "caller_type", "caller_first_name", "caller_last_name",
+                 "pet_name", "species", "urgent"],
     "additionalProperties": False,
 }
 TRANSCRIBE_PROMPT = ("Transcribe this phone call to a veterinary clinic word for word. Start each turn on a new line with 'Speaker 1:' or "
@@ -63,7 +72,10 @@ TRANSCRIBE_PROMPT = ("Transcribe this phone call to a veterinary clinic word for
 ANALYSE_PROMPT = ("You read call transcripts for Walnut Grove Animal Hospital, a vet clinic. Summarise the call for the front desk in two or "
                   "three plain sentences (who, which pet, what they need, what was agreed). Pick the reason for the call. Set follow_up_needed "
                   "when the clinic still has to do something (call back, a refill, results, booking, a question nobody answered, a voicemail). "
-                  "Do not add medical advice. Reply with JSON only.")
+                  "Say whether the caller is an existing patient of the clinic or a new inquiry. Give the caller's name and pet only if the "
+                  "CALLER says them (never a staff member's name; the clinic side greets with the clinic name). Set urgent when the caller "
+                  "describes signs that may need a vet today. The transcript may have no speaker labels. Do not add medical advice. "
+                  "Reply with JSON only.")
 _queued_at: dict[int, float] = {}
 
 
@@ -86,7 +98,26 @@ def _post(cfg: dict[str, Any], payload: dict[str, Any], timeout: float = 120.0) 
     return content.strip()
 
 
+STT_URL = "https://openrouter.ai/api/v1/audio/transcriptions"
+
+
+def _speech_to_text_model(model: str) -> bool:
+    return "whisper" in model or "transcribe" in model
+
+
 def transcribe_audio(cfg: dict[str, Any], audio: bytes, ext: str) -> str:
+    if _speech_to_text_model(cfg["transcribe_model"]):
+        key = _key(cfg)
+        if not key:
+            raise ai.AiFailed("no_key")
+        mime = {"mp3": "audio/mpeg", "wav": "audio/wav", "ogg": "audio/ogg", "m4a": "audio/mp4", "mp4": "audio/mp4", "webm": "audio/webm"}.get(ext, "audio/mpeg")
+        with httpx.Client(timeout=180.0, transport=llm_adapter.TRANSPORT) as h:
+            r = h.post(STT_URL, headers={"Authorization": f"Bearer {key}", "X-Title": "Walnut Grove Desk"},
+                       files={"file": (f"call.{ext}", audio, mime)}, data={"model": cfg["transcribe_model"], "language": "en"})
+        if r.status_code != 200:
+            raise ai.AiFailed(f"http_{r.status_code}")
+        text = str((r.json() or {}).get("text") or "").strip()
+        return text[:100000] if text else "NO_SPEECH"
     fmt = {"mp3": "mp3", "wav": "wav", "ogg": "ogg", "m4a": "m4a", "mp4": "mp4", "webm": "webm"}.get(ext, "mp3")
     text = _post(cfg, {"model": cfg["transcribe_model"], "temperature": 0, "max_tokens": 8000, "messages": [{"role": "user", "content": [
         {"type": "text", "text": TRANSCRIBE_PROMPT},
@@ -117,6 +148,10 @@ def file_call(db: Session, c: PhoneCall, transcript: str, data: dict[str, Any]) 
     c.intent = data["intent"]
     follow = bool(data.get("follow_up_needed"))
     c.short_note = (INTENTS[c.intent] + ("; follow-up needed" if follow else ""))[:240]
+    if c.intent != "wrong_number_or_spam" and data.get("caller_type") in ("patient", "inquiry"):
+        c.call_type = data["caller_type"]  # every real call is a patient or an inquiry
+    if c.contact_id is None and c.phone and c.intent not in ("wrong_number_or_spam", "vendor_or_business"):
+        _prospect(db, c, data)
     m = db.scalar(select(Message).where(Message.phone_call_id == c.id))
     if m is not None:
         m.body = c.short_note
@@ -127,6 +162,8 @@ def file_call(db: Session, c: PhoneCall, transcript: str, data: dict[str, Any]) 
     open_t = db.scalar(select(Task).where(Task.status != "done", Task.reason.like(f"%{crm.phone_display(c.phone)}%")).order_by(Task.id.desc()).limit(1))
     if open_t is not None:
         open_t.reason = (open_t.reason + "\n" + line)[:2000]
+        if data.get("urgent"):
+            open_t.priority = "high"
         if open_t.kind == "callback" and c.intent not in ("other",) and ":" not in open_t.title:
             open_t.title = f"{open_t.title}: {INTENTS[c.intent].lower()}"[:200]
         return
@@ -134,12 +171,45 @@ def file_call(db: Session, c: PhoneCall, transcript: str, data: dict[str, Any]) 
         return
     who = db.get(Contact, c.contact_id) if c.contact_id else None
     name = who.display_name if who else crm.phone_display(c.phone)
-    t = Task(kind=TASK_KIND.get(c.intent, "callback"), classification=who.kind if who else "inquiry", title=f"{INTENTS[c.intent]}: {name}"[:200],
-             reason=f"{line}\nNumber: {crm.phone_display(c.phone)}."[:2000], contact_id=who.id if who else None, priority="normal", status="open",
+    urgent = bool(data.get("urgent"))
+    t = Task(kind=TASK_KIND.get(c.intent, "callback"), classification=who.kind if who else "inquiry",
+             title=(f"Urgent, {INTENTS[c.intent].lower()}: {name}" if urgent else f"{INTENTS[c.intent]}: {name}")[:200],
+             reason=f"{line}\nNumber: {crm.phone_display(c.phone)}."[:2000], contact_id=who.id if who else None, priority="high" if urgent else "normal", status="open",
              raised_by="ai", created_at=timeutil.now_utc())
     db.add(t)
     db.flush()
     ev.record(db, ev.TASKS, "task_raised_by_assistant", f"The assistant raised a task from a call transcript: {t.title[:80]}", "AI assistant", "task", t.id)
+
+
+NAME_OK = re.compile(r"^[A-Za-z][A-Za-z'\-]{1,29}$")
+
+
+def _prospect(db: Session, c: PhoneCall, data: dict[str, Any]) -> None:
+    """A number that called us with no contact yet becomes a prospect, only when exactly nobody has that number. Never texted until they opt in."""
+    from app.models import Pet
+    if db.scalar(select(Contact.id).where(Contact.phone == c.phone, Contact.erased_at.is_(None)).limit(1)) is not None:
+        return
+    first, last = str(data.get("caller_first_name") or "").strip(), str(data.get("caller_last_name") or "").strip()
+    first = first if NAME_OK.match(first) else ""
+    last = last if first and NAME_OK.match(last) else ""
+    kind = data.get("caller_type") if data.get("caller_type") in ("patient", "inquiry") else "inquiry"
+    name = f"{first} {last}".strip().title() if first else f"Caller {crm.phone_display(c.phone)}"
+    ct = Contact(kind=kind, display_name=name[:120], phone=c.phone, email_consent="none", sms_consent="none", consent_source="Called the clinic, not opted in",
+                 source="phone", ai_enabled=False, created_at=c.started_at, last_active_at=c.started_at,
+                 preference_notes="Created from a call transcript. The name and pet were picked up automatically: please check them.")
+    db.add(ct)
+    db.flush()
+    pet = str(data.get("pet_name") or "").strip()
+    if NAME_OK.match(pet) and pet.lower() != first.lower():
+        db.add(Pet(contact_id=ct.id, name=pet.title()[:80], species=str(data.get("species") or ""), status="active", is_demo=False))
+    c.contact_id = ct.id
+    db.flush()
+    from app.services import calls_live
+    calls_live.relink(db)  # their other calls from this number
+    calls_live.ensure_call_messages(db)
+    for t in db.scalars(select(Task).where(Task.contact_id.is_(None), Task.status != "done", Task.reason.like(f"%{crm.phone_display(c.phone)}%"))).all():
+        t.contact_id = ct.id
+    ev.record(db, ev.CONTACTS, "contact_from_call", f"New {kind} contact from a call: {name}", "AI assistant", "contact", ct.id)
 
 
 def _candidates(db: Session) -> list[PhoneCall]:
