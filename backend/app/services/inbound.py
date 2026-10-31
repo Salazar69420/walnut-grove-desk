@@ -23,7 +23,7 @@ from datetime import timedelta
 
 from app.aftercare import templates as T
 from app.models import Contact, Message
-from app.services import autoreply, crm, sender, timeutil
+from app.services import autoreply, crm, sender, sms_mode, timeutil
 from app.services import events as ev
 
 log = logging.getLogger("walnut.inbound")
@@ -73,7 +73,8 @@ def ingest(db: Session) -> dict[str, int]:
         c = db.scalar(select(Contact).where(Contact.phone == phone, Contact.erased_at.is_(None)))
         if c is None:
             c = Contact(kind="inquiry", display_name=f"Text from {crm.phone_display(phone)}", phone=phone, email_consent="none",
-                        sms_consent="none", consent_source="Texted the clinic first, not opted in yet", source="other", ai_enabled=False,
+                        sms_consent="none", consent_source="Texted the clinic first, not opted in yet", source="other",
+                        ai_enabled=phone in sms_mode.get(db)["test_numbers"],  # a texting test number is a pilot: assistant on
                         preference_notes="Created when this number texted the clinic. Add their name.", created_at=at, last_active_at=at)
             db.add(c)
             db.flush()

@@ -234,3 +234,15 @@ def test_staff_cannot_text_someone_who_is_not_opted_in(env, bridge, garg):
     a = not_opted_in(env, garg)
     r = garg.post(f"/api/contacts/{a}/messages", {"channel": "sms", "body": "Hi there"})
     assert r.status_code == 409
+
+
+def test_a_new_test_number_starts_with_the_assistant_on_and_is_asked_to_opt_in(env, bridge, garg):
+    setup(env, garg)
+    garg.put("/api/admin/sms", {"mode": "test_numbers_only", "test_numbers": [TEST, NEW], "auto_reply": True})
+    text_in(bridge, 30, NEW, "Hi, are you open Sunday?")
+    assert run(env)["optin_asked"] == 1
+    (req,) = sent(bridge)
+    assert req["to"] == NEW and "reply Y" in req["text"]
+    with env.session() as s:
+        c = s.scalar(select(Contact).where(Contact.phone == NEW))
+        assert c.ai_enabled is True and c.sms_consent == "none"

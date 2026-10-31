@@ -274,6 +274,9 @@ Backlog lives in section 7 (known gaps) and section 8 (next steps).
 
 ### 11.4 Journal (newest first)
 
+**2026-10-31 UTC, session 3 (latest): second texting test number**
+- The owner added a second test number (live setting only, never in the repo; Admin > Texting shows it). A contact created when a test number first texts now starts with the assistant on; it is still asked to reply Y before anything else.
+
 **2026-10-31 UTC, session 3 (latest): opt-in by text, Book appointment, open times for the assistant, smart tasks, learning from closed tasks**
 - Opt-in (`app/services/inbound.py`): new numbers get `sms_consent = none` ("Not opted in" in the UI). When someone who is not opted in texts us, they get ONE opt-in question (at most once a day, never unprompted); Y/YES/OK after we asked sets consent to care messages, sends a thank-you, then answers the question they asked before. Staff cannot text them until then (Composer explains why). Automatic replies skip anyone not opted in.
 - Numbers for contacts found in call recordings: `telus-numbers --since 2025-07-01 --export <bridge>/numbers.json` (pipeline, read-only client, counts only) then `python -m pipeline.app_numbers --numbers <file>` (app user; deletes the file). A contact gets a number only if all its calls agree on one number and nobody else has it; consent stays "none". Needs the read-only TELUS app first (same blocker as playback). Not run yet.
