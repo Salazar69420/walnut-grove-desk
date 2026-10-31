@@ -92,5 +92,5 @@ def test_the_owner_briefing_lists_items(env, garg):
     p = garg.get("/api/automations/preview/owner_brief").json()
     assert p["title"].startswith("Good morning")
     t = p["text"]
-    assert "NEEDS YOUR APPROVAL" in t and name in t and "(by call)" in t and "10:05 AM" in t and "(voicemail)" in t and "URGENT Call back the Shahs" in t and "TODAY" in t
+    assert "NEEDS YOUR APPROVAL" in t and name in t and "(by call)" in t and "10:05 am" in t and "(voicemail)" in t and "URGENT: Call back the Shahs" in t and "TODAY" in t
     assert any(x["key"] == "owner_brief_sms" for x in garg.get("/api/automations").json()["templates"])

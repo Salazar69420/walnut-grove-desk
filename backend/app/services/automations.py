@@ -97,7 +97,7 @@ def build_report(db: Session, kind: str) -> tuple[str, str]:
     if kind == "owner_brief":
         owner = db.scalar(select(User).where(User.role == "owner", User.active.is_(True)).order_by(User.id))
         title = f"Good morning{(' ' + owner.display_name) if owner else ''}. {today.strftime('%a %b %d')}"
-        hm = lambda d: timeutil.local(crm.aware(d)).strftime("%I:%M %p").lstrip("0")  # noqa: E731
+        hm = lambda d: timeutil.local(crm.aware(d)).strftime("%I:%M %p").lstrip("0").lower().replace(":00 ", " ")  # noqa: E731
         lines.append(f"NEEDS YOUR APPROVAL ({len(requests)})")
         for e in requests[:8]:
             c = db.get(Contact, e.contact_id) if e.contact_id else None
@@ -117,7 +117,8 @@ def build_report(db: Session, kind: str) -> tuple[str, str]:
         tasks = db.scalars(open_tasks.order_by((Task.priority == "high").desc(), Task.created_at)).all()
         lines.append(f"OPEN TASKS ({len(tasks)}, {sum(1 for t in tasks if t.priority == 'high')} urgent)")
         for t in tasks[:10]:
-            lines.append(f"- {'URGENT ' if t.priority == 'high' else ''}{t.title[:80]}")
+            name = t.title[8:] if t.title.lower().startswith("urgent, ") else t.title
+            lines.append(f"- {'URGENT: ' if t.priority == 'high' else ''}{name[:80]}")
         if len(tasks) > 10:
             lines.append(f"- and {len(tasks) - 10} more")
         appts = db.scalars(select(CalendarEvent).where(CalendarEvent.starts_at >= t0, CalendarEvent.starts_at < t1, CalendarEvent.status == "booked").order_by(CalendarEvent.starts_at)).all()
