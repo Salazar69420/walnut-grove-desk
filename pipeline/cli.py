@@ -91,6 +91,10 @@ def build_parser() -> argparse.ArgumentParser:
     s = add("telus-worker", "process TELUS requests from the web app bridge folder, then exit")
     s.add_argument("--bridge", default="/var/lib/walnut-desk-telus", help="bridge folder shared with the app")
 
+    s = add("telus-sync", "pull a window of the call log and write the live Brief numbers (analytics.json)")
+    s.add_argument("--bridge", default="/var/lib/walnut-desk-telus", help="bridge folder shared with the app")
+    s.add_argument("--days", type=int, default=35, help="call-log window to pull, 1 to 90 (default 35)")
+
     s = add("wipe-script", "write <root>/WIPE.sh")
     s.add_argument("--out", help="default <root>/WIPE.sh")
     return ap
@@ -143,6 +147,12 @@ def main(argv: list[str] | None = None) -> int:
     if cmd == "telus-worker":
         from .telus import worker
         return worker.run(paths.root, args.bridge, paths.db, paths.salt)
+    if cmd == "telus-sync":
+        from .telus import worker
+        if not 1 <= args.days <= 90:
+            print("error: --days must be between 1 and 90", file=sys.stderr)
+            return 2
+        return worker.Worker(paths.root, args.bridge, paths.db, paths.salt).run_sync_command(args.days)
     if cmd in ("telus-check", "telus-pull-calllog"):
         from .telus import config as tcfg
         try:

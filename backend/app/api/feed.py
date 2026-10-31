@@ -25,10 +25,24 @@ PING_SECONDS = 15
 def list_events(
     since: int = Query(default=0, ge=0),
     limit: int = Query(default=12, ge=1, le=200),
+    from_: str | None = Query(default=None, alias="from", max_length=40),
+    to: str | None = Query(default=None, max_length=40),
+    contact_id: int | None = None,
+    kind: str | None = Query(default=None, max_length=20),
     user: User = Depends(require("tools.view")),
     db: Session = Depends(get_db),
 ):
-    """Feed events (Admin and Sign-in are audit-only), newest first. `since` returns only ids above it."""
+    """Feed events (Admin and Sign-in are audit-only), newest first. `since` returns only ids above it.
+
+    With `from`, `to`, `contact_id` or `kind` the same path returns calendar events (docs/CONTRACT_CRM_P1.md).
+    """
+    if from_ or to or contact_id is not None or kind:
+        from app.api.crm_misc import calendar_items
+        from app.security.permissions import has_perm
+
+        if not has_perm(user, "calendar.view"):
+            raise HTTPException(status_code=403, detail="forbidden")
+        return calendar_items(db, from_, to, contact_id, kind)
     stmt = select(Event).where(Event.tool.in_(ev.FEED_TOOLS))
     if since:
         stmt = stmt.where(Event.id > since)

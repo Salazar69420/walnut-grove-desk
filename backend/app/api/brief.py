@@ -49,16 +49,31 @@ def kpis(db: Session, now) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     waiting = metrics.results_waiting(db, now)
     missed = metrics.missed_last_week(db, now)
     ov = overnight_summary(db)
+    origin = metrics.data_origins(db)
     items = [
-        {"key": "callbacks_open", "value": cb["open"], "label": "Callbacks still open", "alert": cb["high"] > 0},
-        {"key": "results_waiting", "value": len(waiting), "label": "Results waiting 2+ days", "alert": len(waiting) > 0},
+        {"key": "callbacks_open", "value": cb["open"], "label": "Callbacks still open", "alert": cb["high"] > 0,
+         "origin": origin["callbacks_open"]},
+        {"key": "results_waiting", "value": len(waiting), "label": "Results waiting 2+ days", "alert": len(waiting) > 0,
+         "origin": origin["results_waiting"]},
         {"key": "missed_last_week", "value": missed["value"],
-         "label": "Missed calls last week" + (" (example)" if missed["demo"] else ""), "alert": False},
-        {"key": "overnight_pending", "value": ov["pending"], "label": "Overnight items to review", "alert": ov["pending"] > 0},
+         "label": ("Missed calls last 7 days" if missed.get("live") else "Missed calls last week") + (" (example)" if missed["demo"] else ""),
+         "alert": False, "origin": "example" if missed["demo"] else "live"},
+        {"key": "overnight_pending", "value": ov["pending"], "label": "Overnight items to review", "alert": ov["pending"] > 0,
+         "origin": origin["overnight_pending"]},
     ]
     facts = {"open": cb["open"], "high": cb["high"], "waiting": len(waiting), "missed": missed["value"],
              "pending": ov["pending"], "overnight_total": ov["total"], "emergency_pending": ov["emergency_pending"],
              "age_days": metrics.rules(db)["results_age_days"]}
+    if missed.get("live"):
+        lv = metrics.Live(db)
+        prev = lv.missed("prev7d")
+        calls = lv.calls("7d")
+        facts.update({
+            "live_origin": "live", "days": 7, "hours": 24,
+            "live_delta": None if prev is None else abs(missed["value"] - prev),
+            "live_delta_sign": None if prev is None else (missed["value"] > prev) - (missed["value"] < prev),
+            "live_no_contact": missed.get("never"), "live_calls": calls["all"] if calls else None,
+        })
     return items, facts
 
 
@@ -66,10 +81,23 @@ def template_paragraph(f: dict[str, Any]) -> str:
     def n(v: int, one: str, many: str) -> str:
         return one if v == 1 else many
 
+    if f.get("live_origin") == "live":
+        # Real numbers from the phone system (docs/CONTRACT_LIVE_BRIEF.md).
+        missed = f"{f['missed']} inbound {n(f['missed'], 'call', 'calls')} went unanswered in the last 7 days"
+        sign, d = f.get("live_delta_sign"), f.get("live_delta")
+        if sign is not None:
+            missed += ", " + ("the same as the week before" if sign == 0 else f"{d} {'more' if sign > 0 else 'fewer'} than the week before")
+        nc = f.get("live_no_contact")
+        if nc is not None:
+            missed += f", and {nc} of those {n(nc, 'caller', 'callers')} had no contact within 24 hours"
+        missed += "."
+        extra = [f"The phones took {f['live_calls']} {n(f['live_calls'], 'call', 'calls')} in the last 7 days."] if f.get("live_calls") is not None else []
+    else:
+        missed, extra = f"{f['missed']} {n(f['missed'], 'call', 'calls')} went unanswered last week.", []
     parts = [
         f"{f['open']} {n(f['open'], 'callback is', 'callbacks are')} open and {f['high']} {n(f['high'], 'is', 'are')} high priority.",
         f"{f['waiting']} lab {n(f['waiting'], 'result has', 'results have')} waited {f['age_days']} days or more.",
-        f"{f['missed']} {n(f['missed'], 'call', 'calls')} went unanswered last week.",
+        missed, *extra,
         f"{f['pending']} overnight {n(f['pending'], 'item still needs', 'items still need')} someone to look at {n(f['pending'], 'it', 'them')}.",
     ]
     return " ".join(parts)
@@ -128,6 +156,7 @@ def get_brief(
         "suggestions": [suggestion_dict(s) for s in sugg],
         "chart": metrics.chart(db, chart),
         "text": brief_text(db, facts),
+        "live": metrics.live_brief(db),
     }
 
 

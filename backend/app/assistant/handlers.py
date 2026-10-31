@@ -46,9 +46,13 @@ def night(db: Session, user: User) -> Answer:
     bullets = [f"{c['booking']} appointment {_plural(c['booking'], 'request', 'requests')}" + (f" ({bk})" if bk else ""),
                f"{c['callback']} added to callbacks",
                f"{c['emergency']} sent to an emergency hospital"]
+    after = [f"{c['pending']} still need someone to look at them."] if c["pending"] != 1 else ["1 still needs someone to look at it."]
+    ah = metrics.Live(db).after_hours("7d")
+    if ah is not None:
+        after.append(f"The phone system logged {ah['inbound']} after-hours {_plural(ah['inbound'], 'call', 'calls')} in the last 7 days, "
+                     f"and {ah['voicemail']} left a voicemail (real, from the phone system).")
     return ans([f"Since 6 pm the after-hours assistant handled {c['total']} {_plural(c['total'], 'conversation', 'conversations')}:"],
-               bullets, [f"{c['pending']} still need someone to look at them."] if c["pending"] != 1 else ["1 still needs someone to look at it."],
-               {"label": "Open overnight", "view": "overnight"})
+               bullets, after, {"label": "Open overnight", "view": "overnight"})
 
 
 def emerg(db: Session, user: User) -> Answer:
@@ -87,6 +91,10 @@ def first(db: Session, user: User) -> Answer:
     h12 = hr[:-1] + (" am" if hr.endswith("a") else " pm")
     who = "only one person is" if cv == 1 else (f"{cv} people are" if cv > 1 else "nobody is")
     bullets.append(f"At {h12} {who} on the phones, and about {round(ch['calls'][i])} calls arrive in that hour ({ch['calls_label'].lower()}).")
+    lm = metrics.missed_last_week(db)
+    if lm.get("live"):
+        nc = f", and {lm['never']} of those callers had no contact within 24 hours" if lm.get("never") is not None else ""
+        bullets.append(f"{lm['value']} {_plural(lm['value'], 'call went', 'calls went')} unanswered in the last 7 days{nc} (real, from the phone system).")
     n_open = len(db.scalars(select(Suggestion).where(Suggestion.status == "open")).all())
     return ans([f"{_num_word(len(bullets)).capitalize()} things for this morning:"], bullets,
                [f"I put {n_open} {_plural(n_open, 'suggestion', 'suggestions')} in your brief for approval."], {"label": "Open brief", "view": "brief"})
@@ -94,6 +102,19 @@ def first(db: Session, user: User) -> Answer:
 
 def missed(db: Session, user: User) -> Answer:
     last, prior = metrics.missed_last_week(db), metrics.missed_prior_week(db)
+    if last.get("live"):
+        pv = prior["value"]
+        cmp = ("" if pv is None else
+               ", " + (f"{abs(last['value'] - pv)} {'more' if last['value'] > pv else 'fewer'} than the week before" if last["value"] != pv
+                       else "the same as the week before"))
+        p1 = f"{last['value']} {_plural(last['value'], 'call went', 'calls went')} unanswered in the last 7 days{cmp} (real, from the phone system)."
+        if last.get("never") is not None:
+            p1 += f" {last['never']} of those callers had no contact within 24 hours."
+        if last.get("again") is not None:
+            p1 += f" {last['again']} rang again within the hour."
+        if pv is None:
+            p1 += " The week before is not available yet."
+        return ans([p1], link={"label": "See the suggestion", "view": "brief"})
     delta = last["value"] - prior["value"]
     cmp = f"{abs(delta)} {'more' if delta > 0 else 'fewer'} than the week before" if delta else "the same as the week before"
     p1 = f"{last['value']} calls went unanswered last week, {cmp}."
@@ -146,14 +167,18 @@ def saturday(db: Session, user: User) -> Answer:
 def week(db: Session, user: User) -> Answer:
     w = metrics.week_compare(db)
     d = w["missed_delta"]
-    mv = "up" if d > 0 else ("down" if d < 0 else "flat")
-    p1 = f"Compared with last week: missed calls are {mv}{' ' + str(abs(d)) if d else ''}"
+    if d is None:  # real numbers exist for this week but not for the week before
+        p1 = f"Missed calls in the last 7 days: {w['missed_last']} (real, from the phone system). The week before is not available yet"
+        d = 0
+    else:
+        mv = "up" if d > 0 else ("down" if d < 0 else "flat")
+        p1 = f"Compared with last week: missed calls are {mv}{' ' + str(abs(d)) if d else ''}" + (" (real, from the phone system)" if w["live"] else "")
     p1 += f", and recall bookings are flat at {w['recall_bookings_last']} (example number)." if w["recall_bookings_last"] == w["recall_bookings_prior"] else "."
     waiting = len(metrics.results_waiting(db))
     p1 += f" {waiting} lab {_plural(waiting, 'result is', 'results are')} waiting {metrics.rules(db)['results_age_days']} days or more right now."
     paras = [p1]
     gaps = metrics.missed_gaps(db)
-    if gaps and d > 0:
+    if gaps and d > 0 and not w["live"]:
         paras.append(f"Most of last week's missed calls were {gaps}.")
     return ans(paras, link={"label": "Open brief", "view": "brief"})
 

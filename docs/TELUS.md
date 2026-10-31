@@ -246,3 +246,85 @@ Do these on the server as `walnut-pipeline`, with a throwaway request, and read 
 | `view=Simple` includes `recording` | After a first job, `SELECT COUNT(*) FROM telus_calls WHERE recording_id IS NOT NULL` against `has_recording=1`. If they differ the call log view needs to be `Detailed`. |
 | TELUS retention period | Pull a long window (`--days 90` with `telus-pull-calllog`), then request recordings for the oldest calls with a job and see from which age `http_404` / `gone` starts. Download before that age, and set `keep_days` knowing it. |
 | Write-scope strictness for a real JWT | `telus-check` (see above) must show `write_capable_scopes: none`; otherwise every job ends with `write_scope_present`. |
+
+## Live numbers (telus-sync)
+
+Feeds the "From the phones" part of the Brief. Binding contract: `docs/CONTRACT_LIVE_BRIEF.md`. Code:
+`pipeline/telus/live.py` (metrics), `pipeline/telus/sync.py` (pull, validate, write), `Worker._sync` and
+`Worker.run_sync_command` in `pipeline/telus/worker.py`. Tests: `pipeline/tests/test_telus_live.py` (made-up
+data, mocked HTTP).
+
+### How it runs
+
+* `python -m pipeline telus-sync [--root] [--bridge /var/lib/walnut-desk-telus] [--days 35]` logs in
+  read-only, refuses a token with any write-capable scope (code `write_scope_present`), pulls the last `--days`
+  days (1 to 90) with `calllog.pull(track_state=False)`, so the cursor used by `telus-pull-calllog` is never read
+  or moved, then computes the metrics from `telus_calls` and the `labels` table, validates them and writes
+  `<bridge>/analytics.json` (temp file, fsync, chmod 660, rename, fsync folder). It exits 0 only on code `ok`.
+  It takes the same lock as `telus-worker` (`<root>/telus/.worker.lock`); if a worker is running it prints
+  `busy` and exits 1, and the next day's run catches up. It does not touch the `job` part of `status.json`.
+* Request mode `sync` (same request file as `check`; `days` 1 to 30 and `max_items` optional, `max_items` is
+  not used). `telus-worker` runs the same code and `days` defaults to 35. `job.state` is `done` for `ok`.
+* `status.json` gets a new key `sync`: `{"state":"ok"|"failed","code":"<fixed code>","finished_at":"<ISO UTC>",
+  "rows":<int>}`. It appears after the first sync, so older files and readers without it keep working. A failed
+  run keeps the previous `rows` and leaves the previous `analytics.json` untouched. Codes come from the usual
+  fixed list (`ok`, `not_configured`, `login_failed`, `write_scope_present`, `rate_limited`, `error`); exception
+  text, numbers, hashes and ids never reach the status, the file or the logs.
+* Timer: `deploy/systemd/walnut-telus-sync.timer` runs `walnut-telus-sync.service` every day at 06:20
+  America/Vancouver (`Persistent=true`, so a missed run happens at the next boot). The service is a oneshot as
+  `walnut-pipeline` with the same hardening as `walnut-telus.service`, `SupplementaryGroups=walnut-telus`,
+  `UMask=0007`, `ReadWritePaths=/srv/walnut-private /var/lib/walnut-desk-telus`. Install by copying both files
+  to `/etc/systemd/system/`, then `systemctl daemon-reload && systemctl enable --now walnut-telus-sync.timer`.
+  The files are in the repo only; nothing has been installed.
+
+### Definitions
+
+All days are America/Vancouver local days (the `date`, `hour` and `weekday` columns were computed in that zone,
+so the daylight-saving change needs no special case). `generated_at` is the sync time; "today" is its local
+date. `7d` is the 7 full local days ending yesterday, `prev7d` the 7 before those. `window` in the file is the 28
+full days ending yesterday. Unanswered means an inbound call whose result is `missed`, `voicemail` or `hangup`.
+Rows are `{metric, dim1, dim2, value, n}` (at most 2000 rows, 256 KB, strings up to 40 chars of `[A-Za-z0-9_.:-]`).
+Counts are never dropped for being small except where stated. With an empty `telus_calls` there are no rows.
+
+| Metric | Definition |
+|---|---|
+| `live_calls` (period, `all`/`inbound`/`outbound`) | Calls in the period. `all` also counts calls whose direction is neither. |
+| `live_inbound_result` (period, result) | Inbound calls by result. `failed` and any unknown result count as `other`. |
+| `live_missed_followup` (period, bucket) | Each unanswered inbound call counted once, see below. |
+| `live_after_hours` (period, `inbound`/`voicemail`) | Inbound calls (and the voicemail ones) that started after hours: Monday to Friday before 08:00 or from 18:00, Saturday before 09:00 or from 14:00, all Sunday. |
+| `live_inbound_by_hour`, `live_missed_by_hour` (hour 8 to 17) | Inbound (or unanswered inbound) calls on Monday to Friday in that local hour over the 28 days, divided by the number of weekdays in those 28 days (20). `n` is the total count. Dropped when `n` is under 5. |
+| `live_busiest_hour` (hour) | The hour among 8 to 17 with the most inbound calls (ties go to the earlier hour); `value` is its weekday average. Dropped when `n` is under 5. |
+| `live_daily_inbound` (date) | Inbound calls on each of the last 14 days (including weekends). Days with `n` under 5 are dropped. |
+| `live_past_followup_share` (`past_recordings`) | Share of the past labeled calls with `promised_followup` true, from the rules-v1 labels with gold winning, leaving out calls flagged private. `n` is the number of calls counted. Dropped when `min(promised, n)` is under 5, the same cell rule as `analytics`. Absent when there are no labels. |
+
+`live_missed_followup` buckets, matched only by the salted number hashes in memory (index by hash, binary
+search, no pairwise scan). For an unanswered inbound call at time t, in this order:
+
+1. `too_recent`: the call is under 24 h old at `generated_at` (exactly 24 h is not recent). This wins even if a
+   follow-up is already visible, because the 24 h window is still open.
+2. `no_contact_24h`: the call has no number hash (a missing number never matches another missing number).
+3. `rang_again_1h`: the same `from_hash` made another inbound call after t, up to and including t + 1 h.
+4. `called_back_4h`: the first outbound call with `to_hash` equal to that `from_hash` after t is within 4 h
+   (inclusive).
+5. `called_back_24h`: that first outbound call is within 24 h (inclusive).
+6. `no_contact_24h`: none of the above. A caller who rang again after more than 1 h, but was never phoned,
+   counts here, because the contract's bucket means "none of these within 24 h".
+
+Earlier calls never count, and an outbound call counts whatever its result (an attempt is a contact).
+
+### Estimated or unverified
+
+* Voicemail labelling: how TELUS marks a call that rang out into voicemail (`Voicemail` versus `Missed`) is
+  unverified, so the split between `missed` and `voicemail` in `live_inbound_result` and `live_after_hours` may
+  be off. The sum of unanswered calls is less affected.
+* `hangup` is mapped from the result strings `Hang Up` and `Abandoned`. Whether a caller who hung up while
+  waiting in the queue arrives as one of these (rather than `Missed` or `Call connected`) is unverified.
+  Failed calls (`failed`) are not unanswered by this definition.
+* An outbound call is treated as a callback by its `to` number only. Calls routed through an extension, a
+  forwarded number or a different caller line will not match, so `no_contact_24h` can overstate the callers who
+  never heard back (a person may also have been reached by text or by a call that is not in this log).
+* A repeat call within 1 h counts as a contact whatever happened to it (it may have been missed again).
+* Numbers are normalised to 10 digits before hashing, as in `load`; two different formats of one line only match
+  if they normalise the same way.
+* The hourly average divides by the weekdays in the window, public holidays included, so it is slightly low.
+* The past follow-up share is the rules labeler's view (gold accuracy 0.92 per the contract).

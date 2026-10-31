@@ -31,10 +31,10 @@ def _hour_text(h: int) -> str:
 
 
 def _desk_shift(db: Session, th: dict[str, Any]) -> dict[str, Any] | None:
-    real = metrics.real_calls_by_hour(db)
+    real, kind = metrics.real_hourly(db)
     if real:
         calls = real
-        source = "real recorded calls"
+        source = "real, from the phone system" if kind == "live" else "real recorded calls"
     else:
         calls = [float(c) for c in metrics.ref.EXAMPLE_CALLS]
         source = "example numbers"
@@ -51,7 +51,8 @@ def _desk_shift(db: Session, th: dict[str, Any]) -> dict[str, Any] | None:
         "title": f"Add an open desk shift, {lo:02d}:00 to {hi:02d}:00, Monday to Friday",
         "why": (f"Calls peak at {_hour_text(peak_h)} (about {round(calls[peak_i])} an hour, {source}) with {cover[peak_i]} "
                 f"{'person' if cover[peak_i] == 1 else 'people'} on the phones. Add a second person and each person's load drops."),
-        "evidence": {"start_min": lo * 60, "end_min": hi * 60, "hours": hot, "limit": th["load_limit"], "source": source},
+        "evidence": {"start_min": lo * 60, "end_min": hi * 60, "hours": hot, "limit": th["load_limit"], "source": source,
+                     "example": not real},
     }
 
 
@@ -61,11 +62,16 @@ def _missed_texts(db: Session, th: dict[str, Any]) -> dict[str, Any] | None:
     m = metrics.missed_last_week(db)
     if m["value"] < th["missed_min"]:
         return None
-    never = f" and {m['never']} of those callers never rang again" if m.get("never") is not None else ""
+    if m.get("live"):
+        nc = f" and {m['never']} of those callers had no contact within 24 hours" if m.get("never") is not None else ""
+        why = f"{m['value']} calls went unanswered last week{nc} (real, from the phone system). A text with a booking link reaches them."
+    else:
+        never = f" and {m['never']} of those callers never rang again" if m.get("never") is not None else ""
+        why = f"{m['value']} calls went unanswered last week{never}. A text with a booking link reaches them."
     return {
         "title": "Turn on automatic texts to missed callers",
-        "why": f"{m['value']} calls went unanswered last week{never}. A text with a booking link reaches them.",
-        "evidence": {"missed": m["value"], "never": m.get("never"), "example": m["demo"]},
+        "why": why,
+        "evidence": {"missed": m["value"], "never": m.get("never"), "example": m["demo"], "live": bool(m.get("live"))},
     }
 
 

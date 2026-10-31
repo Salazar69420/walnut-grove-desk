@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.adapters.llm import make_layer2
 from app.aftercare import engine as E
 from app.aftercare import keywords as kw
-from app.models import AppointmentRequest, Callback, Conversation, EmergencyRouting, Hospital, OpenSlot, VisitType
+from app.models import AppointmentRequest, Callback, Conversation, EmergencyRouting, Hospital, OpenSlot, Task, VisitType
 from app.services import events as ev
 from app.services import settings_store, timeutil
 
@@ -68,6 +68,30 @@ def _label_for(kind: str) -> str:
     return {"booking": "appointment request", "callback": "callback", "emergency": "emergency routing"}[kind]
 
 
+def _raise_task(db: Session, conv: Conversation, outcome: dict[str, Any], kind: str, pet: str, is_test: bool, now: datetime) -> None:
+    """Every outcome the assistant records also becomes a task for the front desk (raised_by ai)."""
+    pet_part = f" for {pet}" if pet != "Pet not named" else ""
+    if kind == "booking":
+        task_kind, title, priority = "booking", f"Book an appointment{pet_part}", "normal"
+    elif kind == "emergency":
+        task_kind, title, priority = "emergency_followup", f"Follow up on an emergency{pet_part}", "high"
+    elif outcome.get("callback_kind") == "Refill":
+        task_kind, title, priority = "refill", f"Refill request{pet_part}", "normal"
+    elif outcome.get("callback_kind") == "Booking":
+        task_kind, title, priority = "booking", f"Book an appointment{pet_part}", "normal"
+    else:
+        task_kind, title, priority = "callback", f"Call back{pet_part}", "normal"
+    reason = (outcome.get("summary") or "").strip()
+    if is_test:
+        reason = ("Test conversation. " + reason).strip()
+    task = Task(kind=task_kind, classification="inquiry", title=title[:200], reason=reason[:2000], conversation_id=conv.id,
+                priority=priority, status="open", raised_by="ai", created_at=now)
+    db.add(task)
+    db.flush()
+    ev.record(db, ev.TASKS, "task_raised", "The after-hours assistant raised a task", "After-hours assistant", "task", task.id,
+              {"kind": task_kind, "conversation_id": conv.id})
+
+
 def persist_outcome(
     db: Session,
     outcome: dict[str, Any],
@@ -119,6 +143,7 @@ def persist_outcome(
             status="new", source=source, conversation_id=conv.id,
         ))
         db.flush()
+    _raise_task(db, conv, outcome, kind, pet, is_test, now)
     ev.record(db, ev.AFTER_HOURS, f"new_{kind}", f"New {_label_for(kind)} from {origin}", actor, "conversation", conv.id,
               {"source": source, "is_test": is_test})
     if kind == "callback":

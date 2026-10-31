@@ -1,0 +1,10 @@
+[Unit]
+Description=Update the live call numbers for the Brief every morning
+
+[Timer]
+OnCalendar=*-*-* 06:20:00 America/Vancouver
+Persistent=true
+Unit=walnut-telus-sync.service
+
+[Install]
+WantedBy=timers.target

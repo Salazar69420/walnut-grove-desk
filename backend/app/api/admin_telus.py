@@ -25,7 +25,7 @@ from app.db import get_db
 from app.models import User
 from app.security.auth import require
 from app.services import events as ev
-from app.services import timeutil
+from app.services import live_ingest, timeutil
 
 router = APIRouter(prefix="/api/admin/telus", tags=["admin"])
 log = logging.getLogger("walnut.telus")
@@ -117,7 +117,7 @@ class Connection(_Untrusted):
 
 class Job(_Untrusted):
     id: StrictStr | None = Field(default=None, pattern=JOB_ID_RE.pattern)
-    mode: Literal["check", "recordings"] | None = None
+    mode: Literal["check", "recordings", "sync"] | None = None
     state: Literal["idle", "queued", "running", "done", "failed"]
     requested_by: StrictStr | None = None
     requested_at: StrictStr | None = None
@@ -150,6 +150,19 @@ class Storage(_Untrusted):
     max_bytes: StrictInt = _count()
 
 
+class SyncState(_Untrusted):
+    """Optional `sync` object: the last call-numbers update (docs/CONTRACT_LIVE_BRIEF.md)."""
+    state: Literal["ok", "failed"]
+    code: Code
+    finished_at: StrictStr | None = None
+    rows: StrictInt | None = Field(default=None, ge=0, le=10**6)
+
+    @field_validator("finished_at")
+    @classmethod
+    def _check_at(cls, v):
+        return _iso(v)
+
+
 class StoredStatus(_Untrusted):
     v: Literal[1]
     updated_at: StrictStr
@@ -157,6 +170,18 @@ class StoredStatus(_Untrusted):
     job: Job
     storage: Storage
     rejected_requests: StrictInt = _count()
+    sync: SyncState | None = None
+
+    @field_validator("sync", mode="before")
+    @classmethod
+    def _tolerate_bad_sync(cls, v):
+        """A missing or malformed `sync` object never costs us the rest of the status."""
+        if v is None:
+            return None
+        try:
+            return SyncState.model_validate(v)
+        except Exception:  # noqa: BLE001
+            return None
 
     @field_validator("updated_at")
     @classmethod
@@ -332,7 +357,7 @@ def _who(user: User) -> str:
     return (_name(user.display_name) or "")[:60] or "Admin"
 
 
-def _queue(mode: str, days: int, max_items: int, user: User) -> str:
+def _queue(mode: Literal["check", "recordings", "sync"], days: int, max_items: int, user: User) -> str:
     _need_bridge()
     if _active(read_status(), pending_requests()):
         raise HTTPException(status_code=409, detail="A job is already waiting or running. Wait for it to finish.")
@@ -352,15 +377,27 @@ def _queue(mode: str, days: int, max_items: int, user: User) -> str:
     return job_id
 
 
+def live_summary(db: Session) -> dict[str, Any]:
+    """When the Brief's real call numbers were last loaded. Times and a row count only."""
+    m = live_ingest.meta(db)
+    ok = bool(m.get("generated_at"))
+    return {"as_of": m.get("generated_at") if ok else None, "loaded_at": m.get("ingested_at") if ok else None,
+            "rows": m.get("rows") if ok else None}
+
+
 # ---------------------------------------------------------------- routes
 @router.get("")
-def get_telus(user: User = Depends(require("admin.telus"))):
+def get_telus(user: User = Depends(require("admin.telus")), db: Session = Depends(get_db)):
     ok = bridge_ok()
     pending = pending_requests() if ok else []
     status = read_status() if ok else None
     busy = _active(status, pending)
+    if status is not None and status.get("sync") and status["sync"]["state"] == "ok" and not busy:
+        # The worker finished a call-numbers update: load the new file now (a no-op if it did not change).
+        live_ingest.ingest(db, _bridge())
     return {"settings": read_settings() if ok else {**DEFAULTS, "updated_by": None, "updated_at": None},
-            "status": _overlay_queued(status, pending), "bridge_ok": ok, "busy": busy, "messages": MESSAGES}
+            "status": _overlay_queued(status, pending), "bridge_ok": ok, "busy": busy, "messages": MESSAGES,
+            "live": live_summary(db)}
 
 
 @router.put("/settings")
@@ -398,5 +435,15 @@ def post_recordings(body: RecordingsBody, actor: User = Depends(require("admin.t
     ev.record(db, ev.ADMIN, "telus_recordings_requested",
               f"{actor.display_name} asked to download new TELUS recordings (last {body.days} days, up to {body.max_items})",
               actor, "telus", job_id, {"days": body.days, "max_items": body.max_items})
+    db.commit()
+    return {"job_id": job_id}
+
+
+@router.post("/sync")
+def post_sync(actor: User = Depends(require("admin.telus")), db: Session = Depends(get_db)):
+    """Ask the worker to refresh the call numbers. The file is loaded when the worker reports it finished."""
+    job_id = _queue("sync", 30, 1, actor)
+    ev.record(db, ev.ADMIN, "telus_sync_requested", f"{actor.display_name} asked to update the call numbers",
+              actor, "telus", job_id, {})
     db.commit()
     return {"job_id": job_id}

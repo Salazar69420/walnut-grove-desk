@@ -27,7 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from .. import db as dbm
 from ..load import load_salt
-from . import calllog, check, recordings
+from . import calllog, check, recordings, sync
 from . import config as tcfg
 from .client import (ReadOnlyClient, ReadOnlyViolation, TelusAuthError, TelusDownloadError, TelusError,
                      TelusHTTPError)
@@ -71,7 +71,7 @@ class Request(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     v: int
     id: str = Field(pattern=_ID_PATTERN)
-    mode: Literal["check", "recordings"]
+    mode: Literal["check", "recordings", "sync"]
     days: Optional[int] = Field(default=None, ge=1, le=30)
     max_items: Optional[int] = Field(default=None, ge=1, le=1000)
     requested_by: str = Field(min_length=1, max_length=60)
@@ -127,7 +127,7 @@ DEFAULT_SETTINGS = Settings(v=1, recordings_enabled=False, max_gb=10, keep_days=
 class _Job(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     id: Optional[str] = Field(default=None, pattern=_ID_PATTERN)
-    mode: Optional[Literal["check", "recordings"]] = None
+    mode: Optional[Literal["check", "recordings", "sync"]] = None
     state: Literal["idle", "queued", "running", "done", "failed"]
     requested_by: Optional[str] = Field(default=None, max_length=60)
     requested_at: Optional[str] = Field(default=None, max_length=40)
@@ -141,6 +141,15 @@ class _Job(BaseModel):
     failed: int = Field(ge=0)
     remaining: int = Field(ge=0)
     deleted_old: int = Field(ge=0)
+
+
+class _Sync(BaseModel):
+    """status.json `sync` (live Brief numbers). Absent until the first sync has run; the app tolerates that."""
+    model_config = ConfigDict(extra="forbid", strict=True)
+    state: Literal["ok", "failed"]
+    code: Literal[CODES]  # type: ignore[valid-type]
+    finished_at: Optional[str] = Field(default=None, max_length=40)
+    rows: int = Field(ge=0, le=sync.MAX_ROWS)
 
 
 class _Conn(BaseModel):
@@ -279,6 +288,10 @@ def load_previous(bridge: str) -> dict:
             if job["state"] in ("queued", "running"):
                 job.update(state="failed", code="error")
             st["job"] = job
+        except (KeyError, TypeError, ValidationError):
+            pass
+        try:
+            st["sync"] = _Sync.model_validate(old["sync"]).model_dump()
         except (KeyError, TypeError, ValidationError):
             pass
         n = old.get("rejected_requests")
@@ -432,7 +445,12 @@ class Worker:
         job.update(state="running", started_at=self._t())
         self.flush()
         try:
-            code = self._check(req) if req.mode == "check" else self._recordings(req)
+            if req.mode == "check":
+                code = self._check(req)
+            elif req.mode == "sync":
+                code = self._sync(req.days)
+            else:
+                code = self._recordings(req)
         except Exception as e:  # never let text from TELUS or the system reach status or logs
             log.error("telus worker job failed (%s)", type(e).__name__)
             code = "error"
@@ -442,6 +460,8 @@ class Worker:
                                                                          "rate_limited"))
         if req.mode == "check":
             done = self.status["connection"]["state"] == "ok"
+        elif req.mode == "sync":
+            done = code == "ok"
         job["state"] = "done" if done else "failed"
 
     # -------------------------------------------------------------- shared: log in and check scopes
@@ -483,6 +503,49 @@ class Worker:
                 return "error"
             self._conn("ok", "ok", calls=n)
             return "ok"
+
+    # -------------------------------------------------------------- mode: sync (live Brief numbers)
+    def _set_sync(self, code: str, rows: int | None = None) -> None:
+        prev = self.status.get("sync")
+        if rows is None:
+            rows = prev["rows"] if prev else 0   # a failed run leaves the old analytics.json in place
+        self.status["sync"] = {"state": "ok" if code == "ok" else "failed", "code": code,
+                               "finished_at": self._t(), "rows": rows}
+
+    def _sync(self, days: int | None) -> str:
+        """Same code for the request mode and the telus-sync command. Fixed codes only."""
+        from contextlib import ExitStack
+        try:
+            with ExitStack() as stack:
+                client, code = self._session(stack)
+                if client is None:
+                    self._set_sync(code)
+                    return code
+                conn = stack.enter_context(_closing(dbm.connect(self.db_path, create=True)))
+                code, rows = sync.execute(client, conn, load_salt(self.salt_path), self.bridge, self.now(),
+                                          days)
+        except Exception as e:  # never let text from TELUS or the system reach status or logs
+            log.error("telus sync failed (%s)", type(e).__name__)
+            code, rows = "error", None
+        self._set_sync(code, rows if code == "ok" else None)
+        return code
+
+    def run_sync_command(self, days: int | None) -> int:
+        """telus-sync: one sync outside the request queue. Does not touch the `job` section."""
+        if not os.path.isdir(self.bridge) or os.path.islink(self.bridge):
+            print("error: bridge folder not found", file=sys.stderr)
+            return 2
+        lock = self._lock()
+        if lock is None:
+            print("telus-sync busy, exiting")
+            return 1
+        try:
+            code = self._sync(days)
+            self.flush()
+            print(f"telus-sync code={code} rows={self.status['sync']['rows']}")
+            return 0 if code == "ok" and self.status_ok else 1
+        finally:
+            os.close(lock)
 
     # -------------------------------------------------------------- mode: recordings
     def _recordings(self, req: Request) -> str:
