@@ -46,7 +46,10 @@ PERMS: dict[str, set[str]] = {
     "reports.view": {"desk", "owner"},
     # The clinic website (content read from the live site) and its SEO agent
     "website.view": {"desk", "owner"},
-    "website.run": {"owner"},  # run an audit, ask the AI for a fix plan or for knowledge from the site
+    "website.run": {"owner"},
+    # Automations: "when this happens / at this time, do that"
+    "automations.view": {"desk", "owner"},
+    "automations.edit": {"owner"},  # run an audit, ask the AI for a fix plan or for knowledge from the site
 }
 ADMIN_PERMS: set[str] = {"admin.users", "admin.audit", "admin.settings", "admin.import", "admin.reset_demo", "admin.telus", "admin.contacts_erase", "admin.access_log"}  # require is_admin
 

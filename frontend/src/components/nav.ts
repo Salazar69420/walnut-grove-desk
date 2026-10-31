@@ -11,6 +11,7 @@ export const NAV: { group: string; items: NavItem[] }[] = [
     { to: '/phone', label: 'Phone', perm: 'phone.view', icon: 'phone' },
     { to: '/campaigns', label: 'Campaigns', perm: 'campaigns.view', icon: 'mail' },
     { to: '/reports', label: 'Reports', perm: 'reports.view', icon: 'list' },
+    { to: '/automations', label: 'Automations', perm: 'automations.view', icon: 'clock' },
   ] },
   { group: 'Website', items: [
     { to: '/website/content', label: 'Website content', perm: 'website.view', icon: 'list' },
@@ -31,4 +32,4 @@ export const NAV: { group: string; items: NavItem[] }[] = [
     { to: '/admin', label: 'Admin', admin: true, icon: 'user' },
   ] },
 ]
-export const isWorkspace = (p: string) => /^\/(home|tasks|contacts|calendar|knowledge|phone|campaigns|reports|website)(\/|$)/.test(p)
+export const isWorkspace = (p: string) => /^\/(home|tasks|contacts|calendar|knowledge|phone|campaigns|reports|website|automations)(\/|$)/.test(p)

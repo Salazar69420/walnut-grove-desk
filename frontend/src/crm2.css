@@ -291,3 +291,12 @@ a.playb{color:var(--acc-t)}
 .studio-keys{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 10px}
 .studio-frame{width:100%;height:calc(100vh - 230px);min-height:520px;border:1px solid var(--line);border-radius:14px;background:var(--panel)}
 @media (max-width:700px){.studio-frame{height:calc(100vh - 260px)}}
+/* Automations */
+.auto-row{display:flex;gap:14px;align-items:center;padding:14px 16px;border-top:1px solid var(--line);flex-wrap:wrap}
+.auto-m{flex:1;min-width:220px;display:flex;flex-direction:column;gap:2px}.auto-m span{color:var(--ink)}.auto-m small.bad,.auto-runs .bad{color:var(--crit)}
+.auto-ideas{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}
+.auto-idea{border:1px solid var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:6px;background:var(--panel)}
+.auto-idea p{margin:0;color:var(--mute);font-size:14px}.auto-idea .btn{align-self:flex-start;margin-top:4px}.auto-idea.used{opacity:.75}
+.auto-days{display:flex;gap:6px;flex-wrap:wrap}.auto-days .bk-day{flex:0 0 46px}
+.auto-ed .seg button{padding:8px 12px}.auto-runs{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px}
+.modal:has(.auto-ed){width:min(640px,100%)}
