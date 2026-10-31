@@ -231,3 +231,28 @@ def test_a_surgery_drop_off_raises_a_booking_task_for_the_team(env, bridge, garg
     assert reply and "contact you" in reply
     with env.session() as s:
         assert s.scalar(select(Task).where(Task.contact_id == cid, Task.kind == "booking", Task.title.like("Book by phone%"))) is not None
+
+
+def test_the_ai_sends_a_named_time_to_the_calendar_for_approval_without_hesitating(env, bridge, garg, router):
+    cid = pilot(env, garg, ai_on=True)
+    day = next_weekday(2)
+    router.reply = {"reply": f"Lovely, I have sent a request for Wednesday at 10 am for Rishav. The team will confirm it by text.", "answered": True, "needs_human": False,
+                    "knowledge_ids": [], "reason": "booking", "task_title": "", "task_note": "",
+                    "appointment_request": {"wanted": True, "date": day.isoformat(), "time": "10:00", "visit": "check-up"}}
+    msg = say(env, bridge, "Could Rishav be seen on Wednesday around 10?")
+    assert msg and "sent a request" in msg
+    with env.session() as s:
+        e = s.scalar(select(CalendarEvent).where(CalendarEvent.contact_id == cid))
+        assert e.status == "requested" and timeutil.local(e.starts_at).strftime("%H:%M") == "10:00" and timeutil.local(e.starts_at).date() == day
+        assert s.scalar(select(Task).where(Task.contact_id == cid, Task.title.like("Confirm text booking%"))) is not None
+    system = router.calls[-1]["messages"][0]["content"]
+    assert "TODAY [A0]" in system and "CLINIC HOURS" in system
+
+
+def test_a_time_outside_clinic_hours_is_never_requested(env, bridge, garg, router):
+    cid = pilot(env, garg, ai_on=True)
+    router.reply = {"reply": "Sure, I have asked for Wednesday at 11 pm.", "answered": True, "needs_human": False, "knowledge_ids": [], "reason": "booking",
+                    "task_title": "", "task_note": "", "appointment_request": {"wanted": True, "date": next_weekday(2).isoformat(), "time": "23:00", "visit": ""}}
+    say(env, bridge, "Could Rishav be seen on Wednesday at 11 pm?")
+    with env.session() as s:
+        assert s.scalar(select(CalendarEvent).where(CalendarEvent.contact_id == cid)) is None

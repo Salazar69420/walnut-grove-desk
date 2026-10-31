@@ -181,6 +181,12 @@ def suggest(db: Session, contact: Contact, text: str, *, act: bool = False) -> d
         else:
             titles = _titles(db, r["ids"])
             meta = {"model": r["model"], "seconds": r["seconds"], "usage": r["usage"], "ai": True}
+            appt = r.get("appointment")
+            if appt and appt.get("start"):
+                e = booking.request_from_conversation(db, contact, appt["start"], appt.get("visit") or "") if act else None
+                return {"kind": "booking", "draft": r["reply"], "sources": titles, "task": None, "event_id": e.id if e else None, "visit": appt.get("visit") or None,
+                        "note": ("The time they asked for was sent to the Calendar for approval." if act
+                                 else f"Sending this would ask for {booking.label(appt['start'])}; the automatic replies add it to the Calendar for approval."), **meta}
             if act and "A1" in r["ids"] and (times := booking.availability(db)):
                 booking.remember_offer(db, contact, times)  # they were told these times: "2" or "the 9 am" in their next text books it
             if r["answered"]:

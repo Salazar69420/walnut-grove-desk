@@ -287,6 +287,7 @@ Backlog lives in section 7 (known gaps) and section 8 (next steps).
 - Every model call now happens with no database transaction open (all transactions take the write lock; waiting inside one caused "database is locked").
 - Staff contact resolves tasks (`app/services/task_resolve.py`): a staff text or email, an answered call either way (10 s or more) or a voicemail left for them closes that contact's open tasks raised before it (not booking tasks), with a note; AI-raised ones then feed the learning step. A new message raises a new task as usual.
 - TELUS saved logins are kept per role (read-only vs texting) so the two never share one; a missing permission triggers one fresh login.
+- The AI no longer hesitates on bookings: when a day and time are clear (inside clinic hours, in the future) it fills `appointment_request`; automatic replies create a REQUESTED Calendar event plus a "Confirm text booking" task (overlaps are noted, staff decide). It always gets TODAY and CLINIC HOURS [A0]. A time outside hours is rejected and retried once.
 - Assistant memory (`app/assistant/memory.py`): last 20 texts as they are, plus `contacts.ai_memory` (older texts summarised every 10 texts), recent calls with summaries, open tasks and staff preference notes. Erased with the contact.
 
 **2026-10-31 UTC, session 3 (latest): replies that sound like a person; live TELUS calls**

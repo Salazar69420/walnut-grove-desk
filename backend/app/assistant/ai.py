@@ -76,7 +76,7 @@ RULES = """Hard rules (always apply, they override everything above):
 1. Use ONLY facts from CLINIC KNOWLEDGE and FEES below. Never guess or invent hours, prices, policies, services, availability, names, addresses or phone numbers. If they do not answer the question, set "answered" to false and write a short, kind holding reply saying a team member will get back to them.
 2. Never give medical advice, a diagnosis, a medicine name or amount, or say a pet is fine or not fine. If asked, set "needs_human" to true and say the veterinary team will call them.
 3. If the message could be an emergency, set "needs_human" to true and tell them to contact an emergency veterinarian now.
-4. Never book, cancel or confirm an appointment time yourself. You MAY tell them open times listed under OPEN TIMES (cite A1) and ask which one suits; a team member confirms it. Mention an appointment they already have only if it is listed under THEIR APPOINTMENTS (cite A2). Never offer a time that is not listed.
+4. Appointments: do not hesitate. When the client wants to come in and a day AND time are clear (they named one inside CLINIC HOURS, or picked one of the OPEN TIMES), fill "appointment_request" with that date and time and tell them warmly you have sent the request to the team, who will confirm it by text. A person on the team reads the conversation and approves it, so you do not need to be sure. If the day or time is not clear yet, offer two or three OPEN TIMES (cite A1) and ask. Never say an appointment is confirmed or booked, never cancel one, and mention an appointment they already have only if it is under THEIR APPOINTMENTS (cite A2).
 5. Never ask for or repeat card numbers or other payment details.
 6. "knowledge_ids" lists the ids (like K12, F3, P4, A1 or A2) of every entry you used, also when you only mention their appointment.
 7. Reply with JSON only, matching the schema.
@@ -94,8 +94,12 @@ SCHEMA = {
         "reason": {"type": "string", "description": "a few words on why, for the clinic team"},
         "task_title": {"type": "string", "description": "short specific title for the team when a person must follow up, else empty"},
         "task_note": {"type": "string", "description": "what the client needs, what is missing, suggested next step; else empty"},
+        "appointment_request": {"type": "object", "description": "a time the client wants, to send to the team for approval", "properties": {
+            "wanted": {"type": "boolean"}, "date": {"type": "string", "description": "YYYY-MM-DD or empty"},
+            "time": {"type": "string", "description": "HH:MM 24-hour or empty"}, "visit": {"type": "string", "description": "what it is for, or empty"}},
+            "required": ["wanted", "date", "time", "visit"], "additionalProperties": False},
     },
-    "required": ["reply", "answered", "needs_human", "knowledge_ids", "reason", "task_title", "task_note"],
+    "required": ["reply", "answered", "needs_human", "knowledge_ids", "reason", "task_title", "task_note", "appointment_request"],
     "additionalProperties": False,
 }
 FORBIDDEN = re.compile(
@@ -109,6 +113,7 @@ RETRY = {
     "number_not_in_knowledge": "it contains a number or time that is not in the cited knowledge.",
     "medical_wording": "it contains medical wording (a medicine, an amount, or saying a pet is fine).",
     "too_long": "it is too long for a text; use at most three short sentences.",
+    "bad_time": "the appointment_request time is not a valid future time inside CLINIC HOURS; offer OPEN TIMES and ask instead, or fix the date and time.",
 }
 
 
@@ -180,7 +185,13 @@ def schedule_block(db: Session, contact: Contact | None) -> tuple[str, dict[str,
     """Open times (A1) and this client's own upcoming appointments (A2), from the Calendar, as the model's only source for times."""
     from app.assistant import booking
     texts: dict[str, str] = {}
-    lines: list[str] = []
+    from app.services import timeutil as _tu
+    now = _tu.local(_tu.now_utc())
+    hours = booking.get_hours(db)
+    names = {"mon": "Mon", "tue": "Tue", "wed": "Wed", "thu": "Thu", "fri": "Fri", "sat": "Sat", "sun": "Sun"}
+    week = "; ".join(f"{names[d]} " + (", ".join(f"{a} to {b}" for a, b in hours['days'].get(d, [])) or "closed") for d in booking.DAYS)
+    texts["A0"] = f"Today is {now.strftime('%A %B %d %Y, %H:%M')}. Clinic hours: {week}."
+    lines: list[str] = ["", f"TODAY [A0]: {now.strftime('%A %Y-%m-%d, %H:%M')} (Vancouver time). CLINIC HOURS: {week}."]
     times = booking.availability(db)
     if times:
         texts["A1"] = "Open times: " + "; ".join(f"{i}. {booking.label(t)}" for i, t in enumerate(times, 1))
@@ -277,14 +288,29 @@ def check(data: dict[str, Any], texts: dict[str, str], client_text: str) -> dict
     needs_human = data.get("needs_human") is True
     ids = [str(i) for i in (data.get("knowledge_ids") or []) if isinstance(i, (str, int))]
     ids = [i for i in ids if i in texts]  # a made-up id supports nothing; drop it (an answer still needs a real source below)
-    if answered and not needs_human and not any(i[0] in "KFA" for i in ids):
+    appt = None
+    a = data.get("appointment_request") if isinstance(data.get("appointment_request"), dict) else {}
+    if a.get("wanted"):
+        from datetime import date as _date
+        try:
+            d = _date.fromisoformat(str(a.get("date")))
+            hh, mm = (int(x) for x in str(a.get("time")).split(":")[:2])
+            appt = {"date": d, "hour": hh, "minute": mm, "visit": re.sub(r"\s+", " ", str(a.get("visit") or "")).strip()[:60]}
+        except (ValueError, TypeError):
+            raise AiFailed("bad_time") from None
+    if answered and not needs_human and not appt and not any(i[0] in "KFA" for i in ids):
         raise AiFailed("no_source")
     reply = re.sub(r"\s*[\u2014\u2013]\s*", ", ", reply)  # house style: no long dashes in client texts
     cited = " ".join(texts[i] for i in ids).lower()
     if any(m.group(0).lower() not in cited for m in FORBIDDEN.finditer(reply)):  # wording copied from approved knowledge is fine
         raise AiFailed("medical_wording")
     allowed: list[Any] = [1]
-    for src in [texts[i] for i in ids] + [client_text]:
+    srcs = [texts[i] for i in ids] + [client_text]
+    if appt:  # the reply may name the requested day and time
+        from datetime import time as _time
+        srcs.append(f"{appt['date'].strftime('%A %B')} {appt['date'].day} {appt['date'].year} {appt['date'].isoformat()} "
+                    f"{_time(appt['hour'], appt['minute']).strftime('%I:%M %p').lstrip('0')} {appt['hour']}:{appt['minute']:02d}")
+    for src in srcs:
         nums, times = numbercheck.extract(src)
         allowed += nums + times
     ok, _bad = numbercheck.check(reply, allowed)
@@ -292,7 +318,21 @@ def check(data: dict[str, Any], texts: dict[str, str], client_text: str) -> dict
         raise AiFailed("number_not_in_knowledge")
     return {"reply": reply, "answered": answered and not needs_human, "needs_human": needs_human, "ids": ids,
             "reason": str(data.get("reason") or "")[:200], "usage": data.get("_usage") or {},
-            "task_title": str(data.get("task_title") or "")[:120], "task_note": str(data.get("task_note") or "")[:800]}
+            "task_title": str(data.get("task_title") or "")[:120], "task_note": str(data.get("task_note") or "")[:800], "appointment": appt}
+
+
+def _checked(db: Session, data: dict[str, Any], texts: dict[str, str], text: str) -> dict[str, Any]:
+    """check(), plus: a requested appointment must be a future time inside the clinic's hours (it becomes a request for staff)."""
+    from app.assistant import booking
+    from app.services import timeutil as _tu
+    out = check(data, texts, text)
+    a = out.get("appointment")
+    if a:
+        start = _tu.at_local(a["date"], a["hour"], a["minute"])
+        if not booking.within_hours(db, start) or start < _tu.now_utc() + __import__("datetime").timedelta(minutes=15):
+            raise AiFailed("bad_time")
+        a["start"] = start
+    return out
 
 
 def draft(db: Session, contact: Contact, text: str, note: str = "") -> dict[str, Any]:
@@ -307,7 +347,7 @@ def draft(db: Session, contact: Contact, text: str, note: str = "") -> dict[str,
     db.commit()  # release the database before waiting for the model (the inbound loop and the app share it)
     data = call(cfg, system, msgs)
     try:
-        out = check(data, texts, text)
+        out = _checked(db, data, texts, text)
     except AiFailed as first_try:
         if str(first_try) not in RETRY:
             raise
@@ -316,7 +356,7 @@ def draft(db: Session, contact: Contact, text: str, note: str = "") -> dict[str,
                       {"role": "user", "content": f"(System check: that reply was rejected: {RETRY[str(first_try)]} Write it again, still warm and natural, following the hard rules. "
                                                   "If the clinic knowledge does not cover it, set answered false, say kindly that a team member will check and get back to them, and fill task_title.)"}]
         data = call(cfg, system, fix)
-        out = check(data, texts, text)
+        out = _checked(db, data, texts, text)
     for i in out["ids"]:
         if i.startswith("P"):
             upsell.log(db, contact, int(i[1:]))

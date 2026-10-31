@@ -40,7 +40,8 @@ def setup(env, garg, auto=True, ai=True):
 
 
 def text_in(bridge, mid, frm, text):
-    (bridge / "send" / "inbound" / f"{mid}.json").write_text(json.dumps({"v": 1, "id": str(mid), "from": frm, "text": text, "at": "2026-10-31T12:00:00.000Z"}))
+    from app.services import timeutil  # "now", so demo messages in the seed data are never newer than the test's own texts
+    (bridge / "send" / "inbound" / f"{mid}.json").write_text(json.dumps({"v": 1, "id": str(mid), "from": frm, "text": text, "at": timeutil.iso(timeutil.now_utc())}))
 
 
 def run(env):
@@ -188,6 +189,10 @@ def not_opted_in(env, garg):
     with env.session() as s:
         c = s.get(Contact, a)
         c.sms_consent, c.display_name = "none", "Kartik Garg"
+        s.commit()
+    with env.session() as s:  # the demo data has its own lab-results entry; a tie between the two must not decide the test
+        for k in s.scalars(select(KnowledgeEntry).where(KnowledgeEntry.title.like("%lab result%"))).all():
+            k.status = "retired"
         s.commit()
     approve(env, "Lab results", "Results often arrive overnight. The doctor reviews them and then calls you.")
     return a

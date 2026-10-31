@@ -103,6 +103,41 @@ def remember_offer(db: Session, contact: Contact, times: list[datetime], visit_t
     db.flush()
 
 
+def within_hours(db: Session, start: datetime, minutes: int = 30) -> bool:
+    """Inside the clinic's hours that day (not a closed date) and within the next 120 days."""
+    cfg = get_hours(db)
+    loc = timeutil.local(start)
+    if loc.date().isoformat() in cfg["closed_dates"] or start > timeutil.now_utc() + timedelta(days=120):
+        return False
+    t0, t1 = loc.time(), (loc + timedelta(minutes=minutes)).time()
+    return any(_hm(a) <= t0 and t1 <= _hm(b) for a, b in cfg["days"].get(DAYS[loc.weekday()], []))
+
+
+def request_from_conversation(db: Session, contact: Contact, start: datetime, visit: str = "", how: str = "by text") -> CalendarEvent | None:
+    """A time the client asked for goes into the Calendar as REQUESTED with a task; a person reads the conversation and approves it."""
+    named = next((n for rx, n in VISIT_RULES if rx.search(visit or "")), None)
+    vt = db.scalar(select(VisitType).where(VisitType.name == named)) if named else None
+    minutes = vt.minutes if vt else 30
+    end = start + timedelta(minutes=minutes)
+    if db.scalar(select(CalendarEvent.id).where(CalendarEvent.contact_id == contact.id, CalendarEvent.status.in_(("booked", "requested")),
+                                                CalendarEvent.starts_at == start).limit(1)):
+        return None  # already asked for
+    taken = bool(_busy(db, start, end))
+    pet = db.scalar(select(Pet).where(Pet.contact_id == contact.id, Pet.status == "active").order_by(Pet.id).limit(1))
+    what = named or (visit.capitalize() if visit else "Appointment")
+    e = CalendarEvent(kind=KIND_FOR_VISIT.get(named or "", "checkup"), classification=contact.kind, title=f"{what}: {contact.display_name} (asked {how})"[:200],
+                      contact_id=contact.id, pet_id=pet.id if pet else None, starts_at=start, ends_at=end, status="requested", source="app")
+    db.add(e)
+    db.flush()
+    for o in db.scalars(select(SmsOffer).where(SmsOffer.contact_id == contact.id, SmsOffer.status == "offered")).all():
+        o.status = "requested"
+    _task(db, contact, f"Confirm text booking: {contact.display_name}, {label(start)}",
+          f"{what} asked for {how} at {label(start)}." + (" Another appointment already overlaps this time: check before approving." if taken else "")
+          + " Read the conversation, then approve it in the Calendar (it can text them) and enter it in ImproMed.")
+    ev.record(db, ev.CONTACTS, "booking_requested_by_text", f"An appointment was requested {how}: {contact.display_name}, {label(start)}", "AI assistant", "calendar_event", e.id)
+    return e
+
+
 def upcoming(db: Session, contact: Contact, n: int = 3) -> list[CalendarEvent]:
     return list(db.scalars(select(CalendarEvent).where(CalendarEvent.contact_id == contact.id, CalendarEvent.status.in_(("booked", "requested")),
                                                        CalendarEvent.starts_at >= timeutil.now_utc()).order_by(CalendarEvent.starts_at).limit(n)).all())
