@@ -209,3 +209,25 @@ def test_a_placeholder_name_is_never_used_and_offered_times_are_spread_out(env, 
         slots = json.loads(s.scalar(select(SmsOffer.slots_json).where(SmsOffer.contact_id == cid, SmsOffer.status == "offered")))
     a, b = (timeutil.datetime.fromisoformat(x) for x in slots[:2])
     assert abs(b - a) >= timedelta(hours=2)
+
+
+def test_ordinary_is_it_ok_questions_are_not_medical():
+    from app.assistant.replies import MEDICAL
+    assert not MEDICAL.search("Is it ok if I bring both my dogs?")
+    assert MEDICAL.search("Is my dog going to be okay?") and MEDICAL.search("What dose should I give?")
+
+
+def test_approved_wording_is_not_mistaken_for_medical_advice_and_dashes_are_removed():
+    texts = {"K1": "Please do not feed your pet from midnight. Water is fine."}
+    out = ai.check({"reply": "No food from midnight — water is fine.", "answered": True, "needs_human": False, "knowledge_ids": ["K1"], "reason": ""}, texts, "x")
+    assert out["reply"] == "No food from midnight, water is fine."
+    with pytest.raises(ai.AiFailed):
+        ai.check({"reply": "Don't worry, he is fine.", "answered": True, "needs_human": False, "knowledge_ids": ["K1"], "reason": ""}, texts, "x")
+
+
+def test_a_surgery_drop_off_raises_a_booking_task_for_the_team(env, bridge, garg):
+    cid = pilot(env, garg)
+    reply = say(env, bridge, "Hi I need to drop my dog Pluto for surgery")
+    assert reply and "contact you" in reply
+    with env.session() as s:
+        assert s.scalar(select(Task).where(Task.contact_id == cid, Task.kind == "booking", Task.title.like("Book by phone%"))) is not None

@@ -31,7 +31,7 @@ about any some more also get got need want know like ok okay""".split())
 PRICE_WORDS = {"price", "cost", "fee", "charge", "much", "pay", "quote"}
 MEDICAL = re.compile(
     r"\b(dose|dosage|how much (?:\w+ ){0,3}(?:give|should)|how many (?:mg|ml|pills|tablets)|\d+\s?(?:mg|ml|milligrams?)|can i give|is it safe to give|safe to give|"
-    r"should i give|what can i give|what should i give|diagnos\w*|what is wrong|what's wrong|is (?:he|she|it|my \w+) (?:ok|okay|fine|going to be)|will (?:he|she|it) be (?:ok|okay|fine)|"
+    r"should i give|what can i give|what should i give|diagnos\w*|what is wrong|what's wrong|is (?:he|she|my \w+) (?:ok|okay|fine|going to be)|is it (?:going to be|serious)|will (?:he|she|it) be (?:ok|okay|fine)|"
     r"is this normal|is that normal|do you think it is serious|should i be worried|what does it mean)\b", re.I)
 SKIP_CATEGORIES = {"laws_regulations"}
 MIN_SCORE = 2
@@ -157,6 +157,15 @@ def suggest(db: Session, contact: Contact, text: str, *, act: bool = False) -> d
                 "note": "This looks like a medical question, so the assistant does not answer it. A task was raised for the veterinary team."}
     from app.assistant import ai, booking, upsell
     b = booking.handle(db, contact, text, act=act)
+    if b is not None and b.get("team_books") and ai.allowed_for(db, contact):
+        # the team books this visit; the AI may still answer what they asked (drop-off times, fasting) around that fact
+        try:
+            r = ai.draft(db, contact, text, note=f"A {b['team_books'].lower()} is booked by our team, not by text. A task was raised; say warmly that someone will "
+                                               "contact them to set up a time, and answer anything else they asked only from the knowledge.")
+            if not r["needs_human"]:
+                return {**b, "draft": r["reply"], "sources": _titles(db, r["ids"]), "model": r["model"], "ai": True}
+        except ai.AiFailed:
+            pass
     if b is not None:
         if b.get("visit") and (p := upsell.pick(db, contact, text, b["visit"])):
             b["draft"] = f"{b['draft']} {upsell.line(p)}"

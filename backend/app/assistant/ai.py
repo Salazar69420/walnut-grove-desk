@@ -99,7 +99,7 @@ SCHEMA = {
 }
 FORBIDDEN = re.compile(
     r"\b(\d+\s?(mg|ml|milligrams?|millilit\w*|cc|tablets?|pills?|capsules?)|dose|dosage|diagnos\w*|ibuprofen|tylenol|acetaminophen|aspirin|benadryl|"
-    r"metacam|gabapentin|prednisone|apoquel|antibiotic\w*|is (fine|okay|ok|normal)|nothing to worry)\b", re.I)
+    r"metacam|gabapentin|prednisone|apoquel|antibiotic\w*|(he|she|they|it|pet|dog|cat|kitten|puppy) (is|'s|looks|seems|sounds) (fine|okay|ok|normal)|nothing to worry)\b", re.I)
 
 
 class AiFailed(Exception):
@@ -263,7 +263,9 @@ def check(data: dict[str, Any], texts: dict[str, str], client_text: str) -> dict
     ids = [i for i in ids if i in texts]  # a made-up id supports nothing; drop it (an answer still needs a real source below)
     if answered and not any(i[0] in "KFA" for i in ids):
         raise AiFailed("no_source")
-    if FORBIDDEN.search(reply):
+    reply = re.sub(r"\s*[\u2014\u2013]\s*", ", ", reply)  # house style: no long dashes in client texts
+    cited = " ".join(texts[i] for i in ids).lower()
+    if any(m.group(0).lower() not in cited for m in FORBIDDEN.finditer(reply)):  # wording copied from approved knowledge is fine
         raise AiFailed("medical_wording")
     allowed: list[Any] = [1]
     for src in [texts[i] for i in ids] + [client_text]:
@@ -277,11 +279,13 @@ def check(data: dict[str, Any], texts: dict[str, str], client_text: str) -> dict
             "task_title": str(data.get("task_title") or "")[:120], "task_note": str(data.get("task_note") or "")[:800]}
 
 
-def draft(db: Session, contact: Contact, text: str) -> dict[str, Any]:
-    """The checked AI reply for this contact's message. Raises AiFailed with a short code."""
+def draft(db: Session, contact: Contact, text: str, note: str = "") -> dict[str, Any]:
+    """The checked AI reply for this contact's message. Raises AiFailed with a short code. `note` is a fact from the code for this turn."""
     from app.assistant import upsell
     cfg = get_config(db)
     system, texts = system_prompt(db, upsell.eligible(db, contact, text), contact)
+    if note:
+        system += f"\n\nFOR THIS MESSAGE: {note}"
     started = time.monotonic()
     data = call(cfg, system, conversation(db, contact, text))
     out = check(data, texts, text)

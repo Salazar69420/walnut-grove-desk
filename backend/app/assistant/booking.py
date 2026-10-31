@@ -24,7 +24,7 @@ DAY_NAMES = {"monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3, "friday":
              "mon": 0, "tue": 1, "tues": 1, "wed": 2, "thu": 3, "thur": 3, "thurs": 3, "fri": 4, "sat": 5, "sun": 6}
 BOOK_RX = re.compile(r"\b(book|books|booking|bookings|appointments?|appts?|schedule|come in|bring (him|her|them|my \w+) in|see (the|a) (vet|doctor)|check-?ups?|"
                      r"availability|availabilities|available|opening|openings|slots?|spots?|free times?|any time|next week|vaccine appointment|"
-                     r"when (are|can) (you|we|i)|are you free|fit (us|me|him|her|them) in)\b", re.I)
+                     r"when (are|can) (you|we|i)|are you free|fit (us|me|him|her|them) in|drop (?:\w+ ){0,3}(?:off|for)|bring (?:\w+ ){0,3}in for)\b", re.I)
 VISIT_RULES = [
     (re.compile(r"\b(vaccin\w*|shots?|booster\w*|rabies)\b", re.I), "Vaccines"),
     (re.compile(r"\b(sick|not eating|vomit\w*|throwing up|diarrh\w*|limp\w*|itch\w*|ear|eye|lump|cough\w*|sneez\w*|rash)\b", re.I), "Sick visit"),
@@ -260,7 +260,7 @@ def handle(db: Session, contact: Contact, text: str, *, act: bool = True) -> dic
         visit = vt.name if vt else "visit"
         t = _task(db, contact, f"Book by phone: {contact.display_name} ({visit})", f"Asked by text to book a {visit.lower()}, which is not bookable by text.") if act else None
         return {"kind": "booking", "draft": str(T.booking_by_team(first, visit)), "sources": [], "task": {"id": t.id, "title": t.title} if t else None,
-                "note": "This visit type is not bookable by text, so the team books it."}
+                "note": "This visit type is not bookable by text, so the team books it.", "team_books": visit}
     return _offer(db, contact, vt, first, after=None, prefs=_prefs(text), act=act, text=text)
 
 
