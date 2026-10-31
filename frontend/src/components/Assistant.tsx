@@ -1,4 +1,5 @@
-import { FormEvent, useEffect, useRef, useState } from 'react'
+import { FormEvent, useCallback, useEffect, useRef, useState } from 'react'
+import { onEntity } from '../live'
 import { useNavigate } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
 import { useApp } from '../ctx'
@@ -21,11 +22,12 @@ export function Assistant() {
   const [turns, setTurns] = useState<{ role: 'user' | 'assistant'; content: string }[]>([])
   const box = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    api<{ greeting: string; chips: { key: string; question: string }[]; ai?: boolean }>('/assistant/chips', { quiet: true })
-      .then((r) => { setGreeting(r.greeting); setChips(r.chips || []); setAiOn(!!r.ai) })
-      .catch(() => {})
-  }, [])
+  const loadChips = useCallback(() => api<{ greeting: string; chips: { key: string; question: string }[]; ai?: boolean }>('/assistant/chips', { quiet: true })
+    .then((r) => { setGreeting(r.greeting); setChips(r.chips || []); setAiOn(!!r.ai); return !!r.ai })
+    .catch(() => false), [])
+  useEffect(() => { loadChips() }, [loadChips])
+  // an admin may switch AI for staff on or off while this panel is open
+  useEffect(() => onEntity('settings', () => { loadChips() }), [loadChips])
   useEffect(() => { box.current?.scrollTo({ top: box.current.scrollHeight }) }, [msgs])
 
   async function ask(body: { key?: string; text?: string }, shown: string) {
@@ -66,8 +68,9 @@ export function Assistant() {
     const t = q.trim()
     if (!t) return
     setQ('')
-    if (aiOn) chat(t)
-    else ask({ text: t }, t)
+    if (aiOn) { chat(t); return }
+    // check once more before falling back to the question buttons, in case AI was just switched on
+    loadChips().then((on) => (on ? chat(t) : ask({ text: t }, t)))
   }
   return (
     <aside className="assist" aria-label="Assistant">

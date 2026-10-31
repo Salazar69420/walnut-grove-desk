@@ -114,8 +114,17 @@ def t_contact(db: Session, user: User, contact_id: int = 0, **_) -> dict:
     }
 
 
-def t_tasks(db: Session, user: User, status: str = "active", priority: str = "", kind: str = "", limit: int = 20, **_) -> dict:
+def t_tasks(db: Session, user: User, status: str = "active", priority: str = "", kind: str = "", assigned: str = "", limit: int = 20, **_) -> dict:
     stmt = select(Task)
+    if assigned == "me":
+        stmt = stmt.where(Task.assigned_to == user.id)
+    elif assigned == "unassigned":
+        stmt = stmt.where(Task.assigned_to.is_(None))
+    elif assigned == "me_or_unassigned":
+        stmt = stmt.where(or_(Task.assigned_to == user.id, Task.assigned_to.is_(None)))
+    elif assigned:
+        u = db.scalar(select(User).where(func.lower(User.display_name) == assigned.lower()))
+        stmt = stmt.where(Task.assigned_to == (u.id if u else -1))
     stmt = stmt.where(Task.status.in_(("open", "in_progress"))) if status == "active" else stmt.where(Task.status == status) if status in ("open", "in_progress", "done") else stmt
     if priority in ("high", "normal", "low"):
         stmt = stmt.where(Task.priority == priority)
@@ -193,6 +202,66 @@ def t_report(db: Session, user: User, key: str = "agents", from_date: str = "", 
     a, b = _d(from_date, today - timedelta(days=29)), _d(to_date, today)
     out = fn(db, a, b)
     return {"report": key, "from": a.isoformat(), "to": b.isoformat(), **out}
+
+
+def t_system(db: Session, user: User, **_) -> dict:
+    """The server and the helpers, as far as the web app can see them. Nothing secret."""
+    import os
+    import shutil
+    from app import config as app_config
+    from app.api import admin_telus
+    cfg = app_config.get_settings()
+    repo = "/opt/walnut-desk"
+    commit = None
+    try:
+        head = open(os.path.join(repo, ".git", "HEAD")).read().strip()
+        commit = open(os.path.join(repo, ".git", head[5:])).read().strip()[:7] if head.startswith("ref: ") else head[:7]
+    except OSError:
+        pass
+    data_dir = os.path.dirname(cfg.db_path)
+    du = shutil.disk_usage(data_dir)
+    backups = []
+    try:
+        bdir = os.path.join(data_dir, "backups")
+        backups = sorted((f for f in os.listdir(bdir) if f.endswith(".gz")), reverse=True)
+    except OSError:
+        pass
+    st = admin_telus.read_status() or {}
+    conn, job = st.get("connection") or {}, st.get("job") or {}
+    def count(sub):
+        try:
+            return len([f for f in os.listdir(os.path.join(admin_telus._bridge(), *sub)) if f.endswith(".json")])
+        except OSError:
+            return None
+    since = timeutil.now_utc() - timedelta(hours=24)
+    last_in = db.scalar(select(func.max(Message.created_at)).where(Message.channel == "sms", Message.direction == "in"))
+    return {
+        "app_version": commit, "database_mb": round(os.path.getsize(cfg.db_path) / 1e6, 1),
+        "disk": {"used_percent": round(100 * du.used / du.total), "free_gb": round(du.free / 1e9, 1)},
+        "backups": {"count": len(backups), "latest": backups[0] if backups else None, "kept_days": 14},
+        "telus_read_helper": {"connection": conn.get("state"), "code": conn.get("code"), "checked_at": conn.get("checked_at"),
+                              "last_job": {"mode": job.get("mode"), "state": job.get("state"), "code": job.get("code"), "finished_at": job.get("finished_at")}},
+        "texting": {**sms_mode.get(db), "sends_waiting": count(("send", "requests")), "results_kept": count(("send", "results")),
+                    "last_text_in": timeutil.iso(last_in)},
+        "assistant_last_24h": {"automatic_replies": db.scalar(select(func.count()).select_from(Message).where(Message.sender_kind == "ai", Message.direction == "out", Message.created_at > since))},
+        "not_visible_here": "service states, the HTTPS certificate and memory are checked on the server with the walnut-health command",
+    }
+
+
+def t_users(db: Session, user: User, **_) -> dict:
+    from app.models import SessionRow
+    last = dict(db.execute(select(SessionRow.user_id, func.max(SessionRow.last_seen_at)).group_by(SessionRow.user_id)).all())
+    return {"staff": [{"name": u.display_name, "username": u.username, "role": u.role, "admin": u.is_admin, "active": u.active,
+                       "last_active": timeutil.iso(last.get(u.id))} for u in db.scalars(select(User).order_by(User.id)).all()]}
+
+
+def t_audit(db: Session, user: User, limit: int = 25, contains: str = "", **_) -> dict:
+    from app.models import Event
+    stmt = select(Event)
+    if contains:
+        stmt = stmt.where(Event.text.like(crm.like_pattern(contains), escape="\\"))
+    rows = db.scalars(stmt.order_by(Event.id.desc()).limit(min(int(limit or 25), 60))).all()
+    return {"entries": [{"at": timeutil.iso(e.ts), "area": e.tool, "who": e.actor_name, "what": e.text} for e in rows]}
 
 
 # ---------------------------------------------------------------- changes the model may propose (executed only on Confirm)
@@ -363,7 +432,8 @@ TOOLS: list[tuple[str, str, Callable, dict]] = [
     ("home.view", "clinic_overview", t_overview, _fn("clinic_overview", "Counts for today: contacts, open tasks, calendar, calls, texts, pending knowledge, and which assistant settings are on.")),
     ("contacts.view", "search", t_search, _fn("search", "Find contacts (by name, email or phone digits), pets, tasks and text messages.", {"query": {"type": "string"}}, ["query"])),
     ("contacts.view", "contact_details", t_contact, _fn("contact_details", "Everything about one contact: details, consent, pets, open tasks, upcoming appointments, recent messages.", {"contact_id": {"type": "integer"}}, ["contact_id"])),
-    ("tasks.view", "list_tasks", t_tasks, _fn("list_tasks", "Tasks. status: active, open, in_progress, done or all.", {"status": {"type": "string"}, "priority": {"type": "string"}, "kind": {"type": "string"}, "limit": {"type": "integer"}})),
+    ("tasks.view", "list_tasks", t_tasks, _fn("list_tasks", "Tasks. status: active (default), open, in_progress, done or all. assigned: me, unassigned, me_or_unassigned, a staff name, or empty for everyone.",
+                                            {"status": {"type": "string"}, "priority": {"type": "string"}, "kind": {"type": "string"}, "assigned": {"type": "string"}, "limit": {"type": "integer"}})),
     ("calendar.view", "calendar", t_calendar, _fn("calendar", "Appointments between two dates (default the next 7 days), whether booking by text is on, and the next open times.", {"from_date": DATE, "to_date": DATE})),
     ("phone.view", "phone_calls", t_calls, _fn("phone_calls", "Phone calls between two dates (default last 7 days) with totals by result. handled_by: human, ai or none. Notes only, never transcripts.",
                                              {"from_date": DATE, "to_date": DATE, "handled_by": {"type": "string"}, "result": {"type": "string"}, "contact_id": {"type": "integer"}, "limit": {"type": "integer"}})),
@@ -371,6 +441,9 @@ TOOLS: list[tuple[str, str, Callable, dict]] = [
     ("knowledge.view", "knowledge", t_knowledge, _fn("knowledge", "Clinic knowledge entries. status: approved, pending, declined, retired or all.", {"status": {"type": "string"}, "query": {"type": "string"}})),
     ("knowledge.view", "fees_and_products", t_fees, _fn("fees_and_products", "Fees and products with prices and status.", {"status": {"type": "string"}})),
     ("campaigns.view", "campaigns", t_campaigns, _fn("campaigns", "Text and email campaigns and their counts.")),
+    ("admin.settings", "system_status", t_system, _fn("system_status", "The server and app: version, database size, disk, backups, the TELUS helper, texting state and queue, recent assistant activity.")),
+    ("admin.users", "staff_list", t_users, _fn("staff_list", "Staff accounts: name, role, admin, active, last time they used the app.")),
+    ("admin.audit", "audit_log", t_audit, _fn("audit_log", "The latest entries of the audit log (who did what), including sign-ins and admin changes.", {"limit": {"type": "integer"}, "contains": {"type": "string"}})),
     ("reports.view", "report", t_report, _fn("report", "Run a report: agents, pending_knowledge, conversion, recall, call_volume or campaigns.", {"key": {"type": "string"}, "from_date": DATE, "to_date": DATE}, ["key"])),
 ]
 PROPOSE = _fn("propose_change", "Propose a change. It is shown to the person with a Confirm button and only happens if they press it. Actions and params: "
@@ -394,9 +467,15 @@ def tools_for(user: User) -> tuple[list[dict], dict[str, Callable]]:
 
 def system(user: User) -> str:
     now = timeutil.local(timeutil.now_utc())
+    owner = ""
+    if user.role == "owner":
+        owner = (f"\n{user.display_name} is the owner and head of the clinic. Give complete, direct answers with numbers, and look across every area their tools reach "
+                 f"(tasks, people, calls, texts, calendar, knowledge, reports, staff, audit log, system status). When they ask about \"my\" tasks, check tasks assigned to them "
+                 "AND unassigned tasks (they are responsible for those too) and say which is which.")
     return f"""You are the office assistant inside Walnut Grove Desk, the staff app of Walnut Grove Animal Hospital (a vet clinic in Langley, BC).
-You are talking with {user.display_name} ({user.role}). It is {now.strftime('%A %B %d %Y, %I:%M %p')} in Vancouver.
+You are talking with {user.display_name} ({user.role}). It is {now.strftime('%A %B %d %Y, %I:%M %p')} in Vancouver.{owner}
 - Use the tools to look things up. Never guess a number, name, date or setting; if a tool does not have it, say so.
+- Times in tool results are UTC (ending in Z or +00:00). Always say times in Vancouver time, never UTC.
 - Answer briefly in plain words. Use short bullet lines starting with "- " for lists. Mention contact names, not ids.
 - To change anything, call propose_change once per change with a clear one-sentence summary, then tell the person to press Confirm. Never say a change is done before they confirm.
 - You may suggest which knowledge to approve, but do not invent clinic facts; knowledge text should come from what the person tells you.

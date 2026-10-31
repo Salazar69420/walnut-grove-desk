@@ -113,3 +113,20 @@ def test_provider_failure_is_a_plain_message(env, garg, monkeypatch):
     monkeypatch.setattr(llm_adapter, "TRANSPORT", httpx.MockTransport(lambda r: httpx.Response(401, json={})))
     r = chat(garg, "hi")
     assert r.status_code == 502 and "question buttons still work" in r.json()["detail"]
+
+
+def test_owner_tools_and_personal_prompt(env, garg, priya, monkeypatch):
+    on(garg)
+    s = use(monkeypatch, [{"tools": [("system_status", {}), ("staff_list", {}), ("audit_log", {"limit": 5}), ("list_tasks", {"assigned": "me_or_unassigned"})]}, {"content": "ok"}])
+    chat(garg, "how is everything")
+    names = {t["function"]["name"] for t in s.requests[0]["tools"]}
+    assert {"system_status", "staff_list", "audit_log"} <= names
+    assert "owner and head of the clinic" in s.requests[0]["messages"][0]["content"]
+    tool_out = {m["tool_call_id"]: m["content"] for m in s.requests[1]["messages"] if m["role"] == "tool"}
+    assert "database_mb" in tool_out["c0"] and "sk-or" not in tool_out["c0"]
+    assert '"role": "owner"' in tool_out["c1"] and "password" not in tool_out["c1"]
+    assert '"entries"' in tool_out["c2"] and '"tasks"' in tool_out["c3"]
+    s2 = use(monkeypatch, [{"content": "ok"}])
+    chat(priya, "hi")
+    desk = {t["function"]["name"] for t in s2.requests[0]["tools"]}
+    assert not ({"system_status", "staff_list", "audit_log"} & desk) and "owner and head" not in s2.requests[0]["messages"][0]["content"]
