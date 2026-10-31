@@ -142,7 +142,8 @@ def t_calendar(db: Session, user: User, from_date: str = "", to_date: str = "", 
     rows = db.scalars(select(CalendarEvent).where(CalendarEvent.starts_at >= crm.local_day_start(a), CalendarEvent.starts_at < crm.local_day_start(b + timedelta(days=1)))
                       .order_by(CalendarEvent.starts_at).limit(80)).all()
     return {"from": a.isoformat(), "to": b.isoformat(), "events": [{"id": e.id, "title": e.title, "kind": e.kind, "status": e.status, "at": booking.label(crm.aware(e.starts_at)), "contact_id": e.contact_id} for e in rows],
-            "booking_by_text": booking.get_hours(db)["enabled"], "next_open_times": [booking.label(x) for x in booking.free_times(db, 30, n=5)]}
+            "booking_by_text": booking.get_hours(db)["enabled"], "next_open_times": [booking.label(x) for x in booking.free_times(db, 30, n=5)],
+            **({"open_30_minute_times_that_day": [booking.label(x) for x in booking.free_times(db, 30, n=40, day=a, staff=True)]} if a == b else {})}
 
 
 def t_calls(db: Session, user: User, from_date: str = "", to_date: str = "", handled_by: str = "", result: str = "", contact_id: int = 0, limit: int = 20, **_) -> dict:
@@ -292,6 +293,10 @@ def _a_task(db, user, p):
             t.status = p["status"]
             if t.status == "done":
                 t.done_at, t.done_by = timeutil.now_utc(), user.id
+                if t.raised_by == "ai":
+                    import threading
+                    from app.assistant import learn
+                    threading.Thread(target=learn.after_done, args=(t.id, user.id), daemon=True).start()
         if p.get("priority") in ("high", "normal", "low"):
             t.priority = p["priority"]
         if p.get("assign_to"):
@@ -434,7 +439,7 @@ TOOLS: list[tuple[str, str, Callable, dict]] = [
     ("contacts.view", "contact_details", t_contact, _fn("contact_details", "Everything about one contact: details, consent, pets, open tasks, upcoming appointments, recent messages.", {"contact_id": {"type": "integer"}}, ["contact_id"])),
     ("tasks.view", "list_tasks", t_tasks, _fn("list_tasks", "Tasks. status: active (default), open, in_progress, done or all. assigned: me, unassigned, me_or_unassigned, a staff name, or empty for everyone.",
                                             {"status": {"type": "string"}, "priority": {"type": "string"}, "kind": {"type": "string"}, "assigned": {"type": "string"}, "limit": {"type": "integer"}})),
-    ("calendar.view", "calendar", t_calendar, _fn("calendar", "Appointments between two dates (default the next 7 days), whether booking by text is on, and the next open times.", {"from_date": DATE, "to_date": DATE})),
+    ("calendar.view", "calendar", t_calendar, _fn("calendar", "Appointments between two dates (default the next 7 days), whether booking by text is on, and the next open times. Give the same date twice to get every open time that day.", {"from_date": DATE, "to_date": DATE})),
     ("phone.view", "phone_calls", t_calls, _fn("phone_calls", "Phone calls between two dates (default last 7 days) with totals by result. handled_by: human, ai or none. Notes only, never transcripts.",
                                              {"from_date": DATE, "to_date": DATE, "handled_by": {"type": "string"}, "result": {"type": "string"}, "contact_id": {"type": "integer"}, "limit": {"type": "integer"}})),
     ("messages.view", "recent_texts", t_texts, _fn("recent_texts", "The most recent text messages in and out, across everyone.", {"limit": {"type": "integer"}})),

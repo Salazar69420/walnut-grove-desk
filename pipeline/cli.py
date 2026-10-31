@@ -94,6 +94,10 @@ def build_parser() -> argparse.ArgumentParser:
     s = add("telus-match", "compare a transcripts CSV with the TELUS call log, counts only (--csv)")
     s.add_argument("--export", help="also write direction and result per matched recording to this file (for the app importer)")
 
+    s = add("telus-numbers", "caller numbers for recorded calls, for contacts found in recordings (read-only, counts only)")
+    s.add_argument("--since", required=True, help="ISO 8601 start, for example 2025-07-01")
+    s.add_argument("--export", required=True, help="file for the app (pipeline/app_numbers.py), usually in the bridge folder")
+
     s = add("telus-send-worker", "send the texts and start the calls the web app asked for (separate send credentials)")
     s.add_argument("--bridge", default="/var/lib/walnut-desk-telus", help="bridge folder shared with the app")
     s.add_argument("--inbound", action="store_true", help="first hand new incoming texts to the app (reply syncing)")
@@ -215,6 +219,15 @@ def main(argv: list[str] | None = None) -> int:
             print(f"error: {e}", file=sys.stderr)
             return 2
         return tmsg.run(creds, args.days)
+    if cmd == "telus-numbers":
+        from .telus import config as tcfg
+        from .telus import numbers as tnum
+        try:
+            creds = tcfg.load_credentials(paths.root)
+        except tcfg.TelusConfigError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 2
+        return tnum.run(creds, args.since, args.export)
     if cmd in ("telus-check", "telus-pull-calllog"):
         from .telus import config as tcfg
         try:

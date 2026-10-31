@@ -21,8 +21,9 @@ log = logging.getLogger("walnut.send")
 MAX_SCHEDULE_DAYS = 366
 
 
-def consent_problem(contact: Contact, channel: str) -> str | None:
-    """A plain sentence when this contact may not be written to on this channel, else None."""
+def consent_problem(contact: Contact, channel: str, *, optin: bool = False) -> str | None:
+    """A plain sentence when this contact may not be written to on this channel, else None.
+    optin=True is the one opt-in question sent right after a person texts us first: allowed before they have agreed, never after STOP."""
     if contact.erased_at is not None:
         return "This contact has been erased."
     if channel == "sms":
@@ -39,7 +40,7 @@ def consent_problem(contact: Contact, channel: str) -> str | None:
         return "Only texts and emails can be sent."
     if consent == "unsubscribed":
         return f"This contact unsubscribed from {word}. Nothing was sent."
-    if consent not in crm.CONSENT_CAN_SEND:
+    if consent not in crm.CONSENT_CAN_SEND and not (optin and channel == "sms" and consent == "none"):
         return f"This contact has not agreed to {word}. Ask for their consent first."
     return None
 
@@ -72,9 +73,10 @@ def send_to_contact(
     attachment_ids: list[int] | None = None,
     sender_kind: str = "staff",
     force_practice: bool = False,
+    optin: bool = False,
 ) -> Message:
     """Create a dry-run message. Raises CrmError(409) when consent or the address is missing."""
-    problem = consent_problem(contact, channel)
+    problem = consent_problem(contact, channel, optin=optin)
     if problem:
         raise crm.CrmError(409, problem)
     now = timeutil.now_utc()

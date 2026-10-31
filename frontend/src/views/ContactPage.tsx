@@ -6,6 +6,8 @@ import { Icon } from '../components/icons'
 import { GuestCard, type CardTab } from '../components/GuestCard'
 import { Timeline, useTimeline } from '../components/Timeline'
 import { Composer } from '../components/Composer'
+import { BookDialog } from '../components/BookDialog'
+import { useApp } from '../ctx'
 import { clock, dayLabel, firstName, ls, lsSet } from '../lib/fmt'
 import { VISIT_LABEL } from '../lib/types'
 
@@ -22,6 +24,8 @@ export function ContactPage() {
   const [view, setView] = useState<'chat' | 'card'>(sp.get('tab') ? 'card' : 'chat')
   const [open, setOpen] = useState(ls('wgd-card-open') !== '0')
   const [ch, setCh] = useState<Ch>('all')
+  const [booking, setBooking] = useState(false)
+  const { can } = useApp()
   const tl = useTimeline(id, ch)
   const staff = useStaff()
   void staff
@@ -64,6 +68,7 @@ export function ContactPage() {
           {c?.phone
             ? <a className="btn" href={`tel:${c.phone}`} title={`Call ${c.display_name} with your phone or softphone`}><Icon n="phone" size={16} /> Call</a>
             : <span title="No phone number on file" className="calltip"><button className="btn" disabled aria-disabled="true"><Icon n="phone" size={16} /> Call</button></span>}
+          {c && can('tasks.work') && <button className="btn primary" onClick={() => setBooking(true)} title={`Book an appointment for ${c.display_name}`}><Icon n="cal" size={16} /> <span className="hide-s">Book appointment</span></button>}
           {!stacked && <button className="btn" onClick={toggle} aria-expanded={open} aria-controls="gc-side"><Icon n={open ? 'chevR' : 'chevL'} size={16} /> Guest Card</button>}
         </div>
       </header>
@@ -81,6 +86,7 @@ export function ContactPage() {
         )}
         {(stacked ? view === 'card' : open) && <aside className="side-card" id="gc-side" aria-label={`Guest Card for ${c ? firstName(c.display_name) : 'contact'}`}>{card}</aside>}
       </div>
+      {c && <BookDialog open={booking} onClose={() => setBooking(false)} contact={c} pets={det.data?.pets || []} />}
     </div>
   )
 }

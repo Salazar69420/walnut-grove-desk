@@ -49,7 +49,7 @@ export function Composer({ contact, tl, onEditConsent }: { contact: Row; tl: TL;
 
   const chan = mode === 'sms' ? { has: !!contact.phone, consent: contact.sms_consent, thing: 'phone number', verb: 'text' } : { has: !!contact.email, consent: contact.email_consent, thing: 'email address', verb: 'email' }
   const blocked = mode !== 'note' && (!chan.has || bad(chan.consent))
-  const why = !chan.has ? `${fn} has no ${chan.thing} on file, so you cannot ${chan.verb} them.` : chan.consent === 'unsubscribed' ? `${fn} unsubscribed from ${chan.verb === 'text' ? 'texts' : 'emails'}. You cannot ${chan.verb} them.` : `${fn} has not agreed to ${chan.verb === 'text' ? 'texts' : 'emails'}. You cannot ${chan.verb} them until they do.`
+  const why = !chan.has ? `${fn} has no ${chan.thing} on file, so you cannot ${chan.verb} them.` : chan.consent === 'unsubscribed' ? `${fn} unsubscribed from ${chan.verb === 'text' ? 'texts' : 'emails'}. You cannot ${chan.verb} them.` : chan.verb === 'text' ? `${fn} is not opted in to texts yet. When they text the clinic, they are asked to reply Y, and you can text them once they do.` : `${fn} has not agreed to emails. You cannot email them until they do.`
   const len = body.length
   const segs = Math.ceil(len / 160)
   const uploading = atts.some((a) => a.state === 'up')

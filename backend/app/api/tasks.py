@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
@@ -127,7 +127,7 @@ def create_task(body: TaskIn, user: User = Depends(require("tasks.work")), db: S
 
 
 @router.patch("/{task_id}")
-def patch_task(task_id: int, body: TaskPatch, user: User = Depends(require("tasks.work")), db: Session = Depends(get_db)):
+def patch_task(task_id: int, body: TaskPatch, background: BackgroundTasks, user: User = Depends(require("tasks.work")), db: Session = Depends(get_db)):
     t = _get(db, task_id)
     if body.expected_status is not None and body.expected_status != t.status:
         raise HTTPException(status_code=409, detail="Someone else just changed this task. Reload to see the latest.")
@@ -169,7 +169,12 @@ def patch_task(task_id: int, body: TaskPatch, user: User = Depends(require("task
     text = notes[0] if len(notes) == 1 else f"{user.display_name} updated a task"
     ev.record(db, ev.TASKS, "task_updated", text, user, "task", t.id, {"status": t.status, "priority": t.priority})
     db.commit()
-    return {"item": crm.task_dicts(db, [t])[0]}
+    out = {"item": crm.task_dicts(db, [t])[0]}
+    if t.status == "done" and t.raised_by == "ai":
+        from app.assistant import learn
+        db.commit()  # end this session's read so the learning step can write
+        background.add_task(learn.after_done, t.id, user.id)  # may suggest knowledge from how the person handled it
+    return out
 
 
 @router.post("/{task_id}/take")

@@ -54,8 +54,11 @@ def say(env, bridge, text):
     return json.loads(new[0].read_text())["text"] if new else None
 
 
-def test_booking_is_off_until_the_owner_turns_it_on(env, bridge, garg):
+def test_the_clinic_hours_are_the_default_and_booking_by_text_can_be_switched_off(env, bridge, garg):
     setup(env, garg, hours=False)
+    h = garg.get("/api/calendar/booking-hours").json()
+    assert h["enabled"] is True and h["days"]["mon"] == [["08:30", "19:00"]] and h["days"]["sat"] == h["days"]["sun"] == [["09:00", "17:00"]]
+    assert garg.put("/api/calendar/booking-hours", {"enabled": False}).status_code == 200
     reply = say(env, bridge, "Can I book a check-up?")
     assert reply and "1)" not in reply
     with env.session() as s:
@@ -75,7 +78,7 @@ def test_offer_then_pick_creates_a_requested_appointment_and_a_task(env, bridge,
         o = s.scalar(select(SmsOffer).where(SmsOffer.contact_id == cid))
         second = json.loads(o.slots_json)[1]
     reply = say(env, bridge, "2 please")
-    assert "requested" in reply and booking.label(booking.crm.aware(booking.datetime.fromisoformat(second))) in reply
+    assert "put in a request" in reply and booking.label(booking.crm.aware(booking.datetime.fromisoformat(second))) in reply
     with env.session() as s:
         e = s.scalar(select(CalendarEvent).where(CalendarEvent.contact_id == cid))
         assert e.status == "requested" and timeutil.iso(booking.crm.aware(e.starts_at)) == second and e.kind == "vaccine"
@@ -144,8 +147,7 @@ def test_staff_confirm_a_text_booking_and_can_text_the_client(env, bridge, garg,
     say(env, bridge, "1")
     with env.session() as s:
         eid = s.scalar(select(CalendarEvent.id).where(CalendarEvent.contact_id == cid))
-    assert anita.post(f"/api/calendar/events/{eid}/confirm", {"notify": True}).status_code == 403
-    r = garg.post(f"/api/calendar/events/{eid}/confirm", {"notify": True}).json()
+    r = anita.post(f"/api/calendar/events/{eid}/confirm", {"notify": True}).json()  # any staff member can approve
     assert r["item"]["status"] == "booked" and r["texted"] == "queued"
     assert garg.post(f"/api/calendar/events/{eid}/confirm", {}).status_code == 409
 

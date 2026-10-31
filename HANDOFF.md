@@ -256,7 +256,7 @@ Two people (each with their own fresh Claude Code session) work in this repo. Th
 - **Last updated:** 2026-10-31 (session 3)
 - **Branch / commit:** `main`. Everything through the Calendar, Knowledge, Phone, Campaigns and Reports frontend is committed (`git log --oneline -8`). Check `git status -sb` against `origin/main` before starting.
 - **Deployed.** The owner ran the build, restarted `walnut-desk` (05:09 UTC, migration 0004 applied) and seeded the new demo tables (23 knowledge entries, 5 fees, 70 calls, 3 campaigns). `walnut-health` all green, new routes answer 401 when signed out. Note: restarting while people have the app open makes systemd wait about 90 s for the live-update (SSE) connections to close, during which the site returns 502; this is normal.
-- **Tests last run:** backend 290 passed (this session); frontend `npm run build` zero type errors; new screens checked in a real browser (Chromium) against a throwaway local copy (owner and desk, desktop and phone width, no console errors except the normal pre-login 401). Not yet checked on the live URL.
+- **Tests last run:** backend 407 passed, pipeline 286 passed (session 3, latest); frontend `npm run build` zero type errors; new screens checked in a real browser (Chromium) against a throwaway local copy (owner and desk, desktop and phone width, no console errors except the normal pre-login 401). Not yet checked on the live URL.
 - **Uncommitted work:** none after the session 3 handoff commit.
 
 ### 11.3 Open work / who is doing what
@@ -273,6 +273,17 @@ Two people (each with their own fresh Claude Code session) work in this repo. Th
 Backlog lives in section 7 (known gaps) and section 8 (next steps).
 
 ### 11.4 Journal (newest first)
+
+**2026-10-31 UTC, session 3 (latest): opt-in by text, Book appointment, open times for the assistant, smart tasks, learning from closed tasks**
+- Opt-in (`app/services/inbound.py`): new numbers get `sms_consent = none` ("Not opted in" in the UI). When someone who is not opted in texts us, they get ONE opt-in question (at most once a day, never unprompted); Y/YES/OK after we asked sets consent to care messages, sends a thank-you, then answers the question they asked before. Staff cannot text them until then (Composer explains why). Automatic replies skip anyone not opted in.
+- Numbers for contacts found in call recordings: `telus-numbers --since 2025-07-01 --export <bridge>/numbers.json` (pipeline, read-only client, counts only) then `python -m pipeline.app_numbers --numbers <file>` (app user; deletes the file). A contact gets a number only if all its calls agree on one number and nobody else has it; consent stays "none". Needs the read-only TELUS app first (same blocker as playback). Not run yet.
+- Texts no longer carry "(Walnut Grove automated assistant)". Templates and the default base prompt are warmer and honest (says it is the automated assistant only if asked). A stored copy of the old default prompt is swapped for the new one automatically.
+- Book appointment button in the contact header (`components/BookDialog.tsx`): visit, pet, 21-day strip plus any date, open times from `GET /api/calendar/open-times`, `POST /api/calendar/book` (any staff, `tasks.work`, conflict and hours checked, optional confirmation text). Clinic hours are now the default: Mon-Fri 8:30-19:00, Sat-Sun 9:00-17:00, booking by text ON by default (the live setting still has to be saved once, see below). Any staff member can approve a text booking (`confirm` now needs `tasks.work`), which also closes its "Confirm text booking" task.
+- AI context: OPEN TIMES [A1] and THEIR APPOINTMENTS [A2] are in the prompt; the AI may tell a client open times and, on an automatic reply that cites A1, those times are remembered so "2" or "the 9 am" books a REQUESTED appointment for staff approval. `BOOK_RX` knows plurals and availability words.
+- Smarter tasks: the AI returns `task_title` and `task_note` and must raise a task whenever in doubt.
+- Learning (`app/assistant/learn.py`): when a person closes a task the AI raised (missing answer or hand-over) and a staff member replied to the client after it was raised, the model reads the question and the reply and may suggest ONE general entry, filed as PENDING in Knowledge & Fees ("Learned from how X handled a task"). Skipped for anything personal (names, pet names), medical, or with no staff reply. Pilot contacts only.
+- Tasks screen: "Who it is about" card fixed (avatar no longer stretched).
+- Tests 407 backend, 286 pipeline.
 
 **2026-10-31 UTC, session 3 (latest): staff assistant with AI tools and confirm-to-change**
 - `app/assistant/staff_agent.py`, routes `POST /api/assistant/chat`, `/api/assistant/proposals/{id}/confirm|cancel`; panel `frontend/src/components/Assistant.tsx`; switch "AI for staff" (`assistant_ai.staff_enabled`, off by default, needs the OpenRouter key). Tools are filtered by the person's permissions; the model can only propose changes (kept 15 minutes in memory, single worker); Confirm re-checks the permission. Fixed: a refused confirm by another person no longer deletes the proposal.

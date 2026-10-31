@@ -1,7 +1,7 @@
 """Automatic replies to incoming texts. A pilot: ONLY for numbers on the texting test list, whatever the mode.
 
 The reply is exactly what "Suggest reply" would draft (app/assistant/replies.py: emergency first, no medical advice, approved
-knowledge only, a task when it does not know), signed as the automated assistant, and sent through the one send path, so consent,
+knowledge only, a task when it does not know), and sent through the one send path, so consent,
 the texting mode and the helper's own checks all still apply. At most MAX_PER_HOUR automatic replies per person, to stop loops
 with other automatic senders.
 """
@@ -35,6 +35,8 @@ def why_not(db: Session, contact: Contact) -> str | None:
         return "practice_mode"
     if not contact.phone or contact.phone not in m["test_numbers"]:
         return "not_a_test_number"
+    if contact.sms_consent not in crm.CONSENT_CAN_SEND:
+        return "not_opted_in"
     if not contact.ai_enabled:
         return "assistant_off_for_person"
     since = timeutil.now_utc() - timedelta(hours=1)

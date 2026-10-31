@@ -158,13 +158,13 @@ export function CalendarPage() {
         {list.data && events.length === 0 && <Empty icon="cal" title="Nothing here" text={all.length ? 'No events match these filters.' : 'No events in this range.'} />}
       </section>
 
-      <EventSheet ev={open} onClose={() => setOpen(null)} onChanged={() => { list.reload(); setOpen(null) }} canEdit={can('calendar.edit')} toast={toast} />
+      <EventSheet ev={open} onClose={() => setOpen(null)} onChanged={() => { list.reload(); setOpen(null) }} canEdit={can('calendar.edit')} canConfirm={can('tasks.work')} toast={toast} />
       <CreateSheet start={creating} onClose={() => setCreating(null)} onSaved={() => { setCreating(null); list.reload(); toast('Event added') }} staff={staff} />
     </div>
   )
 }
 
-function EventSheet({ ev, onClose, onChanged, canEdit, toast }: { ev: Ev | null; onClose: () => void; onChanged: () => void; canEdit: boolean; toast: (m: string) => void }) {
+function EventSheet({ ev, onClose, onChanged, canEdit, canConfirm, toast }: { ev: Ev | null; onClose: () => void; onChanged: () => void; canEdit: boolean; canConfirm: boolean; toast: (m: string) => void }) {
   async function setStatus(status: string) {
     if (!ev) return
     try { await api(`/calendar/events/${ev.id}`, { method: 'PATCH', body: { status }, quiet: true }); toast(status === 'cancelled' ? 'Event cancelled' : status === 'done' ? 'Marked done' : 'Event updated'); onChanged() }
@@ -182,7 +182,7 @@ function EventSheet({ ev, onClose, onChanged, canEdit, toast }: { ev: Ev | null;
             {ev.staff && <><dt>With</dt><dd>{ev.staff.display_name}</dd></>}
           </dl>
           {ev.source === 'import' && <p className="note">Imported appointments are read only. Change them in ImproMed.</p>}
-          {canEdit && ev.status === 'requested' && <ConfirmBox ev={ev} onDone={onChanged} toast={toast} />}
+          {canConfirm && ev.status === 'requested' && <ConfirmBox ev={ev} onDone={onChanged} toast={toast} />}
           {canEdit && ev.source === 'app' && (
             <div className="rowbtn">
               {ev.status !== 'done' && ev.status !== 'cancelled' && <button className="btn okb" onClick={() => setStatus('done')}>Mark done</button>}
@@ -256,7 +256,7 @@ function ConfirmBox({ ev, onDone, toast }: { ev: Ev; onDone: () => void; toast: 
   }
   return (
     <div className="pvw">
-      <p><b>Requested by text.</b> Check the time works, confirm it here, and enter it in ImproMed.</p>
+      <p><b>Requested by text, waiting for approval.</b> Any team member can approve it. Check the time works, confirm it here, and enter it in ImproMed.</p>
       {ev.contact && <label className="ck"><input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} /> Text {ev.contact.display_name} that it is confirmed</label>}
       <div className="rowbtn"><button className="btn primary" onClick={go}>Confirm booking</button></div>
     </div>

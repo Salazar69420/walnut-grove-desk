@@ -181,40 +181,60 @@ def summary_booking(pet: str | None, visit: str, slot_label: str) -> str:
 
 # ---------------------------------------------------------------- staff-reviewed reply drafts (the assistant only suggests; a person sends)
 def reply_answers(first: str, bodies: list[str]) -> Tpl:
-    """Approved clinic knowledge, word for word, in a short wrapper."""
+    """Approved clinic knowledge, word for word, in a short friendly wrapper."""
     body = " ".join(b.strip() for b in bodies if b.strip())
-    return _t(f"Hi {first}, thanks for your message. {body} If there is anything else, just reply here.")
+    return _t(f"Hi {first}! {body} Let me know if there is anything else I can help with.")
 
 
 def reply_followup(first: str) -> Tpl:
-    return _t(f"Hi {first}, thanks for your message. We want to give you the right answer, so a member of our team will get back to you shortly.")
+    return _t(f"Hi {first}, thanks for reaching out. I want to make sure you get the right answer, so I have passed this to our team and someone will get back to you soon.")
 
 
-def reply_medical(first: str) -> Tpl:
+def reply_medical(first: str, pet: str | None = None) -> Tpl:
+    who = pet or "your pet"
     return _t(
-        f"Hi {first}, thanks for letting us know. We cannot give medical advice or medicine amounts by text. "
-        "A member of our veterinary team will call you as soon as they can. If your pet seems to be getting worse, "
-        "please contact an emergency veterinarian."
+        f"Hi {first}, thank you for letting us know, and I am sorry {who} is not feeling well. I cannot give medical advice by text, "
+        f"so I have asked our veterinary team to call you as soon as they can. If {who} gets worse or you are worried, please contact an emergency vet right away."
     )
+
+
+def emergency_text(first: str, pet: str | None, hospital: dict | None) -> Tpl:
+    """The text-message version of the emergency answer: the same safety content as emergency(), said kindly."""
+    who = pet or "your pet"
+    if hospital is None:
+        where = "Please contact the nearest emergency veterinarian right now."
+    else:
+        name = hospital.get("name", "").strip()
+        where = f"Please go to {name} now" + (f", they are at {hospital['address'].strip()}" if (hospital.get("address") or "").strip() else "") + \
+                (f" and their number is {hospital['phone'].strip()}" if (hospital.get("phone") or "").strip() else "") + "."
+    return _t(f"{first}, I am so sorry, that sounds like {who} needs a vet right away. {where} Our team will follow up with you as soon as we can.")
+
+
+def optin_prompt() -> Tpl:
+    return _t("Hi, this is Walnut Grove Animal Hospital, thanks for your text! To get replies from us by text, please reply Y. You can reply STOP at any time.")
+
+
+def optin_confirmed(first: str) -> Tpl:
+    return _t(f"Thank you, {first}! You are all set to get texts from us. You can reply STOP at any time.")
 
 
 # ---------------------------------------------------------------- booking by text (times always come from the code, never from a model)
 def booking_offer(first: str, visit: str, labels: list[str]) -> Tpl:
     opts = " ".join(f"{i}) {l}." for i, l in enumerate(labels, 1))
-    return _t(f"Hi {first}, I can request a {visit.lower()} for you at one of these times: {opts} Reply 1, 2 or 3, or tell me another day that suits you.")
+    return _t(f"Hi {first}, happy to help! These times are open for a {visit.lower()}: {opts} Just reply 1, 2 or 3, or tell me a day that works better for you.")
 
 
 def booking_requested(first: str, label: str, pet: str | None) -> Tpl:
     who = f" for {pet}" if pet else ""
-    return _t(f"Thanks {first}, I have requested {label}{who}. A member of the team will confirm it by text shortly.")
+    return _t(f"Perfect, {first}! I have put in a request for {label}{who}. One of our team will confirm it with you by text shortly.")
 
 
 def booking_none(first: str, visit: str) -> Tpl:
-    return _t(f"Hi {first}, I could not find an open time for a {visit.lower()} online just now. A member of the team will contact you to book.")
+    return _t(f"Hi {first}, I am sorry, I could not find an open time for a {visit.lower()} just now. Someone from our team will reach out to find a time that works for you.")
 
 
 def booking_by_team(first: str, visit: str) -> Tpl:
-    return _t(f"Hi {first}, a {visit.lower()} needs a quick chat with our team first, so someone will contact you to book it.")
+    return _t(f"Hi {first}, a {visit.lower()} needs a quick chat with our team first, so someone will contact you soon to set it up.")
 
 
 def booking_confirmed(first: str, label: str, pet: str | None) -> Tpl:
@@ -222,12 +242,11 @@ def booking_confirmed(first: str, label: str, pet: str | None) -> Tpl:
     return _t(f"Hi {first}, your appointment{who} on {label} is confirmed. See you then. Walnut Grove Animal Hospital")
 
 
-AUTO_SIGNATURE = " (Walnut Grove automated assistant)"
+AUTO_SIGNATURE = ""  # the owner chose no tag; the assistant still says it is automated whenever asked (see assistant/ai.py RULES)
 
 
 def auto_signed(text: str) -> Tpl:
-    """Every text the assistant sends by itself says it is automated."""
-    return _t(text.rstrip() + AUTO_SIGNATURE)
+    return _t(text.rstrip())
 
 
 def all_client_templates() -> list[str]:
@@ -238,7 +257,7 @@ def all_client_templates() -> list[str]:
             msg_prompt, done_cb, done_booking_off, done_visit_front_desk, done_change, done_refill, done_msg,
             done_msg_off, advice_refusal, too_long, finished,
         )
-    ] + [str(reply_followup("there")), str(reply_medical("there"))]
+    ] + [str(reply_followup("there")), str(reply_medical("there")), str(optin_prompt()), str(emergency_text("there", None, None))]
 
 
 def slot_label(label: str) -> Tpl:

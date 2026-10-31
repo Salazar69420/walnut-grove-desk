@@ -22,8 +22,9 @@ OFFER_HOURS = 3
 DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 DAY_NAMES = {"monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3, "friday": 4, "saturday": 5, "sunday": 6,
              "mon": 0, "tue": 1, "tues": 1, "wed": 2, "thu": 3, "thur": 3, "thurs": 3, "fri": 4, "sat": 5, "sun": 6}
-BOOK_RX = re.compile(r"\b(book|booking|appointment|appt|schedule|come in|bring (him|her|them|my \w+) in|see (the|a) (vet|doctor)|check-?up|"
-                     r"availability|available|opening|openings|any time|next week|vaccine appointment)\b", re.I)
+BOOK_RX = re.compile(r"\b(book|books|booking|bookings|appointments?|appts?|schedule|come in|bring (him|her|them|my \w+) in|see (the|a) (vet|doctor)|check-?ups?|"
+                     r"availability|availabilities|available|opening|openings|slots?|spots?|free times?|any time|next week|vaccine appointment|"
+                     r"when (are|can) (you|we|i)|are you free|fit (us|me|him|her|them) in)\b", re.I)
 VISIT_RULES = [
     (re.compile(r"\b(vaccin\w*|shots?|booster\w*|rabies)\b", re.I), "Vaccines"),
     (re.compile(r"\b(sick|not eating|vomit\w*|throwing up|diarrh\w*|limp\w*|itch\w*|ear|eye|lump|cough\w*|sneez\w*|rash)\b", re.I), "Sick visit"),
@@ -35,9 +36,10 @@ OTHER_RX = re.compile(r"\b(other|another|different|none|neither|no good|don'?t w
 
 
 def defaults() -> dict[str, Any]:
-    weekday = [["09:00", "17:30"]]
-    return {"enabled": False, "slot_minutes": 30, "lead_minutes": 120, "horizon_days": 14, "closed_dates": [],
-            "days": {"mon": weekday, "tue": weekday, "wed": weekday, "thu": weekday, "fri": weekday, "sat": [["09:00", "13:30"]], "sun": []}}
+    # The clinic's hours as the owner gave them: Mon to Fri 8:30 am to 7 pm, Sat and Sun 9 am to 5 pm.
+    weekday, weekend = [["08:30", "19:00"]], [["09:00", "17:00"]]
+    return {"enabled": True, "slot_minutes": 30, "lead_minutes": 120, "horizon_days": 14, "closed_dates": [],
+            "days": {"mon": weekday, "tue": weekday, "wed": weekday, "thu": weekday, "fri": weekday, "sat": weekend, "sun": weekend}}
 
 
 def get_hours(db: Session) -> dict[str, Any]:
@@ -84,6 +86,28 @@ def put_hours(db: Session, body: dict[str, Any], by: str) -> dict[str, Any]:
     return cfg
 
 
+KIND_FOR_VISIT = {"Vaccines": "vaccine", "Dental consult": "dental", "Surgery drop-off": "surgery", "Sick visit": "consult"}
+
+
+def availability(db: Session, minutes: int = 30, n: int = 4) -> list[datetime]:
+    """The next open times the assistant may tell a client about (empty when booking by text is off)."""
+    return free_times(db, minutes, n=n) if get_hours(db)["enabled"] else []
+
+
+def remember_offer(db: Session, contact: Contact, times: list[datetime], visit_type_id: int | None = None) -> None:
+    """Times the assistant just told a client about, so "2" or "the 10 am" in their next text books that time."""
+    for old in db.scalars(select(SmsOffer).where(SmsOffer.contact_id == contact.id, SmsOffer.status == "offered")).all():
+        old.status = "expired"
+    db.add(SmsOffer(contact_id=contact.id, visit_type_id=visit_type_id, slots_json=json.dumps([timeutil.iso(x) for x in times]), status="offered",
+                    created_at=timeutil.now_utc()))
+    db.flush()
+
+
+def upcoming(db: Session, contact: Contact, n: int = 3) -> list[CalendarEvent]:
+    return list(db.scalars(select(CalendarEvent).where(CalendarEvent.contact_id == contact.id, CalendarEvent.status.in_(("booked", "requested")),
+                                                       CalendarEvent.starts_at >= timeutil.now_utc()).order_by(CalendarEvent.starts_at).limit(n)).all())
+
+
 def label(dt: datetime) -> str:
     loc = timeutil.local(dt)
     h = loc.strftime("%I:%M %p").lstrip("0").lower().replace(":00 ", " ")
@@ -97,12 +121,15 @@ def _busy(db: Session, start: datetime, end: datetime) -> list[tuple[datetime, d
 
 
 def free_times(db: Session, minutes: int, *, n: int = 3, after: datetime | None = None, weekday: int | None = None, day: date | None = None,
-               part: str | None = None) -> list[datetime]:
+               part: str | None = None, staff: bool = False) -> list[datetime]:
+    """Open times. staff=True is a person booking in the app: no lead time and no horizon, only the past and the Calendar block a time."""
     cfg = get_hours(db)
     now = timeutil.now_utc()
-    earliest = max(now + timedelta(minutes=cfg["lead_minutes"]), after or now)
+    earliest = max(now + timedelta(minutes=0 if staff else cfg["lead_minutes"]), after or now)
     today = timeutil.today_local(now)
-    horizon = today + timedelta(days=cfg["horizon_days"])
+    horizon = max(day, today) if (staff and day) else today + timedelta(days=cfg["horizon_days"])
+    if day and day > horizon:
+        return []
     busy = _busy(db, crm.local_day_start(today), crm.local_day_start(horizon + timedelta(days=1)))
     step = cfg["slot_minutes"]
     out: list[datetime] = []
@@ -210,7 +237,7 @@ def handle(db: Session, contact: Contact, text: str, *, act: bool = True) -> dic
             minutes = vt.minutes if vt else 30
             pet = db.scalar(select(Pet).where(Pet.contact_id == contact.id, Pet.status == "active").order_by(Pet.id).limit(1))
             visit = vt.name if vt else "Appointment"
-            e = CalendarEvent(kind="vaccine" if visit == "Vaccines" else "checkup", classification=contact.kind, title=f"{visit}: {contact.display_name} (asked by text)",
+            e = CalendarEvent(kind=KIND_FOR_VISIT.get(visit, "checkup"), classification=contact.kind, title=f"{visit}: {contact.display_name} (asked by text)",
                               contact_id=contact.id, pet_id=pet.id if pet else None, starts_at=pick, ends_at=pick + timedelta(minutes=minutes), status="requested", source="app")
             db.add(e)
             db.flush()

@@ -179,7 +179,7 @@ function Detail({ t, onBack, staff, update, take, can }: { t: Task; onBack?: () 
       {t.contact && (
         <section className="td-s">
           <h4>Who it is about</h4>
-          <Link className="td-p" to={`/contacts/${t.contact.id}`}><Avatar name={t.contact.display_name} initials={t.contact.initials} hue={t.contact.avatar_hue} size={40} /><span><b>{t.contact.display_name}</b> <KindBadge kind={t.contact.kind} /><small>Open the conversation</small></span><Icon n="chevR" size={16} /></Link>
+          <Link className="td-p" to={`/contacts/${t.contact.id}`}><Avatar name={t.contact.display_name} initials={t.contact.initials} hue={t.contact.avatar_hue} size={40} /><span className="td-t"><b>{t.contact.display_name}</b><KindBadge kind={t.contact.kind} /><small>Open the conversation</small></span><Icon n="chevR" size={16} /></Link>
         </section>
       )}
       {can && (

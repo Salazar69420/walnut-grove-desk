@@ -4,9 +4,10 @@ from __future__ import annotations
 import csv
 import io
 import re
+from datetime import date, datetime, timedelta
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -15,9 +16,9 @@ from app.aftercare import templates as T
 from app.api.schemas import Strict
 from app.assistant import booking, upsell
 from app.db import get_db
-from app.models import CalendarEvent, Contact, Pet, Product, User
+from app.models import CalendarEvent, Contact, Pet, Product, SmsOffer, Task, User, VisitType
 from app.security.auth import require
-from app.services import crm, sender, settings_store
+from app.services import crm, sender, settings_store, timeutil
 from app.services import events as ev
 
 router = APIRouter(prefix="/api", tags=["booking"])
@@ -55,27 +56,110 @@ class ConfirmIn(Strict):
     notify: bool = False
 
 
+def _text_confirmation(db: Session, e: CalendarEvent, user: User) -> str | None:
+    if not e.contact_id:
+        return None
+    c = db.get(Contact, e.contact_id)
+    pet = db.get(Pet, e.pet_id) if e.pet_id else None
+    first = (c.display_name.split() or ["there"])[0]
+    try:
+        m = sender.send_to_contact(db, c, user, channel="sms", body=str(T.booking_confirmed(first, booking.label(crm.aware(e.starts_at)), pet.name if pet else None)))
+        return m.delivery_state
+    except crm.CrmError as x:
+        return f"not sent: {x.detail}"
+
+
+def _close_booking_tasks(db: Session, e: CalendarEvent, user: User) -> None:
+    """The "confirm text booking" task for this person is finished once the appointment is confirmed."""
+    if not e.contact_id:
+        return
+    for t in db.scalars(select(Task).where(Task.contact_id == e.contact_id, Task.kind == "booking", Task.status != "done",
+                                          Task.title.like("Confirm text booking%"))).all():
+        t.status, t.done_at, t.done_by = "done", timeutil.now_utc(), user.id
+
+
 @router.post("/calendar/events/{event_id}/confirm")
-def confirm(event_id: int, body: ConfirmIn, user: User = Depends(require("calendar.edit")), db: Session = Depends(get_db)):
+def confirm(event_id: int, body: ConfirmIn, user: User = Depends(require("tasks.work")), db: Session = Depends(get_db)):
+    """Any staff member (or the owner) can approve a booking the assistant took by text."""
     e = db.get(CalendarEvent, event_id)
     if e is None:
         raise HTTPException(status_code=404, detail="No such event")
     if e.status != "requested":
         raise HTTPException(status_code=409, detail="Only a requested appointment can be confirmed.")
+    if any(o.id != e.id for o in _overlaps(db, crm.aware(e.starts_at), crm.aware(e.ends_at), booked_only=True)):
+        raise HTTPException(status_code=409, detail="Another confirmed appointment is already at that time. Move one of them first.")
     e.status = "booked"
-    texted = None
-    if body.notify and e.contact_id:
-        c = db.get(Contact, e.contact_id)
-        pet = db.get(Pet, e.pet_id) if e.pet_id else None
-        first = (c.display_name.split() or ["there"])[0]
-        try:
-            m = sender.send_to_contact(db, c, user, channel="sms", body=str(T.booking_confirmed(first, booking.label(crm.aware(e.starts_at)), pet.name if pet else None)))
-            texted = m.delivery_state
-        except crm.CrmError as x:
-            texted = f"not sent: {x.detail}"
+    _close_booking_tasks(db, e, user)
+    texted = _text_confirmation(db, e, user) if body.notify else None
     ev.record(db, ev.CONTACTS, "booking_confirmed", f"{user.display_name} confirmed an appointment", user, "calendar_event", e.id)
     db.commit()
     return {"item": crm.event_dicts(db, [e])[0], "texted": texted}
+
+
+# ---------------------------------------------------------------- booking from the app (the Book appointment button)
+def _overlaps(db: Session, start: datetime, end: datetime, booked_only: bool = False) -> list[CalendarEvent]:
+    states = ("booked",) if booked_only else ("booked", "requested")
+    return list(db.scalars(select(CalendarEvent).where(CalendarEvent.status.in_(states), CalendarEvent.starts_at < end, CalendarEvent.ends_at > start)).all())
+
+
+def _visit_types(db: Session) -> list[dict[str, Any]]:
+    return [{"id": v.id, "name": v.name, "minutes": v.minutes} for v in db.scalars(select(VisitType).order_by(VisitType.sort, VisitType.id)).all()]
+
+
+@router.get("/calendar/open-times")
+def open_times(day: date = Query(alias="date"), minutes: int = Query(default=30, ge=10, le=240), user: User = Depends(require("calendar.view")),
+               db: Session = Depends(get_db)):
+    """Every open start time on one day, inside the clinic's hours and free in the Calendar."""
+    cfg = booking.get_hours(db)
+    ranges = [] if day.isoformat() in cfg["closed_dates"] else cfg["days"].get(booking.DAYS[day.weekday()], [])
+    times = booking.free_times(db, minutes, n=200, day=day, staff=True)
+    return {"date": day.isoformat(), "minutes": minutes, "hours": ranges, "closed": not ranges,
+            "times": [{"start": timeutil.iso(t), "label": timeutil.local(t).strftime("%I:%M %p").lstrip("0")} for t in times],
+            "visit_types": _visit_types(db), "week": {d: cfg["days"].get(d, []) for d in booking.DAYS}}
+
+
+class BookIn(Strict):
+    contact_id: int
+    pet_id: int | None = None
+    visit_type_id: int | None = None
+    starts_at: datetime
+    minutes: int = Field(default=30, ge=10, le=240)
+    note: str = Field(default="", max_length=200)
+    notify: bool = False
+
+
+@router.post("/calendar/book", status_code=201)
+def book(body: BookIn, user: User = Depends(require("tasks.work")), db: Session = Depends(get_db)):
+    """A staff member books a confirmed appointment straight into the schedule."""
+    c = db.get(Contact, body.contact_id)
+    if c is None or c.erased_at is not None:
+        raise HTTPException(status_code=404, detail="No such contact")
+    pet = db.get(Pet, body.pet_id) if body.pet_id else None
+    if body.pet_id and (pet is None or pet.contact_id != c.id):
+        raise HTTPException(status_code=400, detail="That pet does not belong to this person.")
+    vt = db.get(VisitType, body.visit_type_id) if body.visit_type_id else None
+    start = crm.aware(body.starts_at)
+    if start < timeutil.now_utc():
+        raise HTTPException(status_code=400, detail="That time has already passed.")
+    minutes = vt.minutes if vt else body.minutes
+    end = start + timedelta(minutes=minutes)
+    if start not in booking.free_times(db, minutes, n=200, day=timeutil.local(start).date(), staff=True):
+        raise HTTPException(status_code=409, detail="That time is not open any more (outside hours or already taken). Pick another time.")
+    visit = vt.name if vt else "Appointment"
+    title = f"{visit}: {c.display_name}{(' and ' + pet.name) if pet else ''}"
+    if body.note.strip():
+        title = f"{title} ({body.note.strip()})"
+    e = CalendarEvent(kind=booking.KIND_FOR_VISIT.get(visit, "checkup"), classification=c.kind, title=title[:200], contact_id=c.id,
+                      pet_id=pet.id if pet else None, staff_user_id=user.id, starts_at=start, ends_at=end, status="booked", source="app")
+    db.add(e)
+    db.flush()
+    for o in db.scalars(select(SmsOffer).where(SmsOffer.contact_id == c.id, SmsOffer.status == "offered")).all():
+        o.status = "expired"  # the person is booked now; old texted options no longer apply
+    texted = _text_confirmation(db, e, user) if body.notify else None
+    ev.record(db, ev.CONTACTS, "appointment_booked", f"{user.display_name} booked {visit.lower()} for {c.display_name} on {booking.label(start)}",
+              user, "calendar_event", e.id, {"contact_id": c.id})
+    db.commit()
+    return {"item": crm.event_dicts(db, [e])[0], "texted": texted, "label": booking.label(start)}
 
 
 # ---------------------------------------------------------------- products and suggestions

@@ -72,22 +72,25 @@ def test_incoming_texts_land_in_the_conversation_once(env, bridge, garg):
     assert sent(bridge) == []  # auto reply is off
 
 
-def test_an_unknown_number_becomes_an_inquiry_and_gets_no_automatic_reply(env, bridge, garg):
+def test_an_unknown_number_becomes_an_inquiry_that_is_not_opted_in(env, bridge, garg):
     setup(env, garg)
     text_in(bridge, 2, NEW, "Do you take new patients?")
-    assert run(env)["stored"] == 1 and sent(bridge) == []
+    r = run(env)
+    assert r["stored"] == 1 and r["replied"] == 0 and sent(bridge) == []  # not a test number: the opt-in question is practice only
     with env.session() as s:
         c = s.scalar(select(Contact).where(Contact.phone == NEW))
-        assert c.kind == "inquiry" and c.sms_consent == "transactional" and c.ai_enabled is False
+        assert c.kind == "inquiry" and c.sms_consent == "none" and c.ai_enabled is False
+        outs = s.scalars(select(Message).where(Message.contact_id == c.id, Message.direction == "out")).all()
+        assert [m.delivery_state for m in outs] == ["dry_run"] and "reply Y" in outs[0].body
 
 
-def test_the_test_number_gets_an_automatic_signed_reply_from_approved_knowledge(env, bridge, garg):
+def test_the_test_number_gets_an_automatic_reply_from_approved_knowledge(env, bridge, garg):
     setup(env, garg)
     approve(env, "Lab results", "Results often arrive overnight. The doctor reviews them and then calls you.")
     text_in(bridge, 3, TEST, "Are my lab results in yet?")
     assert run(env)["replied"] == 1
     (req,) = sent(bridge)
-    assert req["to"] == TEST and "Results often arrive overnight." in req["text"] and req["text"].endswith("(Walnut Grove automated assistant)")
+    assert req["to"] == TEST and "Results often arrive overnight." in req["text"] and "automated assistant)" not in req["text"]
     with env.session() as s:
         m = s.scalar(select(Message).where(Message.send_job_id == req["id"]))
         assert m.delivery_state == "queued" and m.sender_kind == "ai" and m.direction == "out"
@@ -177,3 +180,57 @@ def test_only_assistant_replies_can_be_corrected(env, bridge, garg):
     with env.session() as s:
         mid = s.scalar(select(Message.id).where(Message.contact_id == a).limit(1))
     assert garg.post(f"/api/messages/{mid}/correct", {"answer": "x y z"}).status_code in (400, 404)
+
+
+# ---------------------------------------------------------------- opt-in by text
+def not_opted_in(env, garg):
+    a, _ = setup(env, garg)
+    with env.session() as s:
+        c = s.get(Contact, a)
+        c.sms_consent, c.display_name = "none", "Kartik Garg"
+        s.commit()
+    approve(env, "Lab results", "Results often arrive overnight. The doctor reviews them and then calls you.")
+    return a
+
+
+def test_a_person_who_is_not_opted_in_only_gets_the_opt_in_question(env, bridge, garg):
+    a = not_opted_in(env, garg)
+    text_in(bridge, 20, TEST, "Are my lab results in yet?")
+    r = run(env)
+    assert r["optin_asked"] == 1 and r["replied"] == 0
+    (req,) = sent(bridge)
+    assert "reply Y" in req["text"] and "Results" not in req["text"]
+    text_in(bridge, 21, TEST, "Hello?")
+    run(env)
+    assert len(sent(bridge)) == 1  # asked once a day at most
+    with env.session() as s:
+        assert s.get(Contact, a).sms_consent == "none"
+
+
+def test_replying_y_opts_in_and_the_waiting_question_is_answered(env, bridge, garg):
+    a = not_opted_in(env, garg)
+    text_in(bridge, 22, TEST, "Are my lab results in yet?")
+    run(env)
+    text_in(bridge, 23, TEST, "Y")
+    r = run(env)
+    assert r["opted_in"] == 1 and r["replied"] == 1
+    texts = [x["text"] for x in sent(bridge)]
+    assert len(texts) == 3 and any("all set" in t for t in texts) and any("Results often arrive overnight." in t for t in texts)
+    with env.session() as s:
+        c = s.get(Contact, a)
+        assert c.sms_consent == "transactional" and c.consent_source.startswith("Replied Y by text")
+
+
+def test_a_yes_from_someone_never_asked_is_not_an_opt_in(env, bridge, garg):
+    a = not_opted_in(env, garg)
+    text_in(bridge, 24, TEST, "ok")
+    r = run(env)
+    assert r.get("opted_in") is None and r["optin_asked"] == 1
+    with env.session() as s:
+        assert s.get(Contact, a).sms_consent == "none"
+
+
+def test_staff_cannot_text_someone_who_is_not_opted_in(env, bridge, garg):
+    a = not_opted_in(env, garg)
+    r = garg.post(f"/api/contacts/{a}/messages", {"channel": "sms", "body": "Hi there"})
+    assert r.status_code == 409

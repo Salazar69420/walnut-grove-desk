@@ -126,11 +126,11 @@ def suggest(db: Session, contact: Contact, text: str, *, act: bool = False) -> d
     verdict = em.detect(text, kw.load_keywords(db))
     if verdict["emergency"]:
         t = _task(db, contact, "emergency_followup", f"Possible emergency: {who}", "The assistant saw emergency wording in a message. Call this client now.", "high")
-        return {"kind": "emergency", "draft": str(T.emergency(_confirmed_hospital(db))), "sources": [], "task": {"id": t.id, "title": t.title},
+        return {"kind": "emergency", "draft": str(T.emergency_text(first, pet, _confirmed_hospital(db))), "sources": [], "task": {"id": t.id, "title": t.title},
                 "note": "Emergency wording was found. A high-priority task was raised. Check the draft, then send or call now."}
     if MEDICAL.search(text):
         t = _task(db, contact, "escalation", f"Medical question from {who}", "The client asked something medical. The assistant gave no advice. A veterinary team member should answer.", "high")
-        return {"kind": "medical", "draft": str(T.reply_medical(first)), "sources": [], "task": {"id": t.id, "title": t.title},
+        return {"kind": "medical", "draft": str(T.reply_medical(first, pet)), "sources": [], "task": {"id": t.id, "title": t.title},
                 "note": "This looks like a medical question, so the assistant does not answer it. A task was raised for the veterinary team."}
     from app.assistant import ai, booking, upsell
     b = booking.handle(db, contact, text, act=act)
@@ -149,11 +149,15 @@ def suggest(db: Session, contact: Contact, text: str, *, act: bool = False) -> d
         else:
             titles = _titles(db, r["ids"])
             meta = {"model": r["model"], "seconds": r["seconds"], "usage": r["usage"], "ai": True}
+            if act and "A1" in r["ids"] and (times := booking.availability(db)):
+                booking.remember_offer(db, contact, times)  # they were told these times: "2" or "the 9 am" in their next text books it
             if r["answered"]:
                 return {"kind": "answer", "draft": r["reply"], "sources": titles, "task": None,
                         "note": f"Written by the AI from approved knowledge ({r['model']}). Every number was checked against the knowledge.", **meta}
-            kind, title = ("escalation", f"The assistant asked for a person: {who}") if r["needs_human"] else ("unknown_knowledge", f"No approved answer for {who}")
-            t = _task(db, contact, kind, title, f"AI note: {r['reason'] or 'not covered by approved knowledge'}", "normal")
+            kind = "escalation" if r["needs_human"] else "unknown_knowledge"
+            title = (r.get("task_title") or "").strip() or (f"The assistant asked for a person: {who}" if r["needs_human"] else f"No approved answer for {who}")
+            note = (r.get("task_note") or "").strip() or r["reason"] or "Not covered by approved knowledge."
+            t = _task(db, contact, kind, f"{title} ({who})" if who not in title else title, f"{note}\n\nClient wrote: {text[:400]}", "normal")
             return {"kind": "unknown", "draft": r["reply"], "sources": [], "task": {"id": t.id, "title": t.title},
                     "note": "The AI had no approved answer, so it wrote a holding reply and raised a task. Add the answer in Knowledge & Fees to teach it.", **meta}
     hits = match_knowledge(db, text)

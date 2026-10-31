@@ -205,3 +205,21 @@ a.playb{color:var(--acc-t)}
 
 .propose{border:1px solid var(--vio);background:var(--vio-soft);border-radius:var(--r);padding:8px 10px;margin-top:8px;display:flex;flex-direction:column;gap:6px}
 .propose p{margin:0}.propose.done{border-color:var(--ok);background:var(--ok-soft)}.propose.cancelled{opacity:.6}.propose.failed{border-color:var(--crit);background:var(--crit-soft)}
+/* Book appointment dialog */
+.modal:has(.bk){width:min(620px,100%)}
+.bk{display:flex;flex-direction:column;gap:12px}
+.bk .fld{display:flex;flex-direction:column;gap:4px;font-size:13px;font-weight:600;color:var(--mute);flex:1;min-width:0}
+.bk .fld select,.bk .fld input{width:100%}
+.bk-row{display:flex;gap:10px;flex-wrap:wrap}
+.bk-days{display:flex;gap:6px;overflow-x:auto;padding:2px 2px 6px;scroll-snap-type:x proximity}
+.bk-day{flex:0 0 54px;display:flex;flex-direction:column;align-items:center;gap:1px;padding:6px 0;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:inherit;cursor:pointer;scroll-snap-align:start}
+.bk-day b{font-size:17px;line-height:1.2}.bk-day small{font-size:11px;color:var(--mute)}
+.bk-day:hover{background:var(--hov)}
+.bk-day.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}.bk-day.on small{color:inherit;opacity:.85}
+.bk-day.shut{opacity:.45}
+.bk-sub{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-weight:600}
+.bk-sub input{margin-left:auto}
+.bk-times{display:grid;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:6px;max-height:220px;overflow-y:auto;padding:2px}
+.bk-times p{grid-column:1/-1;margin:6px 0}
+.bk-t{padding:8px 4px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:inherit;font-weight:600;cursor:pointer}
+.bk-t:hover{background:var(--hov)}.bk-t.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}

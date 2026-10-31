@@ -40,7 +40,7 @@ TIMEOUT = 25.0
 MAX_REPLY = 640
 HISTORY = 8
 
-DEFAULT_PROMPT = """You are the text-message assistant for Walnut Grove Animal Hospital, a veterinary clinic in Langley, British Columbia. You answer pet owners by text on behalf of the front desk.
+OLD_DEFAULT_PROMPT = """You are the text-message assistant for Walnut Grove Animal Hospital, a veterinary clinic in Langley, British Columbia. You answer pet owners by text on behalf of the front desk.
 
 How to write:
 - Sound like the clinic's front desk on the phone: warm, calm and short. Plain Canadian English.
@@ -53,15 +53,32 @@ Good habits from the clinic's calls:
 - Offer to book rather than promise a time: "We can book you in, a team member will confirm the time."
 - For anything about a specific pet's medicine, results or health, say the team will call them."""
 
+DEFAULT_PROMPT = """You are the text-message assistant for Walnut Grove Animal Hospital, a veterinary clinic in Langley, British Columbia. You reply to pet owners by text on behalf of the front desk team.
+
+How to sound:
+- Warm, calm and genuinely kind, like the best person at the front desk. Plain Canadian English, the way people actually text.
+- Notice how they feel. If they are worried, acknowledge it first in a few words before anything else. Do not over-apologise.
+- Short: one to three sentences. No lists, no emojis, no sign-off. Use their first name once at most and their pet's name when it helps.
+- Vary your wording; never sound like a form letter.
+
+Being honest:
+- Only say what the clinic knowledge below supports. When you do not know, say so plainly and kindly, and tell them a team member will follow up.
+- Never pretend to be a person. If someone asks whether they are talking to a person or a bot, say you are the clinic's automated assistant and that a team member can help too.
+
+Good habits from the clinic's calls:
+- Offer to help book rather than promising a time; the team confirms every appointment.
+- For anything about a specific pet's health, medicine or results, say the team will call them."""
+
 RULES = """Hard rules (always apply, they override everything above):
 1. Use ONLY facts from CLINIC KNOWLEDGE and FEES below. Never guess or invent hours, prices, policies, services, availability, names, addresses or phone numbers. If they do not answer the question, set "answered" to false and write a short, kind holding reply saying a team member will get back to them.
 2. Never give medical advice, a diagnosis, a medicine name or amount, or say a pet is fine or not fine. If asked, set "needs_human" to true and say the veterinary team will call them.
 3. If the message could be an emergency, set "needs_human" to true and tell them to contact an emergency veterinarian now.
-4. Never book, cancel or confirm an appointment time yourself. Offer that the team will confirm.
+4. Never book, cancel or confirm an appointment time yourself. You MAY tell them open times listed under OPEN TIMES (cite A1) and ask which one suits; a team member confirms it. Mention an appointment they already have only if it is listed under THEIR APPOINTMENTS (cite A2). Never offer a time that is not listed.
 5. Never ask for or repeat card numbers or other payment details.
-6. "knowledge_ids" lists the ids (like K12, F3 or P4) of every entry you used. Use none when "answered" is false.
+6. "knowledge_ids" lists the ids (like K12, F3, P4 or A1) of every entry you used. Use none when "answered" is false.
 7. Reply with JSON only, matching the schema.
-8. If OPTIONAL PRODUCTS are listed, you may add ONE short sentence suggesting ONE of them, using its wording, only when it clearly fits what the client asked about. Never suggest anything when they are worried about their pet's health, upset, grieving, or asking about an emergency. Include its id."""
+8. If OPTIONAL PRODUCTS are listed, you may add ONE short sentence suggesting ONE of them, using its wording, only when it clearly fits what the client asked about. Never suggest anything when they are worried about their pet's health, upset, grieving, or asking about an emergency. Include its id.
+9. If you are in any doubt at all, set "needs_human" to true. Handing over to a person is always fine. When "answered" is false or "needs_human" is true, fill "task_title" (a short, specific title for the team, like "Asks if we see rabbits") and "task_note" (what the client needs, what was missing, and the next step you suggest)."""
 
 SCHEMA = {
     "type": "object",
@@ -71,8 +88,10 @@ SCHEMA = {
         "needs_human": {"type": "boolean", "description": "true if a person should follow up"},
         "knowledge_ids": {"type": "array", "items": {"type": "string"}, "description": "ids of the knowledge used"},
         "reason": {"type": "string", "description": "a few words on why, for the clinic team"},
+        "task_title": {"type": "string", "description": "short specific title for the team when a person must follow up, else empty"},
+        "task_note": {"type": "string", "description": "what the client needs, what is missing, suggested next step; else empty"},
     },
-    "required": ["reply", "answered", "needs_human", "knowledge_ids", "reason"],
+    "required": ["reply", "answered", "needs_human", "knowledge_ids", "reason", "task_title", "task_note"],
     "additionalProperties": False,
 }
 FORBIDDEN = re.compile(
@@ -94,8 +113,8 @@ def get_config(db: Session) -> dict[str, Any]:
     stored = settings_store.get_raw(db, KEY, None)
     if isinstance(stored, dict):
         cfg.update({k: v for k, v in stored.items() if k in cfg})
-    if not str(cfg.get("system_prompt") or "").strip():
-        cfg["system_prompt"] = DEFAULT_PROMPT
+    if not str(cfg.get("system_prompt") or "").strip() or cfg["system_prompt"].strip() == OLD_DEFAULT_PROMPT.strip():
+        cfg["system_prompt"] = DEFAULT_PROMPT  # nobody edited the old default: use the new, warmer one
     return cfg
 
 
@@ -140,17 +159,36 @@ def knowledge_block(db: Session) -> tuple[str, dict[str, str]]:
     return "\n".join(lines), texts
 
 
-def system_prompt(db: Session, products: list | None = None) -> tuple[str, dict[str, str]]:
+def schedule_block(db: Session, contact: Contact | None) -> tuple[str, dict[str, str], list]:
+    """Open times (A1) and this client's own upcoming appointments (A2), from the Calendar, as the model's only source for times."""
+    from app.assistant import booking
+    texts: dict[str, str] = {}
+    lines: list[str] = []
+    times = booking.availability(db)
+    if times:
+        texts["A1"] = "Open times: " + "; ".join(f"{i}. {booking.label(t)}" for i, t in enumerate(times, 1))
+        lines += ["", "OPEN TIMES [A1] (from the Calendar, right now; a team member confirms any booking):"] + [f"{i}. {booking.label(t)}" for i, t in enumerate(times, 1)]
+    if contact is not None:
+        mine = booking.upcoming(db, contact)
+        if mine:
+            texts["A2"] = "Their appointments: " + "; ".join(f"{booking.label(e.starts_at)} ({'confirmed' if e.status == 'booked' else 'waiting for the team to confirm'})" for e in mine)
+            lines += ["", "THEIR APPOINTMENTS [A2]:"] + [f"- {booking.label(e.starts_at)}: {e.title.split(':')[0]} ({'confirmed' if e.status == 'booked' else 'waiting for the team to confirm'})" for e in mine]
+    return "\n".join(lines), texts, times
+
+
+def system_prompt(db: Session, products: list | None = None, contact: Contact | None = None) -> tuple[str, dict[str, str]]:
     cfg = get_config(db)
     kb, texts = knowledge_block(db)
-    extra = ""
+    sched, stexts, _ = schedule_block(db, contact)
+    texts.update(stexts)
+    extra = sched
     if products:
         from app.assistant import upsell
         lines = ["", "OPTIONAL PRODUCTS (approved; suggest at most one, only if it clearly fits):"]
         for p in products:
             texts[f"P{p.id}"] = f"{p.name}. {upsell.line(p)}"
             lines.append(f"[P{p.id}] {p.name}: {upsell.line(p)}{(' (fits: ' + p.triggers + ')') if p.triggers else ''}")
-        extra = "\n".join(lines)
+        extra += "\n".join(lines)
     return f"{cfg['system_prompt'].strip()}\n\n{RULES}\n\n{kb}{extra}", texts
 
 
@@ -220,7 +258,7 @@ def check(data: dict[str, Any], texts: dict[str, str], client_text: str) -> dict
     ids = [str(i) for i in (data.get("knowledge_ids") or []) if isinstance(i, (str, int))]
     if any(i not in texts for i in ids):
         raise AiFailed("unknown_id")
-    if answered and not any(i[0] in "KF" for i in ids):
+    if answered and not any(i[0] in "KFA" for i in ids):
         raise AiFailed("no_source")
     if FORBIDDEN.search(reply):
         raise AiFailed("medical_wording")
@@ -232,14 +270,15 @@ def check(data: dict[str, Any], texts: dict[str, str], client_text: str) -> dict
     if not ok:
         raise AiFailed("number_not_in_knowledge")
     return {"reply": reply, "answered": answered and not needs_human, "needs_human": needs_human, "ids": ids,
-            "reason": str(data.get("reason") or "")[:200], "usage": data.get("_usage") or {}}
+            "reason": str(data.get("reason") or "")[:200], "usage": data.get("_usage") or {},
+            "task_title": str(data.get("task_title") or "")[:120], "task_note": str(data.get("task_note") or "")[:800]}
 
 
 def draft(db: Session, contact: Contact, text: str) -> dict[str, Any]:
     """The checked AI reply for this contact's message. Raises AiFailed with a short code."""
     from app.assistant import upsell
     cfg = get_config(db)
-    system, texts = system_prompt(db, upsell.eligible(db, contact, text))
+    system, texts = system_prompt(db, upsell.eligible(db, contact, text), contact)
     started = time.monotonic()
     data = call(cfg, system, conversation(db, contact, text))
     out = check(data, texts, text)

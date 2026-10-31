@@ -45,7 +45,7 @@ export type Notif = { id: number; kind: string; text: string; link: string | nul
 
 export const KIND_LABEL: Record<string, string> = { inquiry: 'Inquiry', patient: 'Patient' }
 export const SOURCE_LABEL: Record<string, string> = { phone: 'Phone call', walk_in: 'Walk-in', website: 'Website', referral: 'Referral', after_hours: 'After hours', import: 'Import', other: 'Other' }
-export const CONSENT_LABEL: Record<string, string> = { full: 'Full consent', transactional: 'Care messages only', none: 'No consent', unsubscribed: 'Unsubscribed' }
+export const CONSENT_LABEL: Record<string, string> = { full: 'Full consent', transactional: 'Care messages only', none: 'Not opted in', unsubscribed: 'Unsubscribed' }
 export const CONSENT_SHORT: Record<string, string> = { full: 'Full', transactional: 'Care only', none: 'None', unsubscribed: 'Unsubscribed' }
 export const REL_LABEL: Record<string, string> = { friend: 'Friend', spouse: 'Spouse', partner: 'Partner', parent: 'Parent', child: 'Child', neighbour: 'Neighbour', family: 'Family', caregiver: 'Caregiver', other: 'Other' }
 export const TASK_KINDS: [string, string][] = [['unknown_knowledge', 'Missing answer'], ['escalation', 'Escalation'], ['callback', 'Callback'], ['refill', 'Refill'], ['booking', 'Booking'], ['complaint', 'Complaint'], ['emergency_followup', 'Emergency follow-up'], ['results', 'Results'], ['other', 'Other']]
