@@ -29,3 +29,21 @@ def test_new_calls_are_added_once_and_linked(env):
         assert a1.contact_id == cid and a1.source == "telus" and a1.duration_seconds == 95
         assert a2.contact_id is None and a2.handled_by == "none" and a2.result == "missed"
         assert s.scalar(select(PhoneCall).where(PhoneCall.recording_id == "777")).phone == "+16045550199"
+
+
+def test_the_badge_says_why_it_is_not_connected(env, garg, tmp_path):
+    import dataclasses
+    import json
+    from app import config
+    config.set_settings(dataclasses.replace(env.settings, telus_dir=str(tmp_path)))
+    try:
+        assert garg.get("/api/phone/live").json()["state"] == "off"
+        (tmp_path / "calls").mkdir()
+        (tmp_path / "calls" / "status.json").write_text(json.dumps({"v": 1, "ok": False, "code": "write_scopes", "at": "2026-10-31T10:00:00+00:00"}))
+        r = garg.get("/api/phone/live").json()
+        assert r["state"] == "off" and "Read permissions" in r["reason"]
+        from app.services import timeutil
+        (tmp_path / "calls" / "status.json").write_text(json.dumps({"v": 1, "ok": True, "code": "ok", "at": timeutil.iso(timeutil.now_utc())}))
+        assert garg.get("/api/phone/live").json()["state"] == "live"
+    finally:
+        config.set_settings(env.settings)

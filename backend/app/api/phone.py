@@ -109,6 +109,13 @@ def list_calls(
             "can_transcript": has_perm(user, "phone.transcript"), "can_listen": has_perm(user, "phone.listen")}
 
 
+@router.get("/phone/live")
+def live_status(user: User = Depends(require("phone.view")), db: Session = Depends(get_db)):
+    """Is the TELUS call sync connected right now (for the badge on the Phone page)."""
+    from app.services import calls_live
+    return calls_live.status(db)
+
+
 @router.get("/phone/summary")
 def summary(days: int = Query(default=7, ge=1, le=90), user: User = Depends(require("phone.view")), db: Session = Depends(get_db)):
     today = timeutil.today_local()

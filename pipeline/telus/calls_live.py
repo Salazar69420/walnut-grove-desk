@@ -67,6 +67,25 @@ def write(bridge: str, rows: list[dict]) -> None:
     os.replace(tmp, path)
 
 
+def write_status(bridge: str, ok: bool, code: str, calls: int = 0) -> None:
+    """<bridge>/calls/status.json: did the last pull work, and if not a fixed code (never error text)."""
+    d = os.path.join(bridge, "calls")
+    try:
+        os.makedirs(d, mode=0o770, exist_ok=True)
+        tmp = os.path.join(d, f"status.json.{os.getpid()}.tmp")
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o660)
+        with os.fdopen(fd, "w") as fh:
+            json.dump({"v": 1, "ok": ok, "code": code, "calls": calls, "at": datetime.now(timezone.utc).isoformat()}, fh)
+        os.chmod(tmp, 0o660)
+        try:
+            os.chown(tmp, -1, os.stat(bridge).st_gid)
+        except OSError:
+            pass
+        os.replace(tmp, os.path.join(d, "status.json"))
+    except OSError:
+        pass
+
+
 def run(creds, bridge: str, hours: int = HOURS) -> int:
     now = datetime.now(timezone.utc)
     rows: list[dict] = []
@@ -75,6 +94,7 @@ def run(creds, bridge: str, hours: int = HOURS) -> int:
             client.login()
             bad = write_capable_scopes(client.scopes)
             if bad:
+                write_status(bridge, False, "write_scopes")
                 print(f"error: token has {len(bad)} write-capable scope(s); refusing to pull (use a read-only TELUS app, then telus-setup --force)",
                       file=sys.stderr)
                 return 1
@@ -85,8 +105,10 @@ def run(creds, bridge: str, hours: int = HOURS) -> int:
                     if r and r["d"] in ("inbound", "outbound"):
                         rows.append(r)
     except TelusError as e:
+        write_status(bridge, False, "telus_error")
         print(f"error: {e}", file=sys.stderr)
         return 1
     write(bridge, rows[:MAX_ROWS])
+    write_status(bridge, True, "ok", len(rows))
     print(f"telus-calls calls={len(rows)} with_number={sum(1 for r in rows if r['n'])} with_recording={sum(1 for r in rows if r['rec'])}")
     return 0

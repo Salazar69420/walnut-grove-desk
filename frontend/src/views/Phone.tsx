@@ -19,13 +19,28 @@ export function Handler({ c }: { c: PCall }) {
   return <span className="tag">{c.agent_label || 'Staff'}</span>
 }
 
+type Live = { state: 'live' | 'delayed' | 'off'; checked_at: string | null; latest_call_at: string | null; calls_today: number; reason: string | null }
+
+/** TELUS connection at a glance: a pulsing green dot while calls are syncing, and the reason in plain words when not. */
+function LiveBadge() {
+  const s = useLive<Live>('/phone/live', ['phone'])
+  const [, tick] = useState(0)
+  useEffect(() => { const t = window.setInterval(() => { s.reload(); tick((n) => n + 1) }, 30000); return () => clearInterval(t) }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  const d = s.data
+  if (!d) return null
+  const label = d.state === 'live' ? 'TELUS live' : d.state === 'delayed' ? 'TELUS delayed' : 'TELUS not connected'
+  const detail = d.state === 'off' ? d.reason || '' : `Checked ${d.checked_at ? ago(d.checked_at) : 'never'}${d.latest_call_at ? `, last call ${ago(d.latest_call_at)}` : ''}, ${d.calls_today} today`
+  return <span className={'livebadge ' + d.state} title={detail} role="status"><i aria-hidden="true" /><b>{label}</b><span className="hide-s">{d.state === 'off' ? 'Hover for why' : detail}</span></span>
+}
+const ago = (iso: string) => { const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : new Date(iso).toLocaleDateString() }
+
 export function Phone() {
   const { can } = useApp()
   const [tab, setTab] = useState<Tab>('log')
   return (
     <div className="php">
       <div className="hd2">
-        <div><h1>Phone</h1><p className="lead">Every call, who handled it (a person or the assistant), and how it ended.</p></div>
+        <div><div className="ph-t"><h1>Phone</h1><LiveBadge /></div><p className="lead">Every call, who handled it (a person or the assistant), and how it ended.</p></div>
         {can('phone.export') && tab === 'log' && <a className="exp" href="/api/export/phone.csv" download>Download CSV</a>}
       </div>
       <Segmented<Tab> label="Phone sections" value={tab} onChange={setTab} options={[['log', 'Call log'], ['center', 'Call center']]} />
@@ -66,7 +81,7 @@ function Log() {
                 {canListen && <td className="playc" onClick={(e) => e.stopPropagation()}>{c.has_recording
                   ? <button className={'playb' + (player.st[c.id] ? ' on' : '')} aria-busy={player.st[c.id] && player.st[c.id].state !== 'ready' && player.st[c.id].state !== 'failed' ? true : undefined} aria-label={`Play the recording from ${new Date(c.started_at).toLocaleString()}`} title="Listen to this call" onClick={() => (player.st[c.id] ? player.close(c.id) : player.play(c.id))}>{player.st[c.id] && (player.st[c.id].state === 'waiting' || player.st[c.id].state === 'working') ? <span className="spin" aria-hidden="true" /> : <Icon n={player.st[c.id]?.state === 'ready' ? 'pause' : 'play'} size={16} />}</button>
                   : <span className="mute" title="No recording for this call">-</span>}</td>}
-                <td><Time iso={c.started_at} /></td>
+                <td><Time iso={c.started_at} />{c.source === 'telus' && Date.now() - new Date(c.started_at).getTime() < 30 * 60000 && <span className="newtag">New</span>}</td>
                 <td><span className={'dir ' + c.direction} title={c.direction === 'unknown' ? 'Direction not known from the recording' : undefined}>{c.direction === 'inbound' ? 'In' : c.direction === 'outbound' ? 'Out' : '?'}</span></td>
                 <td>{c.contact ? <Link to={`/contacts/${c.contact.id}`} onClick={(e) => e.stopPropagation()}>{c.contact.display_name}</Link> : <span className="mute">{c.phone_display || 'Unknown'}</span>}</td>
                 <td><Handler c={c} /></td>

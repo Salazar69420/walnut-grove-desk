@@ -162,8 +162,7 @@ def suggest(db: Session, contact: Contact, text: str, *, act: bool = False) -> d
         try:
             r = ai.draft(db, contact, text, note=f"A {b['team_books'].lower()} is booked by our team, not by text. A task was raised; say warmly that someone will "
                                                "contact them to set up a time, and answer anything else they asked only from the knowledge.")
-            if not r["needs_human"]:
-                return {**b, "draft": r["reply"], "sources": _titles(db, r["ids"]), "model": r["model"], "ai": True}
+            return {**b, "draft": r["reply"], "sources": _titles(db, r["ids"]), "model": r["model"], "ai": True}  # the booking task is already raised
         except ai.AiFailed:
             pass
     if b is not None:

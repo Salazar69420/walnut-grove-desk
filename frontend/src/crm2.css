@@ -223,3 +223,13 @@ a.playb{color:var(--acc-t)}
 .bk-times p{grid-column:1/-1;margin:6px 0}
 .bk-t{padding:8px 4px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:inherit;font-weight:600;cursor:pointer}
 .bk-t:hover{background:var(--hov)}.bk-t.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+/* TELUS live badge on the Phone page */
+.ph-t{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.livebadge{display:inline-flex;align-items:center;gap:8px;padding:4px 12px;border-radius:999px;font-size:13px;border:1px solid var(--line);background:var(--panel)}
+.livebadge i{width:9px;height:9px;border-radius:50%;background:var(--mute);flex:none}
+.livebadge.live i{background:#1f9d55;box-shadow:0 0 0 0 rgba(31,157,85,.6);animation:livepulse 1.8s infinite}
+.livebadge.live b{color:#1f9d55}.livebadge.delayed i{background:#d48806}.livebadge.off i{background:var(--crit)}.livebadge.off b{color:var(--crit)}
+.livebadge span{color:var(--mute)}
+@keyframes livepulse{0%{box-shadow:0 0 0 0 rgba(31,157,85,.55)}70%{box-shadow:0 0 0 8px rgba(31,157,85,0)}100%{box-shadow:0 0 0 0 rgba(31,157,85,0)}}
+@media (prefers-reduced-motion:reduce){.livebadge.live i{animation:none}}
+.newtag{margin-left:6px;padding:1px 6px;border-radius:6px;font-size:11px;font-weight:700;background:var(--accent-soft);color:var(--accent)}

@@ -110,3 +110,36 @@ def run_once() -> dict[str, int]:
             _seen["mtime"] = 0.0
             log.error("live calls ingest failed (%s)", type(e).__name__)
             return {}
+
+
+REASONS = {
+    "write_scopes": "The TELUS login on the server can also send and change things, so the read-only call sync refuses to use it. "
+                    "Create a TELUS app with only Read permissions and run telus-setup --force on the server.",
+    "telus_error": "TELUS did not answer the last check. It will try again in a few minutes.",
+    "never": "The call sync has not run yet on this server (the walnut-telus-calls timer is not installed).",
+}
+
+
+def status(db: Session) -> dict:
+    from sqlalchemy import func
+    from app.api import admin_telus as b
+    from app.services import timeutil
+    st = b.read_json_file(os.path.join(b._bridge(), "calls"), "status.json") or {}
+    now = timeutil.now_utc()
+    try:
+        at = crm.aware(datetime.fromisoformat(str(st.get("at"))))
+    except ValueError:
+        at = None
+    age = (now - at).total_seconds() if at else None
+    if not st or age is None:
+        state, code = "off", "never"
+    elif not st.get("ok"):
+        state, code = "off", str(st.get("code") or "telus_error")
+    elif age > 600:
+        state, code = "delayed", "telus_error"
+    else:
+        state, code = "live", "ok"
+    latest = db.scalar(select(func.max(PhoneCall.started_at)).where(PhoneCall.source == "telus"))
+    today = db.scalar(select(func.count()).select_from(PhoneCall).where(PhoneCall.source == "telus", PhoneCall.started_at >= crm.local_day_start(timeutil.today_local()))) or 0
+    return {"state": state, "checked_at": timeutil.iso(at) if at else None, "latest_call_at": timeutil.iso(crm.aware(latest)) if latest else None,
+            "calls_today": today, "reason": None if state == "live" else REASONS.get(code, REASONS["telus_error"])}

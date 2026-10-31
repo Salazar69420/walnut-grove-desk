@@ -102,6 +102,15 @@ FORBIDDEN = re.compile(
     r"metacam|gabapentin|prednisone|apoquel|antibiotic\w*|(he|she|they|it|pet|dog|cat|kitten|puppy) (is|'s|looks|seems|sounds) (fine|okay|ok|normal)|nothing to worry)\b", re.I)
 
 
+RETRY = {
+    "no_source": "it says it answered but cites no clinic knowledge (K, F or A id).",
+    "unknown_id": "it cites an id that was not given.",
+    "number_not_in_knowledge": "it contains a number or time that is not in the cited knowledge.",
+    "medical_wording": "it contains medical wording (a medicine, an amount, or saying a pet is fine).",
+    "too_long": "it is too long for a text; use at most three short sentences.",
+}
+
+
 class AiFailed(Exception):
     """The AI could not be used for this reply. The message is a short code, never text from the model or the client."""
 
@@ -261,7 +270,7 @@ def check(data: dict[str, Any], texts: dict[str, str], client_text: str) -> dict
     needs_human = data.get("needs_human") is True
     ids = [str(i) for i in (data.get("knowledge_ids") or []) if isinstance(i, (str, int))]
     ids = [i for i in ids if i in texts]  # a made-up id supports nothing; drop it (an answer still needs a real source below)
-    if answered and not any(i[0] in "KFA" for i in ids):
+    if answered and not needs_human and not any(i[0] in "KFA" for i in ids):
         raise AiFailed("no_source")
     reply = re.sub(r"\s*[\u2014\u2013]\s*", ", ", reply)  # house style: no long dashes in client texts
     cited = " ".join(texts[i] for i in ids).lower()
@@ -287,8 +296,19 @@ def draft(db: Session, contact: Contact, text: str, note: str = "") -> dict[str,
     if note:
         system += f"\n\nFOR THIS MESSAGE: {note}"
     started = time.monotonic()
-    data = call(cfg, system, conversation(db, contact, text))
-    out = check(data, texts, text)
+    msgs = conversation(db, contact, text)
+    data = call(cfg, system, msgs)
+    try:
+        out = check(data, texts, text)
+    except AiFailed as first_try:
+        if str(first_try) not in RETRY:
+            raise
+        # one more go, told why: usually it answered from general knowledge instead of the clinic's, or cited nothing
+        fix = msgs + [{"role": "assistant", "content": json.dumps({k: data.get(k) for k in SCHEMA["properties"]})},
+                      {"role": "user", "content": f"(System check: that reply was rejected: {RETRY[str(first_try)]} Write it again, still warm and natural, following the hard rules. "
+                                                  "If the clinic knowledge does not cover it, set answered false, say kindly that a team member will check and get back to them, and fill task_title.)"}]
+        data = call(cfg, system, fix)
+        out = check(data, texts, text)
     for i in out["ids"]:
         if i.startswith("P"):
             upsell.log(db, contact, int(i[1:]))
