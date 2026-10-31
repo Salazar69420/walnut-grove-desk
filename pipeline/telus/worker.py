@@ -344,7 +344,8 @@ def free_bytes(path: str) -> int:
 
 
 def _default_factory(creds, sleep):
-    return ReadOnlyClient(creds, sleep=sleep)
+    from ..config import DEFAULT_ROOT
+    return ReadOnlyClient(creds, sleep=sleep, token_dir=os.path.join(DEFAULT_ROOT, "telus"))
 
 
 def _code_for(e: BaseException) -> str:

@@ -84,8 +84,12 @@ def redact(text: str, secrets: list[str]) -> str:
 class ReadOnlyClient:
     def __init__(self, creds: Credentials, *, transport: httpx.BaseTransport | None = None,
                  timeout: float = 30.0, sleep: Callable[[float], None] = time.sleep,
-                 clock: Callable[[], float] = time.monotonic):
+                 clock: Callable[[], float] = time.monotonic, token_dir: str | None = None):
         self._creds = creds
+        # Reuse one login for its whole hour instead of logging in on every run (TELUS limits logins). The token is kept in the
+        # private store next to the credentials (mode 600), one file per app and JWT; it is never printed or sent anywhere else.
+        self._token_file = (os.path.join(token_dir, "token-" + hashlib.sha256(f"{creds.client_id}:{creds.jwt}".encode()).hexdigest()[:16] + ".json")
+                            if token_dir else None)
         self._secrets: list[str] = list(creds.secret_values())
         self._base = creds.server_url.rstrip("/")
         self._http = httpx.Client(transport=transport, timeout=httpx.Timeout(timeout),
@@ -174,7 +178,8 @@ class ReadOnlyClient:
                 continue
             if code == 401 and not relogged:
                 resp.close()
-                relogged, self._token, url, hop = True, None, first_url, 0
+                self._drop_token()
+                relogged, url, hop = True, first_url, 0
                 continue
             if code == 429:
                 wait = self._retry_wait(resp)
@@ -333,14 +338,61 @@ class ReadOnlyClient:
         self._expires_at = self._clock() + expires_in
         self.scopes = scope.split()
         self.logins += 1
+        self._save_token()
         log.info("telus login ok, scopes=%d", len(self.scopes))
 
+    def _load_token(self) -> bool:
+        if not self._token_file:
+            return False
+        try:
+            import json
+            with open(self._token_file, encoding="utf-8") as fh:
+                d = json.load(fh)
+            left = float(d["expires_at"]) - time.time()
+            if left <= EXPIRY_MARGIN or not isinstance(d.get("token"), str) or not d["token"]:
+                return False
+        except (OSError, ValueError, KeyError, TypeError):
+            return False
+        self._token = d["token"]
+        self._secrets.append(self._token)
+        self._expires_at = self._clock() + left
+        self.expires_in = int(left)
+        self.scopes = [x for x in d.get("scopes", []) if isinstance(x, str)]
+        return True
+
+    def _save_token(self) -> None:
+        if not self._token_file or not self._token:
+            return
+        try:
+            import json
+            os.makedirs(os.path.dirname(self._token_file), mode=0o700, exist_ok=True)
+            tmp = f"{self._token_file}.{os.getpid()}.tmp"
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w") as fh:
+                json.dump({"token": self._token, "expires_at": time.time() + self.expires_in, "scopes": self.scopes}, fh)
+            os.replace(tmp, self._token_file)
+        except OSError:
+            pass
+
+    def _drop_token(self) -> None:
+        self._token = None
+        if self._token_file:
+            try:
+                os.unlink(self._token_file)
+            except OSError:
+                pass
+
     def login(self) -> None:
+        """Log in, or reuse this app's still-valid login from the token file."""
+        if self._token is not None and self._clock() < self._expires_at - EXPIRY_MARGIN:
+            return
+        if self._load_token():
+            return
         self._login()
 
     def _ensure_token(self) -> None:
         if self._token is None or self._clock() >= self._expires_at - EXPIRY_MARGIN:
-            self._login()
+            self.login()
 
     # ------------------------------------------------------------------ GET with retries
     def _get_response(self, path: str, params: dict | None) -> httpx.Response:
@@ -364,7 +416,7 @@ class ReadOnlyClient:
             code = resp.status_code
             if code == 401 and not relogged:
                 relogged = True
-                self._token = None
+                self._drop_token()
                 continue
             if code == 429:
                 attempts += 1

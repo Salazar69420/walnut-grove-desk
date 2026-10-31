@@ -123,7 +123,7 @@ def _iso() -> str:
 class SendWorker:
     def __init__(self, root: str, bridge: str, *, client_factory: Optional[Callable] = None, now: Callable[[], float] = time.time):
         self.root, self.bridge, self.now = root, bridge, now
-        self.client_factory = client_factory or (lambda creds: SendClient(creds))
+        self.client_factory = client_factory or (lambda creds: SendClient(creds, token_dir=os.path.join(root, "telus")))
 
     # ------------------------------------------------------------ files
     def _dir(self, name: str) -> str:

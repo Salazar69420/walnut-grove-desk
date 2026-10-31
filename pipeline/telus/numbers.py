@@ -64,7 +64,8 @@ def run(creds, since_text: str, export_path: str) -> int:
     numbers: dict[str, str] = {}
     seen = 0
     try:
-        with ReadOnlyClient(creds) as client:
+        from ..config import DEFAULT_ROOT
+        with ReadOnlyClient(creds, token_dir=os.path.join(DEFAULT_ROOT, "telus")) as client:
             client.login()
             bad = write_capable_scopes(client.scopes)
             if bad:

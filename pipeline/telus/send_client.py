@@ -43,7 +43,8 @@ class SendClient(ReadOnlyClient):
                 raise self._err(TelusHTTPError, f"POST failed: {type(e).__name__}") from None
             code = resp.status_code
             if code == 401 and not relogged:
-                relogged, self._token = True, None
+                relogged = True
+                self._drop_token()
                 continue
             if code == 429:
                 attempts += 1

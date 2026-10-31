@@ -100,7 +100,8 @@ def run(creds, bridge: str, hours: int = HOURS) -> int:
     now = datetime.now(timezone.utc)
     rows: list[dict] = []
     try:
-        with ReadOnlyClient(creds) as client:
+        from ..config import DEFAULT_ROOT
+        with ReadOnlyClient(creds, token_dir=os.path.join(DEFAULT_ROOT, "telus")) as client:
             client.login()
             bad = write_capable_scopes(client.scopes)
             if bad:
