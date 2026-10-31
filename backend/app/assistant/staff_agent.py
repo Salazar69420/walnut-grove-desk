@@ -655,7 +655,8 @@ def run(db: Session, user: User, history: list[dict[str, str]]) -> dict[str, Any
             raise AgentFailed("bad_answer") from None
         calls = msg.get("tool_calls") or []
         if not calls:
-            return {"text": (msg.get("content") or "").strip() or "I could not find an answer.", "proposals": proposals, "tools": used}
+            text = re.sub(r"\s*[\u2014\u2013]\s*", ", ", (msg.get("content") or "").strip())  # house style: no long dashes
+            return {"text": text or "I could not find an answer.", "proposals": proposals, "tools": used}
         msgs.append({"role": "assistant", "content": msg.get("content") or "", "tool_calls": calls})
         for call in calls[:6]:
             name = (call.get("function") or {}).get("name", "")
