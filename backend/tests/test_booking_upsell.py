@@ -78,7 +78,7 @@ def test_offer_then_pick_creates_a_requested_appointment_and_a_task(env, bridge,
         o = s.scalar(select(SmsOffer).where(SmsOffer.contact_id == cid))
         second = json.loads(o.slots_json)[1]
     reply = say(env, bridge, "2 please")
-    assert "put in a request" in reply and booking.label(booking.crm.aware(booking.datetime.fromisoformat(second))) in reply
+    assert "I have asked for" in reply and booking.label(booking.crm.aware(booking.datetime.fromisoformat(second))) in reply
     with env.session() as s:
         e = s.scalar(select(CalendarEvent).where(CalendarEvent.contact_id == cid))
         assert e.status == "requested" and timeutil.iso(booking.crm.aware(e.starts_at)) == second and e.kind == "vaccine"

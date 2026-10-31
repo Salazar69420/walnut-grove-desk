@@ -61,7 +61,7 @@ def _text_confirmation(db: Session, e: CalendarEvent, user: User) -> str | None:
         return None
     c = db.get(Contact, e.contact_id)
     pet = db.get(Pet, e.pet_id) if e.pet_id else None
-    first = (c.display_name.split() or ["there"])[0]
+    first = (T.first_name(c.display_name) or "there")
     try:
         m = sender.send_to_contact(db, c, user, channel="sms", body=str(T.booking_confirmed(first, booking.label(crm.aware(e.starts_at)), pet.name if pet else None)))
         return m.delivery_state

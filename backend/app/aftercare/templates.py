@@ -6,6 +6,8 @@ Client free text is never echoed, except a pet name that passed a strict check.
 """
 from __future__ import annotations
 
+import re
+
 
 class Tpl(str):
     """A string that was produced by this module."""
@@ -15,6 +17,26 @@ class Tpl(str):
 
 def _t(s: str) -> Tpl:
     return Tpl(s)
+
+
+PLACEHOLDER = re.compile(r"^(text from|call from|unknown|new contact|caller)\b|\d", re.I)
+
+
+def first_name(display_name: str | None) -> str:
+    """The first name to greet someone by, or "" when we do not know it (a contact still called "Text from (604) ...")."""
+    name = (display_name or "").strip()
+    if not name or PLACEHOLDER.search(name):
+        return ""
+    return name.split()[0]
+
+
+def _hi(first: str) -> str:
+    return f"Hi {first}" if first and first != "there" else "Hi there"
+
+
+def _c(first: str) -> str:
+    """", Kartik" or nothing, for "Perfect, Kartik!" style lines."""
+    return f", {first}" if first and first != "there" else ""
 
 
 DISCLOSURE = "automated assistant"
@@ -183,17 +205,17 @@ def summary_booking(pet: str | None, visit: str, slot_label: str) -> str:
 def reply_answers(first: str, bodies: list[str]) -> Tpl:
     """Approved clinic knowledge, word for word, in a short friendly wrapper."""
     body = " ".join(b.strip() for b in bodies if b.strip())
-    return _t(f"Hi {first}! {body} Let me know if there is anything else I can help with.")
+    return _t(f"{_hi(first)}! {body} Let me know if there is anything else I can help with.")
 
 
 def reply_followup(first: str) -> Tpl:
-    return _t(f"Hi {first}, thanks for reaching out. I want to make sure you get the right answer, so I have passed this to our team and someone will get back to you soon.")
+    return _t(f"{_hi(first)}, thanks for reaching out. I want to make sure you get the right answer, so I have passed this to our team and someone will get back to you soon.")
 
 
 def reply_medical(first: str, pet: str | None = None) -> Tpl:
     who = pet or "your pet"
     return _t(
-        f"Hi {first}, thank you for letting us know, and I am sorry {who} is not feeling well. I cannot give medical advice by text, "
+        f"{_hi(first)}, thank you for letting us know, and I am sorry {who} is not feeling well. I cannot give medical advice by text, "
         f"so I have asked our veterinary team to call you as soon as they can. If {who} gets worse or you are worried, please contact an emergency vet right away."
     )
 
@@ -207,7 +229,7 @@ def emergency_text(first: str, pet: str | None, hospital: dict | None) -> Tpl:
         name = hospital.get("name", "").strip()
         where = f"Please go to {name} now" + (f", they are at {hospital['address'].strip()}" if (hospital.get("address") or "").strip() else "") + \
                 (f" and their number is {hospital['phone'].strip()}" if (hospital.get("phone") or "").strip() else "") + "."
-    return _t(f"{first}, I am so sorry, that sounds like {who} needs a vet right away. {where} Our team will follow up with you as soon as we can.")
+    return _t(f"{(first + ', I') if first and first != 'there' else 'I'} am so sorry, that sounds like {who} needs a vet right away. {where} Our team will follow up with you as soon as we can.")
 
 
 def optin_prompt() -> Tpl:
@@ -215,31 +237,49 @@ def optin_prompt() -> Tpl:
 
 
 def optin_confirmed(first: str) -> Tpl:
-    return _t(f"Thank you, {first}! You are all set to get texts from us. You can reply STOP at any time.")
+    return _t(f"Thank you{_c(first)}! You are all set to get texts from us. You can reply STOP at any time.")
 
 
 # ---------------------------------------------------------------- booking by text (times always come from the code, never from a model)
-def booking_offer(first: str, visit: str, labels: list[str]) -> Tpl:
+def booking_offer(first: str, visit: str | None, labels: list[str]) -> Tpl:
     opts = " ".join(f"{i}) {l}." for i, l in enumerate(labels, 1))
-    return _t(f"Hi {first}, happy to help! These times are open for a {visit.lower()}: {opts} Just reply 1, 2 or 3, or tell me a day that works better for you.")
+    what = f" for a {visit.lower()}" if visit else ""
+    return _t(f"Happy to help{_c(first)}! Here are a few open times{what}: {opts} Just reply with the number that suits you, or tell me a day and time that works better.")
 
 
 def booking_requested(first: str, label: str, pet: str | None) -> Tpl:
     who = f" for {pet}" if pet else ""
-    return _t(f"Perfect, {first}! I have put in a request for {label}{who}. One of our team will confirm it with you by text shortly.")
+    return _t(f"Perfect{_c(first)}! I have asked for {label}{who}. One of our team will confirm it with you by text shortly.")
 
 
 def booking_none(first: str, visit: str) -> Tpl:
-    return _t(f"Hi {first}, I am sorry, I could not find an open time for a {visit.lower()} just now. Someone from our team will reach out to find a time that works for you.")
+    return _t(f"{_hi(first)}, I am sorry, I could not find an open time for a {visit.lower()} just now. Someone from our team will reach out to find a time that works for you.")
 
 
 def booking_by_team(first: str, visit: str) -> Tpl:
-    return _t(f"Hi {first}, a {visit.lower()} needs a quick chat with our team first, so someone will contact you soon to set it up.")
+    return _t(f"{_hi(first)}, a {visit.lower()} needs a quick chat with our team first, so someone will contact you soon to set it up.")
 
 
 def booking_confirmed(first: str, label: str, pet: str | None) -> Tpl:
     who = f" for {pet}" if pet else ""
-    return _t(f"Hi {first}, your appointment{who} on {label} is confirmed. See you then. Walnut Grove Animal Hospital")
+    return _t(f"Good news{_c(first)}, you are all set{who} for {label}. We look forward to seeing you! If anything changes, just text us here. Walnut Grove Animal Hospital")
+
+
+# Short, natural replies to thanks, greetings and goodbyes (no task, no "passed to our team").
+def reply_smalltalk(first: str, kind: str, pet: str | None = None, appt: str | None = None, seed: int = 0) -> Tpl:
+    if kind == "thanks":
+        opts = [f"You are so welcome{_c(first)}!", f"Our pleasure{_c(first)}!", f"Anytime{_c(first)}!"]
+        tail = f" We look forward to seeing you{' and ' + pet if pet else ''} on {appt}." if appt else " Text us anytime if you need anything."
+    elif kind == "greeting":
+        opts = [f"{_hi(first)}! How can we help{' you and ' + pet if pet else ''} today?", f"{_hi(first)}, thanks for texting! What can we do for you{' and ' + pet if pet else ''}?"]
+        tail = ""
+    elif kind == "bye":
+        opts = [f"Take care{_c(first)}!", f"Have a lovely day{_c(first)}!"]
+        tail = f" See you on {appt}." if appt else " We are here if you need us."
+    else:  # okay, great, sounds good
+        opts = [f"Great{_c(first)}!", f"Sounds good{_c(first)}!", f"Perfect{_c(first)}!"]
+        tail = f" See you on {appt}." if appt else " Just text us if anything else comes up."
+    return _t(opts[seed % len(opts)] + tail)
 
 
 AUTO_SIGNATURE = ""  # the owner chose no tag; the assistant still says it is automated whenever asked (see assistant/ai.py RULES)
@@ -257,7 +297,8 @@ def all_client_templates() -> list[str]:
             msg_prompt, done_cb, done_booking_off, done_visit_front_desk, done_change, done_refill, done_msg,
             done_msg_off, advice_refusal, too_long, finished,
         )
-    ] + [str(reply_followup("there")), str(reply_medical("there")), str(optin_prompt()), str(emergency_text("there", None, None))]
+    ] + [str(reply_followup("there")), str(reply_medical("there")), str(optin_prompt()), str(emergency_text("there", None, None))] + [
+        str(reply_smalltalk("", k, None, None, i)) for k in ("thanks", "greeting", "bye", "ok") for i in range(3)]
 
 
 def slot_label(label: str) -> Tpl:

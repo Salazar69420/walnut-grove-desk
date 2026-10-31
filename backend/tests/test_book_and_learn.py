@@ -183,3 +183,29 @@ def test_no_staff_reply_means_nothing_to_learn(env, bridge, garg, router):
     calls = len(router.calls)
     garg.patch(f"/api/tasks/{tid}", {"status": "done"})
     assert len(router.calls) == calls
+
+
+# ---------------------------------------------------------------- sounding like a person (owner screenshot 2026-10-31)
+def test_thanks_gets_a_warm_reply_that_remembers_the_appointment_and_no_task(env, bridge, garg):
+    cid = pilot(env, garg)
+    say(env, bridge, "Can I book an appointment?")
+    say(env, bridge, "3")
+    with env.session() as s:
+        tasks = len(s.scalars(select(Task).where(Task.contact_id == cid)).all())
+    reply = say(env, bridge, "Thank you so much see you then")
+    assert reply and "passed this to our team" not in reply and "Rishav" in reply
+    with env.session() as s:
+        assert len(s.scalars(select(Task).where(Task.contact_id == cid)).all()) == tasks
+
+
+def test_a_placeholder_name_is_never_used_and_offered_times_are_spread_out(env, bridge, garg):
+    cid = pilot(env, garg)
+    with env.session() as s:
+        s.get(Contact, cid).display_name = "Text from (604) 555-0161"
+        s.commit()
+    offer = say(env, bridge, "Can I book an appointment?")
+    assert "Text" not in offer.split("!")[0] and "yearly check-up" not in offer.lower()
+    with env.session() as s:
+        slots = json.loads(s.scalar(select(SmsOffer.slots_json).where(SmsOffer.contact_id == cid, SmsOffer.status == "offered")))
+    a, b = (timeutil.datetime.fromisoformat(x) for x in slots[:2])
+    assert abs(b - a) >= timedelta(hours=2)

@@ -274,6 +274,10 @@ Backlog lives in section 7 (known gaps) and section 8 (next steps).
 
 ### 11.4 Journal (newest first)
 
+**2026-10-31 UTC, session 3 (latest): replies that sound like a person; live TELUS calls**
+- Owner screenshot: "Hi Text" (placeholder contact name), a stock "passed to our team" reply plus a task for "Thank you so much see you then", and three back-to-back times. Fixed: `T.first_name` never greets with a placeholder name; thanks, greetings, okays and goodbyes get a short warm reply (mentions their next appointment and pet) and never a task (`replies.smalltalk`, AI rule 10, kind "chat"); offered times are spread at least two hours apart and no visit type is assumed; booking texts reworded. AI writing switched ON (still test numbers only) so replies read the conversation.
+- Live calls: `telus-calls` (pipeline, read-only, last 48 h) writes `<bridge>/calls/live.json`; the app folds new calls into the Phone log every 5 s when the file changes (`app/services/calls_live.py`), with the client's number, linked to the one contact with that number. Units `deploy/systemd/walnut-telus-calls.{service,timer}` (every 3 min) must be installed by the owner (installing was blocked for the agent). Needs the read-only TELUS app first, like playback.
+
 **2026-10-31 UTC, session 3 (latest): second texting test number**
 - The owner added a second test number (live setting only, never in the repo; Admin > Texting shows it). A contact created when a test number first texts now starts with the assistant on; it is still asked to reply Y before anything else.
 

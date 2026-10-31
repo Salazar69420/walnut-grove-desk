@@ -106,6 +106,29 @@ def _titles(db: Session, ids: list[str]) -> list[dict[str, Any]]:
     return out
 
 
+_THANKS = re.compile(r"\b(thanks?|thank you|thank u|thx|ty|tysm|appreciate it|much appreciated|cheers)\b", re.I)
+_BYE = re.compile(r"\b(bye|goodbye|see (you|ya|u)|take care|have a (good|great|nice|lovely) (one|day|night|evening|weekend)|talk soon|ttyl)\b", re.I)
+_HELLO = re.compile(r"^\s*(hi+|hello|hey+|hiya|good (morning|afternoon|evening))( there)?[\s!.,]*$", re.I)
+_OK = re.compile(r"^\s*(ok(ay)?|k|kk|great|perfect|sounds (good|great)|awesome|cool|got it|alright|all right|will do|yes|yep|yeah|sure|lovely|nice|amazing|wonderful|noted)"
+                 r"([\s,!.]+(thanks?|thank you|great|perfect|sounds good))?[\s!.]*$", re.I)
+
+
+def smalltalk(text: str) -> str | None:
+    """thanks / bye / greeting / ok when the message is ONLY that (short, no question), else None."""
+    t = (text or "").strip()
+    if not t or "?" in t or len(t.split()) > 10:
+        return None
+    if _THANKS.search(t):
+        return "thanks"
+    if _BYE.search(t):
+        return "bye"
+    if _HELLO.match(t):
+        return "greeting"
+    if _OK.match(t):
+        return "ok"
+    return None
+
+
 def _task(db: Session, contact: Contact, kind: str, title: str, reason: str, priority: str) -> Task:
     """One open task of this kind per person per day, so a flurry of messages does not make a pile."""
     since = timeutil.now_utc() - timedelta(hours=24)
@@ -120,7 +143,7 @@ def _task(db: Session, contact: Contact, kind: str, title: str, reason: str, pri
 
 
 def suggest(db: Session, contact: Contact, text: str, *, act: bool = False) -> dict[str, Any]:
-    first = (contact.display_name.split() or ["there"])[0]
+    first = (T.first_name(contact.display_name) or "there")
     pet = db.scalar(select(Pet.name).where(Pet.contact_id == contact.id, Pet.status == "active").order_by(Pet.id).limit(1))
     who = f"{first}" + (f" ({pet})" if pet else "")
     verdict = em.detect(text, kw.load_keywords(db))
@@ -140,6 +163,7 @@ def suggest(db: Session, contact: Contact, text: str, *, act: bool = False) -> d
             b["sources"] = b["sources"] + [{"id": p.id, "title": p.name, "kind": "product"}]
             upsell.log(db, contact, p.id)
         return b
+    chat = smalltalk(text)
     if ai.allowed_for(db, contact):
         try:
             r = ai.draft(db, contact, text)
@@ -154,12 +178,20 @@ def suggest(db: Session, contact: Contact, text: str, *, act: bool = False) -> d
             if r["answered"]:
                 return {"kind": "answer", "draft": r["reply"], "sources": titles, "task": None,
                         "note": f"Written by the AI from approved knowledge ({r['model']}). Every number was checked against the knowledge.", **meta}
+            if chat and not r["needs_human"]:
+                return {"kind": "chat", "draft": r["reply"], "sources": titles, "task": None,
+                        "note": "A friendly reply to a thank-you, greeting or goodbye. No task is needed.", **meta}
             kind = "escalation" if r["needs_human"] else "unknown_knowledge"
             title = (r.get("task_title") or "").strip() or (f"The assistant asked for a person: {who}" if r["needs_human"] else f"No approved answer for {who}")
             note = (r.get("task_note") or "").strip() or r["reason"] or "Not covered by approved knowledge."
             t = _task(db, contact, kind, f"{title} ({who})" if who not in title else title, f"{note}\n\nClient wrote: {text[:400]}", "normal")
             return {"kind": "unknown", "draft": r["reply"], "sources": [], "task": {"id": t.id, "title": t.title},
                     "note": "The AI had no approved answer, so it wrote a holding reply and raised a task. Add the answer in Knowledge & Fees to teach it.", **meta}
+    if chat:
+        nxt = booking.upcoming(db, contact, 1)
+        draft = T.reply_smalltalk(first, chat, pet, booking.label(nxt[0].starts_at) if nxt else None, seed=len(text) + contact.id)
+        return {"kind": "chat", "draft": str(draft), "sources": [], "task": None,
+                "note": "A friendly reply to a thank-you, greeting or goodbye. No task is needed."}
     hits = match_knowledge(db, text)
     if hits:
         return {"kind": "answer", "draft": str(T.reply_answers(first, [h["text"] for h in hits])),

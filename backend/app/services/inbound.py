@@ -134,9 +134,7 @@ def opted_in(db: Session, c: Contact, at) -> None:
     c.sms_consent = "transactional"
     c.consent_source = f"Replied Y by text on {timeutil.local(at).strftime('%Y-%m-%d')}"
     ev.record(db, ev.CONTACTS, "sms_opted_in", f"{c.display_name} replied Y and opted in to texts", "Texting", "contact", c.id)
-    first = (c.display_name.split() or ["there"])[0]
-    if first == "Text":
-        first = "there"
+    first = T.first_name(c.display_name)
     try:
         sender.send_to_contact(db, c, None, channel="sms", body=str(T.optin_confirmed(first)), sender_kind="ai")
     except crm.CrmError:

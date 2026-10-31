@@ -23,6 +23,8 @@ from typing import Any
 
 import httpx
 from sqlalchemy import select
+
+from app.aftercare import templates as T
 from sqlalchemy.orm import Session
 
 from app.adapters import llm as llm_adapter
@@ -75,10 +77,11 @@ RULES = """Hard rules (always apply, they override everything above):
 3. If the message could be an emergency, set "needs_human" to true and tell them to contact an emergency veterinarian now.
 4. Never book, cancel or confirm an appointment time yourself. You MAY tell them open times listed under OPEN TIMES (cite A1) and ask which one suits; a team member confirms it. Mention an appointment they already have only if it is listed under THEIR APPOINTMENTS (cite A2). Never offer a time that is not listed.
 5. Never ask for or repeat card numbers or other payment details.
-6. "knowledge_ids" lists the ids (like K12, F3, P4 or A1) of every entry you used. Use none when "answered" is false.
+6. "knowledge_ids" lists the ids (like K12, F3, P4, A1 or A2) of every entry you used, also when you only mention their appointment.
 7. Reply with JSON only, matching the schema.
 8. If OPTIONAL PRODUCTS are listed, you may add ONE short sentence suggesting ONE of them, using its wording, only when it clearly fits what the client asked about. Never suggest anything when they are worried about their pet's health, upset, grieving, or asking about an emergency. Include its id.
-9. If you are in any doubt at all, set "needs_human" to true. Handing over to a person is always fine. When "answered" is false or "needs_human" is true, fill "task_title" (a short, specific title for the team, like "Asks if we see rabbits") and "task_note" (what the client needs, what was missing, and the next step you suggest)."""
+9. If you are in any doubt at all, set "needs_human" to true. Handing over to a person is always fine. When "answered" is false or "needs_human" is true, fill "task_title" (a short, specific title for the team, like "Asks if we see rabbits") and "task_note" (what the client needs, what was missing, and the next step you suggest).
+10. Read the whole conversation above and reply to what they mean in context, like a person would. If the message is only thanks, a greeting, an okay or a goodbye, reply warmly and briefly (mention their appointment from THEIR APPOINTMENTS if there is one), set "answered" false, "needs_human" false and leave task_title empty: no task is needed for that."""
 
 SCHEMA = {
     "type": "object",
@@ -193,7 +196,7 @@ def system_prompt(db: Session, products: list | None = None, contact: Contact | 
 
 
 def conversation(db: Session, contact: Contact, latest: str) -> list[dict[str, str]]:
-    first = (contact.display_name.split() or ["there"])[0]
+    first = (T.first_name(contact.display_name) or "there")
     pets = [f"{p.name} ({p.species})" if p.species else p.name for p in db.scalars(select(Pet).where(Pet.contact_id == contact.id, Pet.status == "active")).all()]
     msgs = db.scalars(select(Message).where(Message.contact_id == contact.id, Message.channel == "sms").order_by(Message.created_at.desc(), Message.id.desc())
                       .limit(HISTORY)).all()
@@ -203,7 +206,8 @@ def conversation(db: Session, contact: Contact, latest: str) -> list[dict[str, s
         body = (m.body or "").strip()[:800]
         if body:
             out.append({"role": role, "content": body})
-    header = f"(Client first name: {first}. Pets: {', '.join(pets) if pets else 'not on file'}.)\n"
+    name = first if first != "there" else "not known yet (do not use a name; never call them by a placeholder like 'Text')"
+    header = f"(Client first name: {name}. Pets: {', '.join(pets) if pets else 'not on file'}.)\n"
     if out and out[-1]["role"] == "user" and out[-1]["content"] == latest.strip()[:800]:
         out[-1]["content"] = header + out[-1]["content"]
     else:

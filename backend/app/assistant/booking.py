@@ -222,7 +222,7 @@ def _task(db: Session, contact: Contact, title: str, reason: str) -> Task:
 def handle(db: Session, contact: Contact, text: str, *, act: bool = True) -> dict[str, Any] | None:
     """A reply when the message is about booking, else None (the normal assistant answers). act=False never creates an appointment."""
     cfg = get_hours(db)
-    first = (contact.display_name.split() or ["there"])[0]
+    first = (T.first_name(contact.display_name) or "there")
     offer = _active_offer(db, contact)
     if offer is not None:
         slots = [crm.aware(datetime.fromisoformat(x)) for x in json.loads(offer.slots_json or "[]")]
@@ -261,16 +261,30 @@ def handle(db: Session, contact: Contact, text: str, *, act: bool = True) -> dic
         t = _task(db, contact, f"Book by phone: {contact.display_name} ({visit})", f"Asked by text to book a {visit.lower()}, which is not bookable by text.") if act else None
         return {"kind": "booking", "draft": str(T.booking_by_team(first, visit)), "sources": [], "task": {"id": t.id, "title": t.title} if t else None,
                 "note": "This visit type is not bookable by text, so the team books it."}
-    return _offer(db, contact, vt, first, after=None, prefs=_prefs(text), act=act)
+    return _offer(db, contact, vt, first, after=None, prefs=_prefs(text), act=act, text=text)
 
 
-def _offer(db: Session, contact: Contact, vt: VisitType | None, first: str, *, after: datetime | None, prefs: dict[str, Any], act: bool = True,
+def spread(times: list[datetime], k: int = 3, gap: timedelta = timedelta(hours=2)) -> list[datetime]:
+    """Three choices that differ (the earliest, then times at least two hours apart), not 9, 9:30 and 10."""
+    out: list[datetime] = []
+    for t in times:
+        if all(abs(t - x) >= gap for x in out):
+            out.append(t)
+        if len(out) == k:
+            return out
+    for t in times:
+        if t not in out and len(out) < k:
+            out.append(t)
+    return sorted(out)
+
+
+def _offer(db: Session, contact: Contact, vt: VisitType | None, first: str, *, after: datetime | None, prefs: dict[str, Any], act: bool = True, text: str = "",
            note: str = "Open times were offered from the bookable hours and the Calendar.") -> dict[str, Any]:
     minutes = vt.minutes if vt else 30
     visit = vt.name if vt else "Appointment"
-    times = free_times(db, minutes, after=after + timedelta(minutes=1) if after else None, **prefs)
+    times = spread(free_times(db, minutes, n=40, after=after + timedelta(minutes=1) if after else None, **prefs))
     if not times and prefs:
-        times = free_times(db, minutes, after=after + timedelta(minutes=1) if after else None)
+        times = spread(free_times(db, minutes, n=40, after=after + timedelta(minutes=1) if after else None))
     for old in db.scalars(select(SmsOffer).where(SmsOffer.contact_id == contact.id, SmsOffer.status == "offered")).all():
         old.status = "expired"
     if not times:
@@ -280,4 +294,5 @@ def _offer(db: Session, contact: Contact, vt: VisitType | None, first: str, *, a
     db.add(SmsOffer(contact_id=contact.id, visit_type_id=vt.id if vt else None, slots_json=json.dumps([timeutil.iso(x) for x in times]), status="offered",
                     created_at=timeutil.now_utc()))
     db.flush()
-    return {"kind": "booking", "draft": str(T.booking_offer(first, visit, [label(x) for x in times])), "sources": [], "task": None, "note": note}
+    named = visit if vt is not None and any(n == visit for rx, n in VISIT_RULES if rx.search(text)) else None
+    return {"kind": "booking", "draft": str(T.booking_offer(first, named, [label(x) for x in times])), "sources": [], "task": None, "note": note}
