@@ -22,6 +22,7 @@ class Router:
         self.analysis = {"summary": "Sam called about a refill of Rex's food. Wants a call back.", "intent": "refill", "outcome": "follow_up_needed",
                          "follow_up_needed": True, "follow_up_note": "Call Sam to confirm the food is ready.", "caller_type": "patient",
                          "caller_first_name": "Sam", "caller_last_name": "Lee", "pet_name": "Rex", "species": "dog", "urgent": False,
+                         "appointment": {"agreed": False, "date": "", "time": "", "visit": ""},
                          "clinic_knowledge": [{"category": "clinic_info", "title": "Food orders", "text": "Food orders are usually ready for pickup the next business day."},
                                               {"category": "clinic_info", "title": "Rex food", "text": "Rex can pick up his food on Monday."}]}
 
@@ -144,3 +145,28 @@ def test_an_unknown_caller_becomes_a_prospect_that_is_never_texted(env, bridge, 
         assert s.scalar(select(Message.id).where(Message.phone_call_id == p.id)) is not None
         t = s.scalar(select(Task).where(Task.contact_id == c.id))
         assert t.priority == "high" and t.title.startswith("Urgent")
+
+
+def test_a_time_agreed_on_a_call_waits_in_the_calendar_for_approval(env, bridge, router, monkeypatch, anita):
+    from app.api import admin_telus
+    from app.models import CalendarEvent
+    monkeypatch.setattr(admin_telus, "read_settings", lambda: {"recordings_enabled": True})
+    day = (timeutil.local(timeutil.now_utc()) + timedelta(days=3)).date()
+    router.analysis.update(intent="booking", clinic_knowledge=[], appointment={"agreed": True, "date": day.isoformat(), "time": "10:30", "visit": "vaccines"})
+    cid, pid = _voicemail(env)
+    transcribe._last_batch["at"] = -1e9
+    with env.session() as s:
+        s.query(CalendarEvent).filter(CalendarEvent.contact_id == cid).delete()
+        s.commit()
+        transcribe.step(s)
+    (bridge / "play" / "4242.mp3").write_bytes(b"ID3fakeaudio")
+    (bridge / "play" / "4242.json").write_text(json.dumps({"state": "ready", "ext": "mp3"}))
+    with env.session() as s:
+        transcribe.step(s)
+        e = s.scalar(select(CalendarEvent).where(CalendarEvent.contact_id == cid, CalendarEvent.status == "requested"))
+        assert e is not None and e.kind == "vaccine" and timeutil.local(e.starts_at).strftime("%H:%M") == "10:30"
+        assert s.scalar(select(Task).where(Task.contact_id == cid, Task.title.like("Confirm phone booking%"))) is not None
+        eid = e.id
+    assert anita.post(f"/api/calendar/events/{eid}/confirm", {}).json()["item"]["status"] == "booked"
+    with env.session() as s:
+        assert s.scalar(select(Task).where(Task.contact_id == cid, Task.title.like("Confirm phone booking%"))).status == "done"

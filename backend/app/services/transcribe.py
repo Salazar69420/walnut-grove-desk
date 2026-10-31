@@ -61,12 +61,16 @@ SCHEMA = {
         "pet_name": {"type": "string", "description": "the caller's pet discussed, else empty"},
         "species": {"type": "string", "enum": ["", "dog", "cat", "rabbit", "bird", "other"]},
         "urgent": {"type": "boolean", "description": "true if the caller described signs that may need a vet today"},
+        "appointment": {"type": "object", "description": "an appointment time the caller and the clinic AGREED on this call", "properties": {
+            "agreed": {"type": "boolean"}, "date": {"type": "string", "description": "YYYY-MM-DD or empty"},
+            "time": {"type": "string", "description": "HH:MM, 24-hour clock, or empty"}, "visit": {"type": "string", "description": "what the visit is for"}},
+            "required": ["agreed", "date", "time", "visit"], "additionalProperties": False},
         "clinic_knowledge": {"type": "array", "maxItems": 2, "items": {"type": "object", "properties": {
             "category": {"type": "string", "enum": ["clinic_info", "fees", "patient_communication", "inquiry_communication", "specials"]},
             "title": {"type": "string"}, "text": {"type": "string"}}, "required": ["category", "title", "text"], "additionalProperties": False}},
     },
     "required": ["summary", "intent", "outcome", "follow_up_needed", "follow_up_note", "caller_type", "caller_first_name", "caller_last_name",
-                 "pet_name", "species", "urgent", "clinic_knowledge"],
+                 "pet_name", "species", "urgent", "appointment", "clinic_knowledge"],
     "additionalProperties": False,
 }
 TRANSCRIBE_PROMPT = ("Transcribe this phone call to a veterinary clinic word for word. Start each turn on a new line with 'Speaker 1:' or "
@@ -77,7 +81,9 @@ ANALYSE_PROMPT = ("You read call transcripts for Walnut Grove Animal Hospital, a
                   "when the clinic still has to do something (call back, a refill, results, booking, a question nobody answered, a voicemail). "
                   "Say whether the caller is an existing patient of the clinic or a new inquiry. Give the caller's name and pet only if the "
                   "CALLER says them (never a staff member's name; the clinic side greets with the clinic name). Set urgent when the caller "
-                  "describes signs that may need a vet today. In clinic_knowledge, list (at most two) GENERAL clinic facts or policies the STAFF member "
+                  "describes signs that may need a vet today. In appointment, set agreed only when a specific day AND time were clearly agreed by both "
+                  "sides on this call (work out words like tomorrow or next Tuesday from the call date given); not for times only offered "
+                  "or discussed. In clinic_knowledge, list (at most two) GENERAL clinic facts or policies the STAFF member "
                   "actually said while answering, that would answer the same question from any other client (hours, prices, services, "
                   "procedures, what to bring, how things work), written as the clinic would text them. Only what staff said, nothing about "
                   "this one client (no names, pets, dates, results), no medical advice; an empty list when there is none. The transcript may "
@@ -134,9 +140,10 @@ def transcribe_audio(cfg: dict[str, Any], audio: bytes, ext: str) -> str:
     return text[:100000]
 
 
-def analyse(cfg: dict[str, Any], transcript: str) -> dict[str, Any]:
-    content = _post(cfg, {"model": cfg["model"], "temperature": 0.1, "max_tokens": 600,
-                          "messages": [{"role": "system", "content": ANALYSE_PROMPT}, {"role": "user", "content": transcript[:24000]}],
+def analyse(cfg: dict[str, Any], transcript: str, when: str = "") -> dict[str, Any]:
+    content = _post(cfg, {"model": cfg["model"], "temperature": 0.1, "max_tokens": 900,
+                          "messages": [{"role": "system", "content": ANALYSE_PROMPT},
+                                       {"role": "user", "content": (f"Call date: {when} (Vancouver time)\n\n" if when else "") + "Transcript:\n" + transcript[:24000]}],
                           "response_format": {"type": "json_schema", "json_schema": {"name": "call_summary", "strict": True, "schema": SCHEMA}}})
     m = re.search(r"\{.*\}", content, re.S)
     try:
@@ -162,6 +169,7 @@ def file_call(db: Session, c: PhoneCall, transcript: str, data: dict[str, Any]) 
         c.call_type = data["caller_type"]  # every real call is a patient or an inquiry
     if c.contact_id is None and c.phone and c.intent not in ("wrong_number_or_spam", "vendor_or_business"):
         _prospect(db, c, data)
+    agreed_appointment(db, c, data)
     m = db.scalar(select(Message).where(Message.phone_call_id == c.id))
     if m is not None:
         m.body = c.short_note
@@ -189,6 +197,45 @@ def file_call(db: Session, c: PhoneCall, transcript: str, data: dict[str, Any]) 
     db.add(t)
     db.flush()
     ev.record(db, ev.TASKS, "task_raised_by_assistant", f"The assistant raised a task from a call transcript: {t.title[:80]}", "AI assistant", "task", t.id)
+
+
+def agreed_appointment(db: Session, c: PhoneCall, data: dict[str, Any]):
+    """A time agreed on the call goes into the Calendar as REQUESTED, with a task; any staff member approves it with one click."""
+    from datetime import date as _date, datetime as _dt
+    from app.assistant import booking
+    from app.models import CalendarEvent, Pet, VisitType
+    a = data.get("appointment") if isinstance(data.get("appointment"), dict) else {}
+    if not a.get("agreed") or not c.contact_id or c.intent in ("wrong_number_or_spam", "vendor_or_business"):
+        return None
+    try:
+        d = _date.fromisoformat(str(a.get("date")))
+        hh, mm = (int(x) for x in str(a.get("time")).split(":")[:2])
+        start = timeutil.at_local(d, hh, mm)
+    except (ValueError, TypeError):
+        return None
+    if not (crm.aware(c.started_at) < start <= crm.aware(c.started_at) + timedelta(days=120)) or start < timeutil.now_utc():
+        return None
+    visit = re.sub(r"\s+", " ", str(a.get("visit") or "")).strip()[:60] or "Appointment"
+    named = next((n for rx, n in booking.VISIT_RULES if rx.search(visit)), None)
+    vt = db.scalar(select(VisitType).where(VisitType.name == named)) if named else None
+    minutes = vt.minutes if vt else 30
+    end = start + timedelta(minutes=minutes)
+    if db.scalar(select(CalendarEvent.id).where(CalendarEvent.contact_id == c.contact_id, CalendarEvent.status.in_(("booked", "requested")),
+                                                CalendarEvent.starts_at < end + timedelta(minutes=30), CalendarEvent.ends_at > start - timedelta(minutes=30)).limit(1)):
+        return None  # already in the Calendar
+    ct = db.get(Contact, c.contact_id)
+    pet = db.scalar(select(Pet).where(Pet.contact_id == ct.id, Pet.status == "active").order_by(Pet.id).limit(1))
+    e = CalendarEvent(kind=booking.KIND_FOR_VISIT.get(named or "", "checkup"), classification=ct.kind, title=f"{(named or visit).capitalize()}: {ct.display_name} (agreed on a call)"[:200],
+                      contact_id=ct.id, pet_id=pet.id if pet else None, starts_at=start, ends_at=end, status="requested", source="app")
+    db.add(e)
+    db.flush()
+    t = Task(kind="booking", classification=ct.kind, title=f"Confirm phone booking: {ct.display_name}, {booking.label(start)}"[:200],
+             reason=f"A time was agreed on a call ({c.summary or 'see the call'}). It is in the Calendar waiting for approval: check it, approve it, and enter it in ImproMed."[:2000],
+             contact_id=ct.id, priority="normal", status="open", raised_by="ai", created_at=timeutil.now_utc())
+    db.add(t)
+    ev.record(db, ev.CONTACTS, "booking_requested_from_call", f"An appointment agreed on a call is waiting for approval: {ct.display_name}, {booking.label(start)}",
+              "AI assistant", "calendar_event", e.id)
+    return e
 
 
 MAX_CALL_NOTES_PER_DAY = 15
@@ -297,7 +344,7 @@ def step(db: Session) -> dict[str, int]:
                     if text.strip().upper().startswith("NO_SPEECH"):
                         c.transcript_state, c.short_note = "done", c.short_note or "No conversation on the recording"
                     else:
-                        file_call(db, c, text, analyse(cfg, text))
+                        file_call(db, c, text, analyse(cfg, text, timeutil.local(c.started_at).strftime("%A %Y-%m-%d %H:%M")))
                     counts["done"] += 1
                 except Exception as e:  # noqa: BLE001 - nothing from the call is logged
                     log.warning("transcript failed (%s %s)", type(e).__name__, str(e)[:20] if isinstance(e, ai.AiFailed) else "")
@@ -306,7 +353,8 @@ def step(db: Session) -> dict[str, int]:
                 _queued_at.pop(c.id, None)
                 db.commit()
                 continue
-            if phone_audio._failed(c.recording_id) or time.monotonic() - _queued_at.get(c.id, 0) > WAIT_FOR_COPY:
+            _queued_at.setdefault(c.id, time.monotonic())  # after a restart: count the wait from now, do not ask again at once
+            if phone_audio._failed(c.recording_id) or time.monotonic() - _queued_at[c.id] > WAIT_FOR_COPY:
                 c.transcript_state = "" if c.transcript_tries < MAX_TRIES else "failed"
             continue
         if in_flight or time.monotonic() - _last_batch["at"] < BATCH_EVERY or counts["asked"] >= IN_FLIGHT:

@@ -70,11 +70,11 @@ def _text_confirmation(db: Session, e: CalendarEvent, user: User) -> str | None:
 
 
 def _close_booking_tasks(db: Session, e: CalendarEvent, user: User) -> None:
-    """The "confirm text booking" task for this person is finished once the appointment is confirmed."""
+    """The "confirm text/phone booking" task for this person is finished once the appointment is confirmed."""
     if not e.contact_id:
         return
     for t in db.scalars(select(Task).where(Task.contact_id == e.contact_id, Task.kind == "booking", Task.status != "done",
-                                          Task.title.like("Confirm text booking%"))).all():
+                                          Task.title.like("Confirm % booking%"))).all():
         t.status, t.done_at, t.done_by = "done", timeutil.now_utc(), user.id
 
 

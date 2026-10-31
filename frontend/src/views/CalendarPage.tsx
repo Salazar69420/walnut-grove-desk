@@ -256,7 +256,7 @@ function ConfirmBox({ ev, onDone, toast }: { ev: Ev; onDone: () => void; toast: 
   }
   return (
     <div className="pvw">
-      <p><b>Requested by text, waiting for approval.</b> Any team member can approve it. Check the time works, confirm it here, and enter it in ImproMed.</p>
+      <p><b>{ev.title.includes("(agreed on a call)") ? "Agreed on a call" : "Requested by text"}, waiting for approval.</b> Any team member can approve it. Check the time works, confirm it here, and enter it in ImproMed.</p>
       {ev.contact && <label className="ck"><input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} /> Text {ev.contact.display_name} that it is confirmed</label>}
       <div className="rowbtn"><button className="btn primary" onClick={go}>Confirm booking</button></div>
     </div>
