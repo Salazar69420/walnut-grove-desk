@@ -274,6 +274,12 @@ Backlog lives in section 7 (known gaps) and section 8 (next steps).
 
 ### 11.4 Journal (newest first)
 
+**2026-10-31 UTC, session 3 (latest): real-data mode and contacts from transcripts built, not yet run on live**
+- Owner asked for no mock data on the live site and contacts built from the transcripts. Built `app/seed/real_mode.py` (purge all demo rows, block reset), `pipeline/people.py` and `pipeline/app_contacts.py` (rule-based name and pet extraction, contacts with no phone or consent), wired into `pipeline/app_import.py` (contacts on by default, `--no-contacts` to skip). 302 backend tests pass. Details and limits: `docs/DECISIONS.md` (2026-10-31, second entry).
+- Trial on a scratch database with the owner's real file: 2,629 calls imported, 171 contacts (137 inquiry, 34 patient), 212 calls linked, 46 pets, 0 demo rows left, staff accounts kept. Only counts were printed.
+- **Not run on live** (production write). Order matters: (1) `systemctl restart walnut-desk` so migration 0005 and the new code are live, (2) purge: `cd /opt/walnut-desk/backend && sudo -u walnut-app bash -c 'set -a; . /etc/walnut-desk/app.env; set +a; ../.venv/bin/python -m app.seed.real_mode --purge --dry-run'` then without `--dry-run`, (3) import with contacts: the command in the entry above, without `--dry-run`. Then shred the temporary CSV.
+- Known gaps: the Schedule page will be empty with no screen to add shifts; Home/Calendar/Tasks start empty; the Brief's example "missed calls" numbers go away; contact accuracy is unmeasured and staff must review them; a contact has no phone so it cannot be texted or matched to TELUS calls yet.
+
 **2026-10-31 UTC, session 3 (later): real call import built**
 - Owner asked to "add existing data" and chose to load full transcripts into the app. Built `pipeline/app_import.py` (migration 0005 adds `phone_calls.external_ref`, source `import`, direction `unknown`), tests (292 backend tests pass), UI handles unknown direction. Details and limits in `docs/DECISIONS.md` (2026-10-31).
 - Dry run on the owner's file against a scratch database: 3,637 rows, 2,629 would be imported, 973 skipped as private or uncertain, 35 as staff or personal, 0 bad rows. Only counts were printed.

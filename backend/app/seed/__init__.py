@@ -96,6 +96,10 @@ def _next_weekday(today, weekday: int):
 
 def reset_demo(db: Session, actor=None, now: datetime | None = None) -> dict[str, int]:
     """Rebuild demo data. Caller commits. Returns row counts per table."""
+    from app.seed.real_mode import is_real
+
+    if is_real(db):
+        raise RuntimeError("Demo data is switched off: this site holds real data.")
     now = now or timeutil.now_utc()
     today = timeutil.today_local(now)
 

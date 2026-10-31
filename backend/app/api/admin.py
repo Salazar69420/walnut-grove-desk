@@ -197,6 +197,9 @@ def put_settings(body: SettingsPutBody, actor: User = Depends(require("admin.set
 def reset_demo(actor: User = Depends(require("admin.reset_demo")), db: Session = Depends(get_db)):
     from app.seed import reset_demo as do_reset
 
-    counts = do_reset(db, actor)
+    try:
+        counts = do_reset(db, actor)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     db.commit()
     return {"ok": True, "counts": counts}

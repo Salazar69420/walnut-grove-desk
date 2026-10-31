@@ -28,6 +28,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "backend"))
 
+from pipeline.people import extract, staff_from_corpus  # noqa: E402
 from pipeline.rules import label_call, load_rules  # noqa: E402
 
 INTENT_NOTE = {
@@ -49,7 +50,7 @@ def ref_for(key: bytes, name: str) -> str:
     return "imp-" + hmac.new(key, name.encode("utf-8"), hashlib.sha256).hexdigest()[:32]
 
 
-def convert(row: dict, rules, key: bytes):
+def convert(row: dict, rules, key: bytes, staff: set[str] | None = None):
     """Returns (fields dict, None) for a call to import, or (None, reason) when it is skipped."""
     text = row.get("plain_text") or row.get("transcript") or ""
     seconds = float(row.get("audio_seconds") or 0)
@@ -71,6 +72,7 @@ def convert(row: dict, rules, key: bytes):
         note_parts.append("emergency signs mentioned")
     if lab.red_flags:
         note_parts.append(", ".join(f.replace("_", " ") for f in lab.red_flags[:3]))
+    person = extract(row.get("transcript") or text, staff or set()) if lab.caller_type == "client" else None
     d = date.fromisoformat(row["date"])
     hh, mm, *_ = (int(x) for x in row["time"].split(":"))
     return {
@@ -78,6 +80,7 @@ def convert(row: dict, rules, key: bytes):
         "handled_by": "none" if outcome in ("no_answer", "hold_then_dropped") else "human",
         "agent_label": f"Line {ext}" if ext else "", "duration_seconds": int(seconds), "result": result,
         "short_note": "; ".join(note_parts)[:240], "transcript": row.get("transcript") or text, "external_ref": ref_for(key, row.get("file", "")),
+        "person": person, "intent": lab.intent,
     }, None
 
 
@@ -85,6 +88,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--csv", required=True)
     ap.add_argument("--dry-run", action="store_true", help="count only, write nothing")
+    ap.add_argument("--no-contacts", action="store_true", help="import calls only, do not create contacts")
     ap.add_argument("--db", help="app database path (default: from the app environment)")
     a = ap.parse_args(argv)
 
@@ -103,19 +107,24 @@ def main(argv: list[str] | None = None) -> int:
     with open(a.csv, encoding="utf-8-sig", newline="") as fh:
         rows = list(csv.DictReader(fh))
 
+    staff = staff_from_corpus(r.get("transcript") or "" for r in rows)
+    infos: list = []
     stats = {"rows": len(rows), "imported": 0, "already_there": 0, "skipped_private_or_uncertain": 0, "skipped_staff_or_personal": 0, "bad_rows": 0}
     with db.get_sessionmaker()() as s:
         have = set(s.scalars(select(PhoneCall.external_ref).where(PhoneCall.external_ref.is_not(None))).all())
         new: list[PhoneCall] = []
         for r in rows:
             try:
-                f, why = convert(r, rules, key)
+                f, why = convert(r, rules, key, staff)
             except Exception:  # a malformed row must not stop the import; it is only counted
                 stats["bad_rows"] += 1
                 continue
             if f is None:
                 stats["skipped_" + why] += 1
                 continue
+            if f["person"]:
+                from pipeline.app_contacts import Info
+                infos.append(Info(f["external_ref"], f["person"], f["intent"]))
             if f["external_ref"] in have:
                 stats["already_there"] += 1
                 continue
@@ -130,8 +139,18 @@ def main(argv: list[str] | None = None) -> int:
             s.add_all(new)
             # the invented example calls would only confuse the log now
             s.query(PhoneCall).filter(PhoneCall.is_demo.is_(True)).delete()
+            s.flush()
             ev.record(s, ev.PHONE, "calls_imported", f"Imported {len(new)} real calls into the call log", "Admin import", "phone_call", None, {"count": len(new)})
             s.commit()
+        if not a.dry_run and not a.no_contacts and infos:
+            from pipeline.app_contacts import link_contacts
+            stats.update(link_contacts(s, infos, timeutil.now_utc()))
+            s.commit()
+        elif a.dry_run and not a.no_contacts:
+            from pipeline.app_contacts import _key
+            from collections import Counter
+            fr = {k for k, v in Counter(i.person.first.lower() for i in infos if i.person.first and not i.person.last).items() if v >= 8}
+            stats["contacts_would_be_created"] = len({_key(i.person, fr) for i in infos if _key(i.person, fr)})
     print(("DRY RUN, nothing written. " if a.dry_run else "Done. ") + ", ".join(f"{k}={v}" for k, v in stats.items()))
     return 0
 
