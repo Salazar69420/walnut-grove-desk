@@ -165,3 +165,6 @@ i.h{background:var(--accent)}i.a{background:var(--vio)}i.m{background:var(--crit
 .playb:hover,.playb.on{background:var(--accent-soft);border-color:var(--accent)}
 .playr td{background:var(--panel2);padding:8px 14px}
 .aplay{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.aplay audio{flex:1 1 320px;max-width:560px;height:40px}
+.spin{display:inline-block;width:16px;height:16px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;flex:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation-duration:2.4s}}

@@ -138,7 +138,8 @@ def listen_state(call_id: int, user: User = Depends(require("phone.listen")), db
     if msg:
         _asked.pop(c.recording_id, None)
         return {"state": "failed", "message": msg}
-    return {"state": "waiting"}
+    meta = bridge.read_json_file(_play_dir(), f"{c.recording_id}.json")
+    return {"state": "working" if meta and meta.get("state") == "working" else "waiting"}
 
 
 @router.get("/{call_id}/audio")

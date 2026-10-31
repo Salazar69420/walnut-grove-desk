@@ -18,37 +18,62 @@ export function Handler({ c }: { c: PCall }) {
   return <span className="tag">{c.agent_label || 'Staff'}</span>
 }
 
-type PlayState = { state: 'waiting' | 'ready' | 'failed'; message?: string }
+type PlayState = { state: 'waiting' | 'working' | 'ready' | 'failed'; message?: string; since: number }
 
-/** Asks the server to fetch a recording, then checks every two seconds (for up to 90 seconds) until it is ready. */
+/** Asks the server to fetch a recording, then checks quickly until it is ready (first check after 0.6 s, then every second, up to 2 minutes). */
 function usePlayer() {
   const { toast } = useApp()
   const [st, setSt] = useState<Record<number, PlayState>>({})
+  const [, tick] = useState(0)
   const timers = useRef<Record<number, number>>({})
-  const put = (id: number, v: PlayState | null) => setSt((s) => { const n = { ...s }; if (v) n[id] = v; else delete n[id]; return n })
+  const put = (id: number, v: Omit<PlayState, 'since'> | null) => setSt((s) => {
+    const n = { ...s }
+    if (v) n[id] = { ...v, since: s[id]?.since ?? Date.now() }; else delete n[id]
+    return n
+  })
   const stop = (id: number) => { window.clearTimeout(timers.current[id]); delete timers.current[id] }
   const close = useCallback((id: number) => { stop(id); put(id, null) }, [])
+  const pending = Object.values(st).some((v) => v.state === 'waiting' || v.state === 'working')
+  useEffect(() => { if (!pending) return; const t = window.setInterval(() => tick((n) => n + 1), 1000); return () => window.clearInterval(t) }, [pending])
   const play = useCallback(async (id: number) => {
     stop(id)
-    put(id, { state: 'waiting' })
+    setSt((s) => ({ ...s, [id]: { state: 'waiting', since: Date.now() } }))
     try {
       const r = await api<{ state: string }>(`/phone/calls/${id}/listen`, { method: 'POST', quiet: true })
       if (r.state === 'ready') { put(id, { state: 'ready' }); return }
     } catch (x) { put(id, null); toast(errText(x) || 'Could not start the recording.'); return }
     const started = Date.now()
-    const tick = async () => {
+    const poll = async () => {
       try {
         const r = await api<{ state: string; message?: string }>(`/phone/calls/${id}/listen`, { quiet: true })
         if (r.state === 'ready') { put(id, { state: 'ready' }); return }
         if (r.state === 'failed') { put(id, { state: 'failed', message: r.message }); return }
+        put(id, { state: r.state === 'working' ? 'working' : 'waiting' })
       } catch { /* try again below */ }
-      if (Date.now() - started > 90000) { put(id, { state: 'failed', message: 'The recording is taking too long. Try again in a minute.' }); return }
-      timers.current[id] = window.setTimeout(tick, 2000)
+      if (Date.now() - started > 120000) { put(id, { state: 'failed', message: 'The recording is taking too long. Try again in a minute.' }); return }
+      timers.current[id] = window.setTimeout(poll, 1000)
     }
-    timers.current[id] = window.setTimeout(tick, 1500)
+    timers.current[id] = window.setTimeout(poll, 600)
   }, [toast])
   useEffect(() => () => { Object.keys(timers.current).forEach((k) => window.clearTimeout(timers.current[Number(k)])) }, [])
   return { st, play, close }
+}
+
+function PlayRow({ id, v, player, cols }: { id: number; v: PlayState; player: ReturnType<typeof usePlayer>; cols: number }) {
+  const secs = Math.max(0, Math.round((Date.now() - v.since) / 1000))
+  return (
+    <tr className="playr"><td colSpan={cols}>
+      {v.state === 'ready' ? (
+        <div className="aplay"><audio controls autoPlay ref={(el) => { el?.play().catch(() => { /* the browser asked for a tap: the controls are right here */ }) }} src={`/api/phone/calls/${id}/audio`} aria-label="Call recording" /><button className="btn small ghost" onClick={() => player.close(id)}>Close</button></div>
+      ) : v.state === 'failed' ? (
+        <div className="aplay"><span className="errt" role="alert">{v.message}</span><button className="btn small" onClick={() => player.play(id)}>Try again</button><button className="btn small ghost" onClick={() => player.close(id)}>Close</button></div>
+      ) : (
+        <div className="aplay" role="status" aria-live="polite"><span className="spin" aria-hidden="true" />
+          <span>{v.state === 'working' ? 'Downloading the recording from TELUS' : secs > 25 ? 'Still waiting for the download helper to start' : 'Asking the server for the recording'}<span className="mute"> ({secs} s)</span></span>
+          <button className="btn small ghost" onClick={() => player.close(id)}>Cancel</button></div>
+      )}
+    </td></tr>
+  )
 }
 
 export function Phone() {
@@ -96,7 +121,7 @@ function Log() {
             <tbody>{list.data.items.map((c) => (<Fragment key={c.id}>
               <tr className="clk" tabIndex={0} onClick={() => setOpen(c.id)} onKeyDown={(e) => { if (e.key === 'Enter') setOpen(c.id) }}>
                 {canListen && <td className="playc" onClick={(e) => e.stopPropagation()}>{c.has_recording
-                  ? <button className={'playb' + (player.st[c.id] ? ' on' : '')} aria-label={`Play the recording from ${new Date(c.started_at).toLocaleString()}`} title="Listen to this call" onClick={() => player.play(c.id)}><Icon n="play" size={16} /></button>
+                  ? <button className={'playb' + (player.st[c.id] ? ' on' : '')} aria-busy={player.st[c.id] && player.st[c.id].state !== 'ready' && player.st[c.id].state !== 'failed' ? true : undefined} aria-label={`Play the recording from ${new Date(c.started_at).toLocaleString()}`} title="Listen to this call" onClick={() => (player.st[c.id] ? player.close(c.id) : player.play(c.id))}>{player.st[c.id] && (player.st[c.id].state === 'waiting' || player.st[c.id].state === 'working') ? <span className="spin" aria-hidden="true" /> : <Icon n={player.st[c.id]?.state === 'ready' ? 'pause' : 'play'} size={16} />}</button>
                   : <span className="mute" title="No recording for this call">-</span>}</td>}
                 <td><Time iso={c.started_at} /></td>
                 <td><span className={'dir ' + c.direction} title={c.direction === 'unknown' ? 'Direction not known from the recording' : undefined}>{c.direction === 'inbound' ? 'In' : c.direction === 'outbound' ? 'Out' : '?'}</span></td>
@@ -107,11 +132,7 @@ function Log() {
                 <td><span className={'res r-' + c.result}>{c.result_label}</span></td>
                 <td className="ell note-c">{c.short_note}</td>
               </tr>
-              {player.st[c.id] && <tr className="playr"><td colSpan={canListen ? 9 : 8}>
-                {player.st[c.id].state === 'ready' ? <div className="aplay"><audio controls autoPlay src={`/api/phone/calls/${c.id}/audio`} aria-label="Call recording" /><button className="btn small ghost" onClick={() => player.close(c.id)}>Close</button></div>
-                  : player.st[c.id].state === 'failed' ? <div className="aplay"><span className="errt" role="alert">{player.st[c.id].message}</span><button className="btn small" onClick={() => player.play(c.id)}>Try again</button><button className="btn small ghost" onClick={() => player.close(c.id)}>Close</button></div>
-                  : <div className="aplay"><span className="mute">Getting the recording from TELUS. This can take up to a minute.</span><button className="btn small ghost" onClick={() => player.close(c.id)}>Cancel</button></div>}
-              </td></tr>}
+              {player.st[c.id] && <PlayRow id={c.id} v={player.st[c.id]} player={player} cols={canListen ? 9 : 8} />}
             </Fragment>))}</tbody>
           </table></div>
         )}

@@ -135,3 +135,11 @@ def test_the_list_says_which_calls_have_a_recording(env, bridge, garg):
     a_call(env)
     items = garg.get("/api/phone/calls?per_page=100").json()["items"]
     assert sum(1 for i in items if i["has_recording"]) == 1
+
+
+def test_the_page_can_see_that_the_helper_is_downloading(env, bridge, garg):
+    cid = a_call(env)
+    enable(bridge)
+    (bridge / "play").mkdir()
+    (bridge / "play" / f"{RID}.json").write_text(json.dumps({"v": 1, "state": "working", "code": "working", "ext": "", "bytes": 0, "at": "x"}))
+    assert garg.get(f"/api/phone/calls/{cid}/listen").json() == {"state": "working"}

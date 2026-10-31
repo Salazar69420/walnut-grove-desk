@@ -48,7 +48,7 @@ FILE_SLEEP = 1.0                     # polite pause between recordings
 MAX_CONSECUTIVE_FAILURES = 10
 PLAY_DIR = "play"                    # inside the bridge folder: short-lived audio the app streams to owners
 PLAY_TTL = 900                       # seconds a played recording stays in the bridge before it is deleted (15 minutes)
-PLAY_CODES = ("ready", "recordings_disabled", "not_configured", "login_failed", "write_scope_present",
+PLAY_CODES = ("working", "ready", "recordings_disabled", "not_configured", "login_failed", "write_scope_present",
               "disk_cap_reached", "disk_low", "rate_limited", "not_found", "error")
 _PLAY_FILE = re.compile(r"^\.?[0-9]{1,24}\.[A-Za-z0-9._-]{1,30}$")
 
@@ -517,8 +517,14 @@ class Worker:
             os.mkdir(d, 0o770)
         except FileExistsError:
             pass
-        os.chmod(d, 0o2770)
+        os.chmod(d, 0o770)  # no setgid bit here: the service forbids it
+        self._share(d)
         return d
+
+    def _share(self, path: str) -> None:
+        """Give a file or folder the bridge's group (walnut-telus) so the web app can read it. chmod 0770 clears the setgid bit,
+        so the group cannot be inherited; it is set explicitly. The worker is a member of that group, so this is allowed."""
+        os.chown(path, -1, os.stat(self.bridge).st_gid)
 
     def _play_cleanup(self) -> None:
         try:
@@ -538,13 +544,15 @@ class Worker:
 
     def _play_result(self, rid: str, code: str, ext: str = "", nbytes: int = 0) -> None:
         d = self._play_dir()
-        body = {"v": 1, "state": "ready" if code == "ready" else "failed", "code": code if code in PLAY_CODES else "error",
+        state = "working" if code == "working" else "ready" if code == "ready" else "failed"
+        body = {"v": 1, "state": state, "code": code if code in PLAY_CODES or code == "working" else "error",
                 "ext": ext, "bytes": nbytes, "at": self._t()}
         tmp = os.path.join(d, f".{rid}.{os.getpid()}.tmp")
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o660)
         with os.fdopen(fd, "w") as fh:
             json.dump(body, fh, separators=(",", ":"))
         os.chmod(tmp, 0o660)
+        self._share(tmp)
         os.replace(tmp, os.path.join(d, f"{rid}.json"))
 
     def _find_stored(self, rid: str) -> str | None:
@@ -567,6 +575,10 @@ class Worker:
     def _play_job(self, req: Request) -> None:
         rid = req.recording_id
         ext, nbytes = "", 0
+        try:
+            self._play_result(rid, "working")  # lets the page say "downloading" instead of just waiting
+        except OSError as e:
+            log.error("telus play could not start (%s)", type(e).__name__)
         try:
             code, ext, nbytes = self._play(req)
         except Exception as e:  # nothing from TELUS or the system may reach the result file or the logs
@@ -633,6 +645,7 @@ class Worker:
                     raise OSError("too large")
                 fout.write(chunk)
         os.chmod(tmp, 0o660)
+        self._share(tmp)
         os.replace(tmp, os.path.join(d, f"{rid}.{ext}"))
         if fetched_now:
             recordings.secure_delete(src)

@@ -35,6 +35,11 @@ def test_play_fetches_one_recording_and_leaves_it_for_the_app(env):
     audio = os.path.join(env.bridge, "play", f"{RID}.mp3")
     assert open(audio, "rb").read() == body_for(RID)
     assert stat.S_IMODE(os.stat(audio).st_mode) == 0o660
+    bridge_gid = os.stat(env.bridge).st_gid
+    assert os.stat(audio).st_gid == bridge_gid and os.stat(os.path.join(env.bridge, "play", f"{RID}.json")).st_gid == bridge_gid
+    assert os.stat(os.path.join(env.bridge, "play")).st_gid == bridge_gid  # the web app reads them through this group
+    assert stat.S_IMODE(os.stat(os.path.join(env.bridge, "play")).st_mode) & 0o2000 == 0  # setgid is forbidden by the service unit
+    assert stat.S_IMODE(os.stat(os.path.join(env.bridge, "play")).st_mode) & 0o770 == 0o770  # the app (same group) can read it
     assert len(rc.content_gets()) == 1 and all(m == "GET" or m == "POST" for m, *_ in rc.log)
     assert rec_files(env) == []  # nothing is kept in the private store: only the short-lived playback copy exists
     assert db_rows(env, "select * from telus_recordings") == []
@@ -132,3 +137,35 @@ def test_a_waiting_listener_goes_before_a_big_download_job(env):
     make_worker(env, rc).run()
     gets = [p for m, h, p, a in rc.log if m == "GET" and "/recording/" in p]
     assert gets and gets[0].endswith(f"/{RID}/content")
+
+
+def test_the_play_folder_is_made_without_the_setgid_bit_even_if_chmod_refuses_it(env, monkeypatch):
+    """The service runs with RestrictSUIDSGID=true, which makes chmod with a setgid bit fail. That must never be tried."""
+    real = os.chmod
+
+    def strict(path, mode, *a, **k):
+        if mode & 0o7000:
+            raise PermissionError(1, "Operation not permitted")
+        return real(path, mode, *a, **k)
+    monkeypatch.setattr(os, "chmod", strict)
+    rc = FakeTelus(1)
+    write_cfg(env)
+    play_req(env)
+    make_worker(env, rc).run()
+    assert result(env)["state"] == "ready"
+
+
+def test_working_is_reported_while_the_helper_downloads(env):
+    rc = FakeTelus(1)
+    write_cfg(env)
+    seen = []
+    w = make_worker(env, rc)
+    real = w._play
+
+    def spy(req):
+        seen.append(result(env)["state"])  # what the page would see mid-download
+        return real(req)
+    w._play = spy
+    play_req(env)
+    w.run()
+    assert seen == ["working"] and result(env)["state"] == "ready"
