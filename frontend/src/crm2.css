@@ -233,3 +233,7 @@ a.playb{color:var(--acc-t)}
 @keyframes livepulse{0%{box-shadow:0 0 0 0 rgba(31,157,85,.55)}70%{box-shadow:0 0 0 8px rgba(31,157,85,0)}100%{box-shadow:0 0 0 0 rgba(31,157,85,0)}}
 @media (prefers-reduced-motion:reduce){.livebadge.live i{animation:none}}
 .newtag{margin-left:6px;padding:1px 6px;border-radius:6px;font-size:11px;font-weight:700;background:var(--accent-soft);color:var(--accent)}
+/* Why people call (from transcripts) */
+.whybars{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.wb{display:grid;grid-template-columns:minmax(120px,190px) 1fr 40px;align-items:center;gap:10px;font-size:14px}
+.wb i{display:block;height:12px;border-radius:6px;background:var(--accent);min-width:4px}.wb b{text-align:right}

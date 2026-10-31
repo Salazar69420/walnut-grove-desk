@@ -15,7 +15,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Contact, PhoneCall
+from app.models import Contact, Message, PhoneCall, Task
 from app.services import crm
 from app.services import events as ev
 
@@ -61,6 +61,7 @@ def ingest(db: Session, data: dict) -> dict[str, int]:
     for c in db.scalars(select(Contact).where(Contact.phone.in_(nums), Contact.erased_at.is_(None))).all() if nums else []:
         owners.setdefault(c.phone, []).append(c)
     touched: set[int] = set()
+    new_calls: list[PhoneCall] = []
     for r in rows:
         ref = f"tel-{r['id']}"
         n = r.get("n") if isinstance(r.get("n"), str) and E164.match(r["n"]) else None
@@ -80,10 +81,11 @@ def ingest(db: Session, data: dict) -> dict[str, int]:
         handled, result = RESULT.get(str(r.get("r")), RESULT["other"])
         who = owners.get(n, []) if n else []
         c = who[0] if len(who) == 1 else None
-        db.add(PhoneCall(started_at=at, direction=r.get("d") if r.get("d") in ("inbound", "outbound") else "unknown", handled_by=handled,
+        new_calls.append(PhoneCall(started_at=at, direction=r.get("d") if r.get("d") in ("inbound", "outbound") else "unknown", handled_by=handled,
                          agent_label="", contact_id=c.id if c else None, phone=n, duration_seconds=max(0, int(r.get("s") or 0)), result=result,
                          call_type=("patient" if c.kind == "patient" else "inquiry") if c else "unknown", short_note="", transcript=None,
                          source="telus", external_ref=ref, recording_id=rec, is_demo=False))
+        db.add(new_calls[-1])
         have.add(ref)
         counts["added"] += 1
         if c:
@@ -91,12 +93,87 @@ def ingest(db: Session, data: dict) -> dict[str, int]:
             crm.touch_contact(db, c, at)
     db.flush()
     counts["linked"] = relink(db, touched)
-    if counts["added"] or counts["numbers_added"] or counts["linked"]:
+    counts["callbacks"] = callback_tasks(db, new_calls)
+    close_answered_callbacks(db, new_calls)
+    ensure_call_messages(db)
+    if counts["added"] or counts["numbers_added"] or counts["linked"] or counts["callbacks"]:
         ev.record(db, ev.PHONE, "calls_synced", f"{counts['added']} new calls from TELUS", "TELUS", "phone_call", None, counts)
         for cid in touched:
             ev.queue_publish(db, "contacts", cid, None)
     db.commit()
     return counts
+
+
+def call_label(c: PhoneCall) -> str:
+    if c.short_note:
+        return c.short_note
+    if c.result == "voicemail":
+        return "Left a voicemail"
+    if c.result == "missed":
+        return "Missed call" if c.direction == "inbound" else "No answer"
+    m, sec = divmod(c.duration_seconds or 0, 60)
+    return f"Talked for {m} min {sec} s" if m else f"Talked for {sec} s"
+
+
+def ensure_call_messages(db: Session) -> int:
+    """Every call linked to a contact shows in that contact's conversation (All and Calls), with its play and transcript buttons."""
+    have = select(Message.phone_call_id).where(Message.phone_call_id.is_not(None))
+    rows = db.scalars(select(PhoneCall).where(PhoneCall.contact_id.is_not(None), PhoneCall.id.not_in(have)).limit(5000)).all()
+    for c in rows:
+        out = c.direction == "outbound"
+        db.add(Message(contact_id=c.contact_id, channel="call", direction="out" if out else "in", sender_kind="staff" if out else "client",
+                       body=call_label(c), delivery_state="received", created_at=c.started_at, phone_call_id=c.id, is_demo=False))
+    return len(rows)
+
+
+def callback_tasks(db: Session, calls: list[PhoneCall]) -> int:
+    """A missed call or voicemail from a client becomes a callback task, unless we already spoke with that number since."""
+    from datetime import timedelta
+    from app.services import timeutil
+    n = 0
+    for c in calls:
+        if c.direction != "inbound" or c.result not in ("missed", "voicemail") or not c.phone:
+            continue
+        if timeutil.now_utc() - crm.aware(c.started_at) > timedelta(days=2):
+            continue  # do not raise tasks for old history on the first pull
+        later = db.scalar(select(PhoneCall.id).where(PhoneCall.phone == c.phone, PhoneCall.started_at > c.started_at, PhoneCall.result == "answered").limit(1))
+        if later:
+            continue  # they got through, or we called them back
+        open_t = db.scalar(select(Task).where(Task.kind == "callback", Task.status != "done", Task.reason.like(f"%{crm.phone_display(c.phone)}%")).limit(1))
+        who = db.get(Contact, c.contact_id) if c.contact_id else None
+        name = who.display_name if who else crm.phone_display(c.phone)
+        what = "left a voicemail" if c.result == "voicemail" else "called and nobody answered"
+        line = f"{name} {what} at {timeutil.local(c.started_at).strftime('%a %b %d, %I:%M %p').replace(' 0', ' ')}. Number: {crm.phone_display(c.phone)}."
+        if open_t:
+            open_t.reason = (open_t.reason + "\n" + line)[:2000]  # one task per caller: later attempts are added to it
+            continue
+        t = Task(kind="callback", classification=who.kind if who else "inquiry", title=f"Call back {name}"[:200], reason=line, contact_id=who.id if who else None,
+                 priority="high" if c.result == "voicemail" else "normal", status="open", raised_by="rule", created_at=timeutil.now_utc())
+        db.add(t)
+        db.flush()
+        ev.record(db, ev.TASKS, "callback_task_raised", f"Callback task: {name} {what}", "TELUS", "task", t.id)
+        n += 1
+    return n
+
+
+def close_answered_callbacks(db: Session, calls: list[PhoneCall]) -> int:
+    """When we get through to a number (either way), its open callback task is done."""
+    from app.services import timeutil
+    n = 0
+    for c in calls:
+        if c.result != "answered" or not c.phone:
+            continue
+        from sqlalchemy import func
+        last_missed = db.scalar(select(func.max(PhoneCall.started_at)).where(PhoneCall.phone == c.phone, PhoneCall.direction == "inbound",
+                                                                          PhoneCall.result.in_(("missed", "voicemail"))))
+        if last_missed is None or crm.aware(c.started_at) <= crm.aware(last_missed):
+            continue  # this conversation was before their latest missed call
+        for t in db.scalars(select(Task).where(Task.kind == "callback", Task.status != "done",
+                                              Task.reason.like(f"%{crm.phone_display(c.phone)}%"))).all():
+            t.status, t.done_at = "done", timeutil.now_utc()
+            t.reason = (t.reason + f"\nClosed automatically: a call with this number was answered at {timeutil.local(c.started_at).strftime('%I:%M %p').lstrip('0')}.")[:2000]
+            n += 1
+    return n
 
 
 def relink(db: Session, touched: set[int] | None = None) -> int:

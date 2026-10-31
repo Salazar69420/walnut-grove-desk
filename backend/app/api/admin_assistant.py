@@ -32,6 +32,8 @@ class AssistantIn(Strict):
     clear_key: bool = False
     deny_data_collection: bool | None = None
     system_prompt: str | None = Field(default=None, max_length=6000)
+    transcribe_enabled: bool | None = None
+    transcribe_model: str | None = Field(default=None, max_length=120)
 
 
 def _pilot(db: Session) -> list[str]:
@@ -70,6 +72,14 @@ def put_assistant(body: AssistantIn, user: User = Depends(require("admin.setting
     if body.clear_key:
         cfg["key_enc"], cfg["key_last4"] = "", None
         changed.append("key removed")
+    if body.transcribe_enabled is not None:
+        cfg["transcribe_enabled"] = body.transcribe_enabled
+        changed.append("call transcripts " + ("on" if body.transcribe_enabled else "off"))
+    if body.transcribe_model is not None:
+        if not MODEL_RX.fullmatch(body.transcribe_model):
+            raise HTTPException(status_code=400, detail="That does not look like an OpenRouter model id (for example google/gemini-2.5-flash-lite).")
+        cfg["transcribe_model"] = body.transcribe_model
+        changed.append("transcript model")
     if body.deny_data_collection is not None:
         cfg["deny_data_collection"] = body.deny_data_collection
         changed.append("privacy")

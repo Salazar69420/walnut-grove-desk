@@ -37,6 +37,9 @@ class Contact(Base):
     owner_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     ai_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     preference_notes: Mapped[str] = mapped_column(Text, default="")
+    # The assistant's memory of older conversations (a short summary), so it remembers beyond the last texts. Erased with the contact.
+    ai_memory: Mapped[str] = mapped_column(Text, default="", server_default="")
+    ai_memory_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     last_active_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     # Everything after this moment that came in from the client counts as unread.

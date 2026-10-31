@@ -86,6 +86,18 @@ def _failed(rid: str) -> str | None:
     return None
 
 
+def request_copy(c: PhoneCall, requested_by: str) -> None:
+    """Ask the download helper for a short-lived copy of this recording (for playing or transcribing). Raises OSError."""
+    req_dir = os.path.join(bridge._bridge(), "requests")
+    if not bridge._real_dir(req_dir):
+        os.mkdir(req_dir, 0o770)
+        os.chmod(req_dir, 0o770)
+    job_id = uuid.uuid4().hex
+    body = {"v": 1, "id": job_id, "mode": "play", "recording_id": c.recording_id, "call_date": timeutil.local(c.started_at).date().isoformat(),
+            "requested_by": requested_by[:60], "requested_at": bridge._now_iso()}
+    bridge._atomic_write(bridge._bridge(), os.path.join(req_dir, job_id + ".json"), body)
+
+
 def _log_play(db: Session, user: User, c: PhoneCall) -> None:
     crm.log_access(db, user, c.contact_id, "view", detail="phone recording", dedupe_seconds=30)
     ev.record(db, ev.PHONE, "recording_played", f"{user.display_name} played a call recording", user, "phone_call", c.id, publish=False)
@@ -110,15 +122,8 @@ def start_listening(call_id: int, user: User = Depends(require("phone.listen")),
         os.unlink(os.path.join(_play_dir(), f"{rid}.json"))
     except OSError:
         pass
-    req_dir = os.path.join(bridge._bridge(), "requests")
     try:
-        if not bridge._real_dir(req_dir):
-            os.mkdir(req_dir, 0o770)
-            os.chmod(req_dir, 0o770)
-        job_id = uuid.uuid4().hex
-        body = {"v": 1, "id": job_id, "mode": "play", "recording_id": rid, "call_date": timeutil.local(c.started_at).date().isoformat(),
-                "requested_by": bridge._who(user), "requested_at": bridge._now_iso()}
-        bridge._atomic_write(bridge._bridge(), os.path.join(req_dir, job_id + ".json"), body)
+        request_copy(c, bridge._who(user))
     except OSError as e:
         log.warning("could not write a play request: %s", e.__class__.__name__)
         raise HTTPException(status_code=503, detail="Could not hand the request to the download helper. Try again.")

@@ -139,6 +139,8 @@ function CallSheet({ id, onClose, canTranscript, canEdit, onSaved }: { id: numbe
               <dt>When</dt><dd>{new Date(c.started_at).toLocaleString([], { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</dd>
               <dt>Length</dt><dd>{mmss(c.duration_seconds)}</dd>
               <dt>Result</dt><dd>{c.result_label}</dd>
+              {c.summary && <><dt>What it was about</dt><dd>{c.summary}</dd></>}
+              {!c.has_transcript && c.transcript_state === 'queued' && <><dt>Transcript</dt><dd className="mute">Being transcribed now</dd></>}
               <dt>Contact</dt><dd>{c.contact ? <><Link to={`/contacts/${c.contact.id}`}>{c.contact.display_name}</Link> <KindBadge kind={c.contact.kind} /></> : <span className="mute">Not matched. {c.phone_display}</span>}</dd>
             </dl>
             {canEdit && <>
@@ -160,7 +162,7 @@ function CallSheet({ id, onClose, canTranscript, canEdit, onSaved }: { id: numbe
   )
 }
 
-type Sum = { days: number; total: number; inbound: number; outbound: number; missed: number; ai_handled: number; human_handled: number; ai_share_pct: number; avg_seconds: number; unmatched: number; by_hour: number[]; by_day: { date: string; human: number; ai: number; none: number }[]; by_result: Record<string, number> }
+type Sum = { days: number; total: number; inbound: number; outbound: number; missed: number; ai_handled: number; human_handled: number; ai_share_pct: number; avg_seconds: number; unmatched: number; by_hour: number[]; by_day: { date: string; human: number; ai: number; none: number }[]; by_result: Record<string, number>; by_intent?: { intent: string; label: string; count: number }[]; transcribed?: number; follow_up_needed?: number }
 
 function Center() {
   const [days, setDays] = useState('7')
@@ -190,6 +192,14 @@ function Center() {
             </div>
             <p className="legendr"><i className="h" /> People <i className="a" /> Assistant <i className="m" /> Missed</p>
           </section>
+          {!!d.by_intent?.length && (
+            <section className="card pad"><h3>Why people call</h3>
+              <p className="mute">From {d.transcribed} transcribed calls{d.follow_up_needed ? `, ${d.follow_up_needed} still needed a follow-up` : ''}.</p>
+              <div className="whybars">
+                {d.by_intent.map((x) => <div key={x.intent} className="wb"><span>{x.label}</span><i style={{ width: `${(x.count / d.by_intent![0].count) * 100}%` }} /><b>{x.count}</b></div>)}
+              </div>
+            </section>
+          )}
           <section className="card pad"><h3>Calls by hour</h3>
             <div className="bars hours" role="img" aria-label="Calls by hour of the day">
               {d.by_hour.map((n, h) => <div key={h} className="bcol" title={`${h}:00, ${n} calls`}><div className="stack" style={{ height: `${(n / maxH) * 100}%` }}><i className="h" style={{ flex: 1 }} /></div><small>{h % 3 === 0 ? h : ''}</small></div>)}

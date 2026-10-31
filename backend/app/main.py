@@ -26,6 +26,7 @@ NO_DOCS_NAMES = {"docs", "redoc", "openapi.json"}
 async def _inbound_loop() -> None:
     """Every few seconds, fold incoming texts from the send helper into conversations (and let the assistant reply)."""
     from app.services import inbound
+    n = 0
     while True:
         try:
             await asyncio.to_thread(inbound.run_once)
@@ -36,6 +37,12 @@ async def _inbound_loop() -> None:
             await asyncio.to_thread(calls_live.run_once)  # new calls from TELUS, only when telus-calls wrote a new file
         except Exception:  # noqa: BLE001 - keep looping
             log.error("live calls loop error")
+        if (n := n + 1) % 6 == 0:  # about every 30 seconds
+            try:
+                from app.services import transcribe
+                await asyncio.to_thread(transcribe.run_once)  # transcribe and file new recorded calls, a few at a time
+            except Exception:  # noqa: BLE001 - keep looping
+                log.error("transcript loop error")
         await asyncio.sleep(5)
 
 

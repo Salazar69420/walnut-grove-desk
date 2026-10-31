@@ -38,9 +38,10 @@ KEY = "assistant_ai"
 URL = "https://openrouter.ai/api/v1/chat/completions"
 MODELS_URL = "https://openrouter.ai/api/v1/models"
 DEFAULT_MODEL = "deepseek/deepseek-v4.1-flash-1017"
+TRANSCRIBE_MODEL = "google/gemini-2.5-flash-lite"  # takes audio; used only to turn call recordings into text
 TIMEOUT = 25.0
 MAX_REPLY = 640
-HISTORY = 8
+HISTORY = 20  # the last texts go to the model as they are; older ones live in the contact's memory (assistant/memory.py)
 
 OLD_DEFAULT_PROMPT = """You are the text-message assistant for Walnut Grove Animal Hospital, a veterinary clinic in Langley, British Columbia. You answer pet owners by text on behalf of the front desk.
 
@@ -81,7 +82,7 @@ RULES = """Hard rules (always apply, they override everything above):
 7. Reply with JSON only, matching the schema.
 8. If OPTIONAL PRODUCTS are listed, you may add ONE short sentence suggesting ONE of them, using its wording, only when it clearly fits what the client asked about. Never suggest anything when they are worried about their pet's health, upset, grieving, or asking about an emergency. Include its id.
 9. If you are in any doubt at all, set "needs_human" to true. Handing over to a person is always fine. When "answered" is false or "needs_human" is true, fill "task_title" (a short, specific title for the team, like "Asks if we see rabbits") and "task_note" (what the client needs, what was missing, and the next step you suggest).
-10. Read the whole conversation above and reply to what they mean in context, like a person would. If the message is only thanks, a greeting, an okay or a goodbye, reply warmly and briefly (mention their appointment from THEIR APPOINTMENTS if there is one), set "answered" false, "needs_human" false and leave task_title empty: no task is needed for that."""
+10. Read the whole conversation above and reply to what they mean in context, like a person would. Use WHAT YOU REMEMBER ABOUT THEM naturally: never ask for something you already know (their name, their pet, what they told us before), and pick up where things were left. If the message is only thanks, a greeting, an okay or a goodbye, reply warmly and briefly (mention their appointment from THEIR APPOINTMENTS if there is one), set "answered" false, "needs_human" false and leave task_title empty: no task is needed for that."""
 
 SCHEMA = {
     "type": "object",
@@ -117,7 +118,8 @@ class AiFailed(Exception):
 
 # ---------------------------------------------------------------- settings
 def defaults() -> dict[str, Any]:
-    return {"enabled": False, "staff_enabled": False, "model": DEFAULT_MODEL, "key_enc": "", "key_last4": None, "deny_data_collection": True, "system_prompt": DEFAULT_PROMPT}
+    return {"enabled": False, "staff_enabled": False, "model": DEFAULT_MODEL, "key_enc": "", "key_last4": None, "deny_data_collection": True, "system_prompt": DEFAULT_PROMPT,
+            "transcribe_enabled": True, "transcribe_model": TRANSCRIBE_MODEL}
 
 
 def get_config(db: Session) -> dict[str, Any]:
@@ -132,7 +134,8 @@ def get_config(db: Session) -> dict[str, Any]:
 
 def public(cfg: dict[str, Any]) -> dict[str, Any]:
     return {"enabled": bool(cfg["enabled"]), "staff_enabled": bool(cfg["staff_enabled"]), "model": cfg["model"], "has_key": bool(cfg["key_enc"]), "key_last4": cfg["key_last4"],
-            "deny_data_collection": bool(cfg["deny_data_collection"]), "system_prompt": cfg["system_prompt"], "default_prompt": DEFAULT_PROMPT,
+            "deny_data_collection": bool(cfg["deny_data_collection"]), "system_prompt": cfg["system_prompt"],
+            "transcribe_enabled": bool(cfg["transcribe_enabled"]), "transcribe_model": cfg["transcribe_model"], "default_prompt": DEFAULT_PROMPT,
             "rules": RULES}
 
 
@@ -216,7 +219,9 @@ def conversation(db: Session, contact: Contact, latest: str) -> list[dict[str, s
         if body:
             out.append({"role": role, "content": body})
     name = first if first != "there" else "not known yet (do not use a name; never call them by a placeholder like 'Text')"
-    header = f"(Client first name: {name}. Pets: {', '.join(pets) if pets else 'not on file'}.)\n"
+    from app.assistant import memory
+    mem = memory.block(db, contact)
+    header = f"(Client first name: {name}. Pets: {', '.join(pets) if pets else 'not on file'}.)\n" + (f"(WHAT YOU REMEMBER ABOUT THEM:\n{mem})\n" if mem else "")
     if out and out[-1]["role"] == "user" and out[-1]["content"] == latest.strip()[:800]:
         out[-1]["content"] = header + out[-1]["content"]
     else:

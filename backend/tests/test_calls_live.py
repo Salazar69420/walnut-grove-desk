@@ -24,7 +24,7 @@ def test_new_calls_are_added_once_and_linked(env):
         r = calls_live.ingest(s, data)
         assert (r["added"], r["numbers_added"]) == (2, 1)
     with env.session() as s:
-        assert calls_live.ingest(s, data) == {"added": 0, "numbers_added": 0, "linked": 0}
+        assert calls_live.ingest(s, data) == {"added": 0, "numbers_added": 0, "linked": 0, "callbacks": 0}
         a1 = s.scalar(select(PhoneCall).where(PhoneCall.external_ref == "tel-a1"))
         a2 = s.scalar(select(PhoneCall).where(PhoneCall.external_ref == "tel-a2"))
         assert a1.contact_id == cid and a1.source == "telus" and a1.duration_seconds == 95
@@ -53,3 +53,26 @@ def test_the_badge_says_why_it_is_not_connected(env, garg, tmp_path):
         assert garg.get("/api/phone/live").json()["state"] == "live"
     finally:
         config.set_settings(env.settings)
+
+
+def test_a_missed_call_raises_one_callback_task_and_an_answered_call_closes_it(env):
+    from app.models import Message, Task
+    from app.services import timeutil
+    now = timeutil.now_utc()
+    iso = lambda m: timeutil.iso(now - __import__("datetime").timedelta(minutes=m))
+    with env.session() as s:
+        c = s.scalar(select(Contact).where(Contact.is_demo.is_(True)).order_by(Contact.id).limit(1))
+        c.phone = "+16045550123"
+        s.commit()
+        cid = c.id
+    with env.session() as s:
+        calls_live.ingest(s, {"v": 1, "calls": [
+            {"id": "m1", "at": iso(30), "d": "inbound", "r": "missed", "s": 0, "n": "+16045550123", "rec": None},
+            {"id": "m2", "at": iso(20), "d": "inbound", "r": "voicemail", "s": 30, "n": "+16045550123", "rec": "55"},
+        ]})
+        (t,) = s.scalars(select(Task).where(Task.kind == "callback", Task.contact_id == cid)).all()
+        assert t.status == "open" and "voicemail" in t.reason
+        assert len(s.scalars(select(Message).where(Message.contact_id == cid, Message.channel == "call")).all()) >= 2  # shows in the conversation
+    with env.session() as s:
+        calls_live.ingest(s, {"v": 1, "calls": [{"id": "m3", "at": iso(5), "d": "outbound", "r": "answered", "s": 90, "n": "+16045550123", "rec": None}]})
+        assert s.scalar(select(Task).where(Task.kind == "callback", Task.contact_id == cid)).status == "done"

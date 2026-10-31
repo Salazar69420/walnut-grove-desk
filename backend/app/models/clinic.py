@@ -112,6 +112,12 @@ class PhoneCall(Base):
     external_ref: Mapped[str | None] = mapped_column(String(40))
     # TELUS recording id (digits only), used to fetch the audio on request. Not a phone number.
     recording_id: Mapped[str | None] = mapped_column(String(24))
+    # Made by the AI from the transcript: a short summary (owners and tasks only) and the reason for the call (for reports).
+    summary: Mapped[str | None] = mapped_column(Text)
+    intent: Mapped[str | None] = mapped_column(String(30))
+    # '' not started, 'queued' waiting for the audio copy, 'done', 'failed', 'skipped' (too short)
+    transcript_state: Mapped[str] = mapped_column(String(10), default="", server_default="")
+    transcript_tries: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     is_demo: Mapped[bool] = mapped_column(Boolean, default=False)
 
 

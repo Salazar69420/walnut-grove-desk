@@ -21,6 +21,7 @@ from app.services import crm
 from app.services import events as ev
 from app.services import timeutil
 from app.services.csvutil import to_csv
+from app.services.transcribe import INTENTS
 
 router = APIRouter(prefix="/api", tags=["phone"])
 
@@ -89,7 +90,7 @@ def call_dicts(db: Session, rows: list[PhoneCall]) -> list[dict[str, Any]]:
             "agent_label": r.agent_label, "contact": {"id": c.id, "display_name": c.display_name, "kind": c.kind} if c else None,
             "phone_display": crm.phone_display(r.phone) if r.phone else "", "duration_seconds": r.duration_seconds,
             "result": r.result, "result_label": RESULT_LABELS.get(r.result, r.result), "call_type": r.call_type,
-            "short_note": r.short_note, "has_transcript": bool(r.transcript), "has_recording": bool(r.recording_id), "source": r.source,
+            "short_note": r.short_note, "has_transcript": bool(r.transcript), "intent": r.intent, "transcript_state": r.transcript_state, "has_recording": bool(r.recording_id), "source": r.source,
         })
     return out
 
@@ -142,6 +143,8 @@ def summary(days: int = Query(default=7, ge=1, le=90), user: User = Depends(requ
         "by_hour": by_hour,
         "by_day": [{"date": d.isoformat(), "human": c["human"], "ai": c["ai"], "none": c["none"]} for d, c in sorted(by_day.items())],
         "by_result": dict(Counter(r.result for r in rows)),
+        "by_intent": [{"intent": k, "label": INTENTS.get(k, k), "count": v} for k, v in Counter(r.intent for r in rows if r.intent).most_common()],
+        "transcribed": sum(1 for r in rows if r.transcript), "follow_up_needed": sum(1 for r in rows if "follow-up needed" in (r.short_note or "")),
         "results": [[k, v] for k, v in RESULT_LABELS.items()],
     }
 
@@ -153,6 +156,7 @@ def get_call(call_id: int, user: User = Depends(require("phone.view")), db: Sess
         raise HTTPException(status_code=404, detail="No such call")
     item = call_dicts(db, [r])[0]
     item["transcript"] = None
+    item["summary"] = r.summary if has_perm(user, "phone.transcript") else None
     if r.transcript and has_perm(user, "phone.transcript"):
         item["transcript"] = r.transcript
         crm.log_access(db, user, r.contact_id, "view", detail="phone transcript")
