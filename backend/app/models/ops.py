@@ -205,7 +205,7 @@ class Outbox(Base):
 
     __tablename__ = "outbox"
     __table_args__ = (
-        CheckConstraint("channel in ('sms','voice')", name="channel"),
+        CheckConstraint("channel in ('sms','voice','email')", name="channel"),
         CheckConstraint("status in ('would_send')", name="status"),
     )
 

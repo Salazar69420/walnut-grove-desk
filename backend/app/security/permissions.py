@@ -20,8 +20,20 @@ PERMS: dict[str, set[str]] = {
     "tools.view": {"desk", "nurse", "owner"},
     "assistant.use": {"desk", "nurse", "owner"},
     "export.use": {"desk", "nurse", "owner"},  # each export also checks the list's view perm
+    # Clinic CRM, phases 1 and 2 (docs/CONTRACT_CRM_P1.md)
+    "contacts.view": {"desk", "nurse", "owner"},
+    "contacts.edit": {"desk", "nurse", "owner"},
+    "contacts.export": {"desk", "owner"},
+    "messages.view": {"desk", "nurse", "owner"},
+    "messages.send": {"desk", "nurse", "owner"},
+    "notes.write": {"desk", "nurse", "owner"},
+    "tasks.view": {"desk", "nurse", "owner"},
+    "tasks.work": {"desk", "nurse", "owner"},
+    "calendar.view": {"desk", "nurse", "owner"},
+    "calendar.edit": {"desk", "owner"},
+    "home.view": {"desk", "nurse", "owner"},
 }
-ADMIN_PERMS: set[str] = {"admin.users", "admin.audit", "admin.settings", "admin.import", "admin.reset_demo", "admin.telus"}  # require is_admin
+ADMIN_PERMS: set[str] = {"admin.users", "admin.audit", "admin.settings", "admin.import", "admin.reset_demo", "admin.telus", "admin.contacts_erase", "admin.access_log"}  # require is_admin
 
 ROLES = ("owner", "desk", "nurse")
 

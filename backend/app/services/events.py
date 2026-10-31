@@ -21,10 +21,13 @@ RECALL_SENDER = "Recall sender"
 AFTER_HOURS = "After-hours assistant"
 STAFF_ROSTER = "Staff roster"
 IMPROMED_SYNC = "ImproMed sync"
+CONTACTS = "Contacts"
+CONVERSATIONS = "Conversations"
+TASKS = "Tasks"
 ADMIN = "Admin"
 SIGN_IN = "Sign-in"
 
-FEED_TOOLS = [CALL_LOGGER, CALLBACK_LIST, RESULTS_TRACKER, RECALL_SENDER, AFTER_HOURS, STAFF_ROSTER, IMPROMED_SYNC]
+FEED_TOOLS = [CALL_LOGGER, CALLBACK_LIST, RESULTS_TRACKER, RECALL_SENDER, AFTER_HOURS, STAFF_ROSTER, IMPROMED_SYNC, CONTACTS, CONVERSATIONS, TASKS]
 AUDIT_ONLY_TOOLS = [ADMIN, SIGN_IN]
 ALL_TOOLS = FEED_TOOLS + AUDIT_ONLY_TOOLS
 
@@ -32,6 +35,7 @@ ALL_TOOLS = FEED_TOOLS + AUDIT_ONLY_TOOLS
 ENTITIES = {
     "callbacks", "results", "drafts", "shifts", "suggestions", "overnight",
     "events", "settings", "hospitals", "visit_types", "users", "analytics",
+    "contacts", "messages", "tasks", "notifications", "events_cal",
 }
 _ENTITY_OF_TYPE = {
     "callback": "callbacks",
@@ -46,6 +50,12 @@ _ENTITY_OF_TYPE = {
     "user": "users",
     "setting": "settings",
     "analytics": "analytics",
+    "contact": "contacts",
+    "message": "messages",
+    "note": "messages",
+    "task": "tasks",
+    "notification": "notifications",
+    "calendar_event": "events_cal",
 }
 
 # Set by the request middleware so record() can stamp the client address.

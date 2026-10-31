@@ -19,7 +19,7 @@ async function poll() {
     if (r.last_id > lastId) {
       const first = lastId === 0
       lastId = r.last_id
-      if (!first) ['callbacks', 'results', 'drafts', 'shifts', 'suggestions', 'overnight', 'events', 'settings', 'hospitals', 'visit_types'].forEach(fire)
+      if (!first) ['callbacks', 'results', 'drafts', 'shifts', 'suggestions', 'overnight', 'events', 'settings', 'hospitals', 'visit_types', 'contacts', 'messages', 'tasks', 'notifications', 'events_cal'].forEach(fire)
     }
   } catch { /* ignore */ }
 }

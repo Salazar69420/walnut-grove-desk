@@ -10,6 +10,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 
 from app import config, db, migrate
+from app.api import contacts as contacts_api, crm_misc, home as home_api, tasks as tasks_api, timeline as timeline_api
 from app.api import admin, admin_ai, admin_telus, afterhours, auth, brief, callbacks, drafts, export, feed, health, imports, overnight, results, shifts, sim
 from app.assistant import routes as assistant_routes
 from app.retell import routes as retell_routes
@@ -48,7 +49,9 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
     )
     app.add_middleware(SecurityHeadersMiddleware)
 
-    for r in (auth.router, admin.router, callbacks.router, results.router, drafts.router, shifts.router, feed.router, export.router, health.router,
+    # The CRM routers go first: /api/export/contacts.csv must win over the generic /api/export/{name}.csv.
+    for r in (contacts_api.router, timeline_api.router, tasks_api.router, home_api.router, crm_misc.router,
+              auth.router, admin.router, callbacks.router, results.router, drafts.router, shifts.router, feed.router, export.router, health.router,
               admin_ai.router, admin_telus.router, imports.router, overnight.router, sim.router, afterhours.router, brief.router,
               assistant_routes.router, retell_routes.router):
         app.include_router(r)

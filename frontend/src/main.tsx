@@ -8,6 +8,7 @@ import '@fontsource/figtree/700.css'
 import '@fontsource/ibm-plex-mono/400.css'
 import '@fontsource/ibm-plex-mono/500.css'
 import './styles.css'
+import './crm.css'
 import { App } from './App'
 import { Provider } from './ctx'
 

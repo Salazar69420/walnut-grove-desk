@@ -33,6 +33,7 @@ from app.models import (
     VisitType,
 )
 from app.security.passwords import generate_password, hash_password
+from app.seed import crm_seed
 from app.seed import reference_data as ref
 from app.services import events as ev
 from app.services import timeutil
@@ -98,8 +99,13 @@ def reset_demo(db: Session, actor=None, now: datetime | None = None) -> dict[str
     now = now or timeutil.now_utc()
     today = timeutil.today_local(now)
 
+    crm_seed.wipe_demo(db)
     for model in RESET_TABLES:
-        db.execute(delete(model))
+        if model is Outbox:
+            # messages sent from the CRM (practice mode) keep their outbox rows
+            db.execute(delete(Outbox).where(Outbox.source_type != "message"))
+        else:
+            db.execute(delete(model))
     db.flush()
 
     users_by_name = {u.display_name: u.id for u in db.scalars(select(User)).all()}
@@ -195,6 +201,8 @@ def reset_demo(db: Session, actor=None, now: datetime | None = None) -> dict[str
         db.add(row)
     db.flush()
 
+    crm_counts = crm_seed.seed_crm(db, now, conv_rows)
+
     ensure_settings(db, reset_toggles=True)
 
     # events: the reference feed once (first seeding only), plus one reset line every time
@@ -208,6 +216,7 @@ def reset_demo(db: Session, actor=None, now: datetime | None = None) -> dict[str
     counts = {}
     for model in RESET_TABLES:
         counts[model.__tablename__] = db.scalar(select(func.count()).select_from(model)) or 0
+    counts.update({f"crm_{k}": v for k, v in crm_counts.items()})
     return counts
 
 
@@ -256,4 +265,5 @@ def create_users(db: Session) -> list[tuple[str, str]]:
     for c in db.scalars(select(Callback)).all():
         if c.owner_id is None and c.owner_name:
             c.owner_id = ids.get(c.owner_name)
+    crm_seed.relink_users(db)
     return out

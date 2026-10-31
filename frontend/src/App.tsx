@@ -10,9 +10,13 @@ import { Schedule } from './views/Schedule'
 import { Setup } from './views/Setup'
 import { Tools } from './views/Tools'
 import { Admin } from './views/Admin'
+import { Home } from './views/Home'
+import { Contacts } from './views/Contacts'
+import { ContactPage } from './views/ContactPage'
+import { Tasks } from './views/Tasks'
 
 export function landing(role: string) {
-  return role === 'owner' ? '/brief' : role === 'desk' ? '/overnight' : '/results'
+  return role === 'owner' ? '/brief' : role === 'desk' ? '/home' : '/results'
 }
 
 function Guard({ perm, admin, children }: { perm?: string; admin?: boolean; children: JSX.Element }) {
@@ -23,7 +27,7 @@ function Guard({ perm, admin, children }: { perm?: string; admin?: boolean; chil
 }
 
 export function App() {
-  const { me, ready, toastText, toastShow } = useApp()
+  const { me, ready, toastText, toastShow, toastUndo, dismissToast } = useApp()
   const loc = useLocation()
   let body
   if (!ready) body = <div className="auth"><p className="lead">Loading</p></div>
@@ -36,6 +40,10 @@ export function App() {
       <Routes>
         <Route path="/login" element={<Navigate to={landing(me.user.role)} replace />} />
         <Route element={<Shell />}>
+          <Route path="/home" element={<Guard perm="home.view"><Home /></Guard>} />
+          <Route path="/tasks" element={<Guard perm="tasks.view"><Tasks /></Guard>} />
+          <Route path="/contacts" element={<Guard perm="contacts.view"><Contacts /></Guard>} />
+          <Route path="/contacts/:id" element={<Guard perm="contacts.view"><ContactPage /></Guard>} />
           <Route path="/brief" element={<Guard perm="brief.view"><Brief /></Guard>} />
           <Route path="/overnight" element={<Guard perm="overnight.view"><Overnight /></Guard>} />
           <Route path="/callbacks" element={<Guard perm="callbacks.view"><Callbacks /></Guard>} />
@@ -53,7 +61,10 @@ export function App() {
   return (
     <>
       {body}
-      <div className={'toast' + (toastShow ? ' show' : '')} role="status">{toastText}</div>
+      <div className={'toast' + (toastShow ? ' show' : '') + (toastUndo ? ' act' : '')} role="status" aria-live="polite">
+        <span>{toastText}</span>
+        {toastUndo && toastShow && <button className="toast-undo" onClick={() => { const f = toastUndo; dismissToast(); f() }}>Undo</button>}
+      </div>
     </>
   )
 }

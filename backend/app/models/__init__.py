@@ -1,4 +1,21 @@
 from app.models.base import Base, UTCDateTime, utcnow
+from app.models.crm import (
+    AccessLog,
+    Attachment,
+    CalendarEvent,
+    Contact,
+    ContactLink,
+    ContactNoteHistory,
+    Message,
+    Note,
+    NoteMention,
+    Notification,
+    Pet,
+    Reminder,
+    SavedView,
+    Task,
+    Visit,
+)
 from app.models.core import Event, LoginAttempt, SessionRow, Setting, User
 from app.models.ops import (
     AppointmentRequest,

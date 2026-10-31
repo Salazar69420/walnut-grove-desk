@@ -6,7 +6,7 @@ import { useApp } from '../ctx'
 type Answer = { paragraphs: string[]; bullets: string[]; after: string[]; link: { label: string; view: string } | null }
 type Msg = { who: 'me' | 'bot'; text?: string; answer?: Answer; typing?: boolean }
 
-const VIEWS: Record<string, string> = { brief: '/brief', overnight: '/overnight', callbacks: '/callbacks', results: '/results', schedule: '/schedule', setup: '/setup', tools: '/tools' }
+const VIEWS: Record<string, string> = { home: '/home', tasks: '/tasks', contacts: '/contacts', brief: '/brief', overnight: '/overnight', callbacks: '/callbacks', results: '/results', schedule: '/schedule', setup: '/setup', tools: '/tools' }
 
 export function Assistant() {
   const { toast } = useApp()

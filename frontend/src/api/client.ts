@@ -14,7 +14,8 @@ export function setHandlers(h: Handlers) { handlers = h }
 
 export class ApiError extends Error {
   status: number
-  constructor(status: number, msg: string) { super(msg); this.status = status }
+  data: any
+  constructor(status: number, msg: string, data?: any) { super(msg); this.status = status; this.data = data }
 }
 
 type Opts = { method?: string; body?: unknown; form?: FormData; quiet?: boolean; raw?: boolean }
@@ -45,5 +46,5 @@ export async function api<T = any>(path: string, o: Opts = {}): Promise<T> {
   else if (!o.quiet && !(res.status === 401 && (path === '/auth/login' || path === '/auth/me'))) {
     handlers.onToast(detail && detail !== 'forbidden' && detail !== 'csrf' ? detail : res.status === 403 ? 'You do not have access to that.' : 'Something went wrong. Try again.')
   }
-  throw new ApiError(res.status, detail || 'error')
+  throw new ApiError(res.status, detail || 'error', data)
 }

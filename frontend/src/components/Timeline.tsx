@@ -1,0 +1,206 @@
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { api } from '../api/client'
+import { onEntity } from '../live'
+import { Avatar, Clock, Skeleton } from './ui'
+import { Icon } from './icons'
+import { bytes, dayKey, dayLabel, exact, firstName } from '../lib/fmt'
+import { VISIT_LABEL, type Row, type TItem } from '../lib/types'
+
+const keyOf = (i: TItem) => `${i.type}-${i.id}`
+const sortDesc = (a: TItem, b: TItem) => (a.at < b.at ? 1 : a.at > b.at ? -1 : String(b.id).localeCompare(String(a.id), undefined, { numeric: true }))
+
+export function useTimeline(cid: number, channel: string) {
+  const [items, setItems] = useState<TItem[]>([])
+  const [next, setNext] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [older, setOlder] = useState(false)
+  const [error, setError] = useState(false)
+  const [pending, setPending] = useState<TItem[]>([])
+  const seq = useRef(0)
+  const nextRef = useRef<string | null>(null)
+  const base = `/contacts/${cid}/timeline?limit=30&channel=${channel}`
+
+  const refresh = useCallback(async () => {
+    const my = seq.current
+    try {
+      const r = await api<{ items: TItem[]; next_before: string | null }>(base, { quiet: true })
+      if (my !== seq.current) return
+      setItems((prev) => { const m = new Map(prev.map((i) => [keyOf(i), i])); r.items.forEach((i) => m.set(keyOf(i), i)); return [...m.values()].sort(sortDesc) })
+      if (!initialDone.current) { initialDone.current = true; setNext(r.next_before); nextRef.current = r.next_before }
+      setError(false)
+    } catch { if (my === seq.current) setError(true) }
+    if (my === seq.current) setLoading(false)
+  }, [base])
+  const initialDone = useRef(false)
+  useEffect(() => {
+    seq.current++
+    initialDone.current = false
+    setItems([]); setNext(null); nextRef.current = null; setLoading(true); setError(false); setPending([])
+    refresh()
+  }, [base]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    let t: number | undefined
+    const f = () => { clearTimeout(t); t = window.setTimeout(refresh, 300) }
+    const offs = ['messages', 'tasks', 'contacts'].map((e) => onEntity(e, f))
+    return () => { clearTimeout(t); offs.forEach((o) => o()) }
+  }, [refresh])
+  const loadOlder = useCallback(async () => {
+    const nb = nextRef.current
+    if (!nb || older) return false
+    setOlder(true)
+    const my = seq.current
+    try {
+      const r = await api<{ items: TItem[]; next_before: string | null }>(`${base}&before=${encodeURIComponent(nb)}`, { quiet: true })
+      if (my === seq.current) {
+        setItems((prev) => { const m = new Map(prev.map((i) => [keyOf(i), i])); r.items.forEach((i) => m.set(keyOf(i), i)); return [...m.values()].sort(sortDesc) })
+        setNext(r.next_before); nextRef.current = r.next_before
+      }
+    } catch { /* ignore */ }
+    setOlder(false)
+    return true
+  }, [base, older])
+  return { items, next, loading, older, error, refresh, loadOlder, pending, setPending }
+}
+export type TL = ReturnType<typeof useTimeline>
+
+function Rich({ text, names }: { text: string; names: string[] }) {
+  const parts = useMemo(() => {
+    if (!names.length || !text.includes('@')) return [text]
+    const alts = [...new Set(names.flatMap((n) => [n, firstName(n)]))].sort((a, b) => b.length - a.length).map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    return text.split(new RegExp(`(@(?:${alts.join('|')})(?![\\p{L}]))`, 'iu'))
+  }, [text, names])
+  return <>{parts.map((p, i) => p.startsWith('@') && i % 2 === 1 ? <span key={i} className="mention">{p}</span> : <span key={i}>{p}</span>)}</>
+}
+
+function Body({ text, names }: { text: string; names?: string[] }) {
+  const [open, setOpen] = useState(false)
+  const long = text.length > 480
+  return (
+    <>
+      <div className={'bb-body' + (long && !open ? ' clamp' : '')}><Rich text={text} names={names || []} /></div>
+      {long && <button className="link-a more" onClick={() => setOpen(!open)}>{open ? 'Show less' : 'View more'}</button>}
+    </>
+  )
+}
+
+function Attachments({ list }: { list: TItem['attachments'] }) {
+  if (!list?.length) return null
+  return <div className="atts">{list.map((a) => <a key={a.id} className="achip" href={`/api/attachments/${a.id}`} download><Icon n="clip" size={14} /><span className="ell">{a.filename}</span><small>{bytes(a.bytes)}</small></a>)}</div>
+}
+
+function deliveryText(it: TItem): string | null {
+  if (it.delivery_state === 'scheduled_dry_run') return `Scheduled for ${exact(it.scheduled_for)}. Practice only, nothing is sent.`
+  if (it.delivery_state === 'dry_run') return 'Practice, not really sent'
+  return null
+}
+
+export function Item({ it, contact }: { it: TItem; contact: Row }) {
+  if (it.type === 'visit' || it.type === 'task') {
+    const label = it.type === 'visit' ? 'Visit' : 'Task'
+    const text = [it.subject, it.body].filter(Boolean).join(': ') || label
+    return (
+      <div className="sysline"><span className="sl-ic"><Icon n={it.type === 'visit' ? 'stethoscope' : 'tasks'} size={14} /></span><span>{it.type === 'visit' && it.subject && VISIT_LABEL[it.subject] ? <><b>{VISIT_LABEL[it.subject]}</b>{it.body ? `: ${it.body}` : ''}</> : text}</span><Clock iso={it.at} /></div>
+    )
+  }
+  if (it.type === 'note') {
+    return (
+      <div className="note-card">
+        <div className="nc-h"><Icon n="note" size={15} /><b>Internal note</b><span>{it.sender?.name}</span><span className="spacer" /><span className="mute">Only your team sees this</span></div>
+        <Body text={it.body || ''} names={it.mentions.map((m) => m.display_name)} />
+        <Attachments list={it.attachments} />
+        <div className="bb-foot"><Clock iso={it.at} /></div>
+      </div>
+    )
+  }
+  if (it.channel === 'call') {
+    return (
+      <div className="callline">
+        <span className="sl-ic call"><Icon n="phone" size={15} /></span>
+        <div><b>{it.direction === 'in' ? 'Call from ' + firstName(contact.display_name) : 'Call to ' + firstName(contact.display_name)}</b>{it.body && <div className="mute">{it.body}</div>}</div>
+        <Clock iso={it.at} />
+      </div>
+    )
+  }
+  const out = it.direction === 'out'
+  const ai = it.sender?.kind === 'ai'
+  const dt = deliveryText(it)
+  return (
+    <div className={'brow ' + (out ? 'out' : 'in')}>
+      {!out && <Avatar name={contact.display_name} initials={contact.initials} hue={contact.avatar_hue} size={28} />}
+      <div className={'bb ' + (out ? 'out' : 'in') + (ai ? ' ai' : '') + (it.pending ? ' pend' : '')}>
+        {it.channel === 'email' && it.subject && <div className="bb-sub">{it.subject}</div>}
+        <Body text={it.body || ''} />
+        <Attachments list={it.attachments} />
+        <div className="bb-foot">
+          {ai ? <span className="aitag"><Icon n="sparkle" size={12} /> AI assistant</span> : <span>{out ? it.sender?.name : it.sender?.name || contact.display_name}</span>}
+          <span aria-hidden="true">·</span><span>{it.channel === 'email' ? 'Email' : 'Text'}</span>
+          <span aria-hidden="true">·</span>{it.pending ? <span>Sending</span> : <Clock iso={it.at} />}
+          {dt && <span className="dry" title={dt}>{it.delivery_state === 'scheduled_dry_run' ? 'Scheduled' : 'Practice'}</span>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export function Timeline({ tl, contact }: { tl: TL; contact: Row }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const stick = useRef(true)
+  const anchor = useRef<{ h: number; t: number } | null>(null)
+  const first = useRef(true)
+  const [fresh, setFresh] = useState(false)
+  const chrono = useMemo(() => [...tl.items].reverse(), [tl.items])
+  const all = useMemo(() => [...chrono, ...tl.pending], [chrono, tl.pending])
+  const topKey = tl.items[0] ? keyOf(tl.items[0]) : ''
+  const lastTop = useRef(topKey)
+
+  useEffect(() => { first.current = true; stick.current = true; setFresh(false) }, [contact.id])
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    if (anchor.current) { el.scrollTop = el.scrollHeight - anchor.current.h + anchor.current.t; anchor.current = null; return }
+    if (first.current && all.length) { el.scrollTop = el.scrollHeight; first.current = false; lastTop.current = topKey; return }
+    if (stick.current) { el.scrollTop = el.scrollHeight; setFresh(false) }
+    else if (topKey !== lastTop.current && tl.items[0]) setFresh(true)
+    lastTop.current = topKey
+  }, [all.length, topKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const older = useCallback(async () => {
+    const el = ref.current
+    if (el) anchor.current = { h: el.scrollHeight, t: el.scrollTop }
+    const did = await tl.loadOlder()
+    if (!did) anchor.current = null
+  }, [tl])
+  function onScroll() {
+    const el = ref.current
+    if (!el) return
+    stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120
+    if (stick.current) setFresh(false)
+    if (el.scrollTop < 60 && tl.next && !tl.older && !tl.loading) older()
+  }
+  let lastDay = ''
+  return (
+    <div className="tl-wrap">
+      <div className="tl" ref={ref} onScroll={onScroll} role="log" aria-label={`Conversation with ${contact.display_name}`} aria-live="polite">
+        {tl.loading && <div className="tl-sk">{[60, 40, 70, 30].map((w, i) => <div key={i} className={'brow ' + (i % 2 ? 'out' : 'in')}><div className="bb sk-bb"><Skeleton w={`${w}%`} /><Skeleton w="30%" h={11} /></div></div>)}</div>}
+        {tl.error && !tl.items.length && <p className="sub pad">Could not load the conversation. It will try again.</p>}
+        {tl.next && <div className="tl-more"><button className="btn small" onClick={older} disabled={tl.older}>{tl.older ? 'Loading' : 'Load older'}</button></div>}
+        {!tl.loading && !tl.next && tl.items.length > 0 && <div className="tl-start">Start of the conversation</div>}
+        {!tl.loading && !tl.error && all.length === 0 && (
+          <div className="tl-empty"><Icon n="chat" size={28} /><h3>No messages yet</h3><p>Send {firstName(contact.display_name)} a text or email below, or leave a note for the team.</p></div>
+        )}
+        {all.map((it) => {
+          const dk = dayKey(it.at)
+          const head = dk !== lastDay
+          lastDay = dk
+          return (
+            <div key={keyOf(it)}>
+              {head && <div className="tl-day"><span>{dayLabel(it.at)}</span></div>}
+              <Item it={it} contact={contact} />
+            </div>
+          )
+        })}
+      </div>
+      {fresh && <button className="fresh" onClick={() => { const el = ref.current; if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' }); setFresh(false) }}>New activity <Icon n="chevD" size={14} /></button>}
+    </div>
+  )
+}

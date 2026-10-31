@@ -10,9 +10,11 @@ type Ctx = {
   can: (p: string) => boolean
   refreshMe: () => Promise<Me | null>
   setMe: (m: Me | null) => void
-  toast: (t: string) => void
+  toast: (t: string, undo?: () => void) => void
   toastText: string
   toastShow: boolean
+  toastUndo: (() => void) | null
+  dismissToast: () => void
   theme: Theme
   setTheme: (t: Theme) => void
   busy: Set<string>
@@ -28,6 +30,7 @@ export function Provider({ children }: { children: ReactNode }) {
   const [toastText, setToastText] = useState('')
   const [toastShow, setToastShow] = useState(false)
   const th = useRef<number>()
+  const [toastUndo, setToastUndo] = useState<(() => void) | null>(null)
   const [busy, setBusy] = useState<Set<string>>(new Set())
   const [theme, setThemeState] = useState<Theme>(() => {
     try { const t = localStorage.getItem('wgd-theme'); if (t === 'light' || t === 'dark' || t === 'auto') return t } catch { /* */ }
@@ -40,11 +43,12 @@ export function Provider({ children }: { children: ReactNode }) {
   }, [theme])
   const setTheme = (t: Theme) => { setThemeState(t); try { localStorage.setItem('wgd-theme', t) } catch { /* */ } }
 
-  const toast = useCallback((t: string) => {
-    setToastText(t); setToastShow(true)
+  const toast = useCallback((t: string, undo?: () => void) => {
+    setToastText(t); setToastShow(true); setToastUndo(undo ? () => undo : null)
     clearTimeout(th.current)
-    th.current = window.setTimeout(() => setToastShow(false), 2800)
+    th.current = window.setTimeout(() => setToastShow(false), undo ? 7000 : 3200)
   }, [])
+  const dismissToast = useCallback(() => { clearTimeout(th.current); setToastShow(false) }, [])
 
   const setMe = useCallback((m: Me | null) => {
     setMeState(m)
@@ -86,7 +90,7 @@ export function Provider({ children }: { children: ReactNode }) {
   }, [])
 
   return (
-    <C.Provider value={{ me, ready, can, refreshMe, setMe, toast, toastText, toastShow, theme, setTheme, busy, run }}>
+    <C.Provider value={{ me, ready, can, refreshMe, setMe, toast, toastText, toastShow, toastUndo, dismissToast, theme, setTheme, busy, run }}>
       {children}
     </C.Provider>
   )
