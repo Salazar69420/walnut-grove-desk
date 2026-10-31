@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from app.aftercare import emergency as em
 from app.aftercare import keywords as kw
 from app.aftercare import templates as T
-from app.models import Contact, Fee, Hospital, KnowledgeEntry, Message, Pet, Task
+from app.models import Contact, Fee, Hospital, KnowledgeEntry, Message, Pet, Product, Task
 from app.services import crm
 from app.services import events as ev
 from app.services import timeutil
@@ -101,6 +101,8 @@ def _titles(db: Session, ids: list[str]) -> list[dict[str, Any]]:
             out.append({"id": e.id, "title": e.title, "kind": "knowledge"})
         elif i.startswith("F") and i[1:].isdigit() and (f := db.get(Fee, int(i[1:]))):
             out.append({"id": f.id, "title": f.service, "kind": "fee"})
+        elif i.startswith("P") and i[1:].isdigit() and (p := db.get(Product, int(i[1:]))):
+            out.append({"id": p.id, "title": p.name, "kind": "product"})
     return out
 
 
@@ -117,7 +119,7 @@ def _task(db: Session, contact: Contact, kind: str, title: str, reason: str, pri
     return t
 
 
-def suggest(db: Session, contact: Contact, text: str) -> dict[str, Any]:
+def suggest(db: Session, contact: Contact, text: str, *, act: bool = False) -> dict[str, Any]:
     first = (contact.display_name.split() or ["there"])[0]
     pet = db.scalar(select(Pet.name).where(Pet.contact_id == contact.id, Pet.status == "active").order_by(Pet.id).limit(1))
     who = f"{first}" + (f" ({pet})" if pet else "")
@@ -130,7 +132,14 @@ def suggest(db: Session, contact: Contact, text: str) -> dict[str, Any]:
         t = _task(db, contact, "escalation", f"Medical question from {who}", "The client asked something medical. The assistant gave no advice. A veterinary team member should answer.", "high")
         return {"kind": "medical", "draft": str(T.reply_medical(first)), "sources": [], "task": {"id": t.id, "title": t.title},
                 "note": "This looks like a medical question, so the assistant does not answer it. A task was raised for the veterinary team."}
-    from app.assistant import ai
+    from app.assistant import ai, booking, upsell
+    b = booking.handle(db, contact, text, act=act)
+    if b is not None:
+        if b.get("visit") and (p := upsell.pick(db, contact, text, b["visit"])):
+            b["draft"] = f"{b['draft']} {upsell.line(p)}"
+            b["sources"] = b["sources"] + [{"id": p.id, "title": p.name, "kind": "product"}]
+            upsell.log(db, contact, p.id)
+        return b
     if ai.allowed_for(db, contact):
         try:
             r = ai.draft(db, contact, text)

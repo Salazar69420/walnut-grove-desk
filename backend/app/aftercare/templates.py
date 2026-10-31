@@ -198,6 +198,30 @@ def reply_medical(first: str) -> Tpl:
     )
 
 
+# ---------------------------------------------------------------- booking by text (times always come from the code, never from a model)
+def booking_offer(first: str, visit: str, labels: list[str]) -> Tpl:
+    opts = " ".join(f"{i}) {l}." for i, l in enumerate(labels, 1))
+    return _t(f"Hi {first}, I can request a {visit.lower()} for you at one of these times: {opts} Reply 1, 2 or 3, or tell me another day that suits you.")
+
+
+def booking_requested(first: str, label: str, pet: str | None) -> Tpl:
+    who = f" for {pet}" if pet else ""
+    return _t(f"Thanks {first}, I have requested {label}{who}. A member of the team will confirm it by text shortly.")
+
+
+def booking_none(first: str, visit: str) -> Tpl:
+    return _t(f"Hi {first}, I could not find an open time for a {visit.lower()} online just now. A member of the team will contact you to book.")
+
+
+def booking_by_team(first: str, visit: str) -> Tpl:
+    return _t(f"Hi {first}, a {visit.lower()} needs a quick chat with our team first, so someone will contact you to book it.")
+
+
+def booking_confirmed(first: str, label: str, pet: str | None) -> Tpl:
+    who = f" for {pet}" if pet else ""
+    return _t(f"Hi {first}, your appointment{who} on {label} is confirmed. See you then. Walnut Grove Animal Hospital")
+
+
 AUTO_SIGNATURE = " (Walnut Grove automated assistant)"
 
 

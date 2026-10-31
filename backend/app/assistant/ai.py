@@ -59,8 +59,9 @@ RULES = """Hard rules (always apply, they override everything above):
 3. If the message could be an emergency, set "needs_human" to true and tell them to contact an emergency veterinarian now.
 4. Never book, cancel or confirm an appointment time yourself. Offer that the team will confirm.
 5. Never ask for or repeat card numbers or other payment details.
-6. "knowledge_ids" lists the ids (like K12 or F3) of every entry you used. Use none when "answered" is false.
-7. Reply with JSON only, matching the schema."""
+6. "knowledge_ids" lists the ids (like K12, F3 or P4) of every entry you used. Use none when "answered" is false.
+7. Reply with JSON only, matching the schema.
+8. If OPTIONAL PRODUCTS are listed, you may add ONE short sentence suggesting ONE of them, using its wording, only when it clearly fits what the client asked about. Never suggest anything when they are worried about their pet's health, upset, grieving, or asking about an emergency. Include its id."""
 
 SCHEMA = {
     "type": "object",
@@ -139,10 +140,18 @@ def knowledge_block(db: Session) -> tuple[str, dict[str, str]]:
     return "\n".join(lines), texts
 
 
-def system_prompt(db: Session) -> tuple[str, dict[str, str]]:
+def system_prompt(db: Session, products: list | None = None) -> tuple[str, dict[str, str]]:
     cfg = get_config(db)
     kb, texts = knowledge_block(db)
-    return f"{cfg['system_prompt'].strip()}\n\n{RULES}\n\n{kb}", texts
+    extra = ""
+    if products:
+        from app.assistant import upsell
+        lines = ["", "OPTIONAL PRODUCTS (approved; suggest at most one, only if it clearly fits):"]
+        for p in products:
+            texts[f"P{p.id}"] = f"{p.name}. {upsell.line(p)}"
+            lines.append(f"[P{p.id}] {p.name}: {upsell.line(p)}{(' (fits: ' + p.triggers + ')') if p.triggers else ''}")
+        extra = "\n".join(lines)
+    return f"{cfg['system_prompt'].strip()}\n\n{RULES}\n\n{kb}{extra}", texts
 
 
 def conversation(db: Session, contact: Contact, latest: str) -> list[dict[str, str]]:
@@ -211,7 +220,7 @@ def check(data: dict[str, Any], texts: dict[str, str], client_text: str) -> dict
     ids = [str(i) for i in (data.get("knowledge_ids") or []) if isinstance(i, (str, int))]
     if any(i not in texts for i in ids):
         raise AiFailed("unknown_id")
-    if answered and not ids:
+    if answered and not any(i[0] in "KF" for i in ids):
         raise AiFailed("no_source")
     if FORBIDDEN.search(reply):
         raise AiFailed("medical_wording")
@@ -228,11 +237,15 @@ def check(data: dict[str, Any], texts: dict[str, str], client_text: str) -> dict
 
 def draft(db: Session, contact: Contact, text: str) -> dict[str, Any]:
     """The checked AI reply for this contact's message. Raises AiFailed with a short code."""
+    from app.assistant import upsell
     cfg = get_config(db)
-    system, texts = system_prompt(db)
+    system, texts = system_prompt(db, upsell.eligible(db, contact, text))
     started = time.monotonic()
     data = call(cfg, system, conversation(db, contact, text))
     out = check(data, texts, text)
+    for i in out["ids"]:
+        if i.startswith("P"):
+            upsell.log(db, contact, int(i[1:]))
     out["model"] = cfg["model"]
     out["seconds"] = round(time.monotonic() - started, 1)
     return out

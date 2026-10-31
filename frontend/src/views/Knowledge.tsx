@@ -6,7 +6,7 @@ import { Empty, Modal, Segmented, Sheet, SkeletonRows, Time } from '../component
 import { Icon } from '../components/icons'
 import type { FeeRow, KCounts, KEntry } from '../lib/types'
 
-type Tab = 'approved' | 'pending' | 'fees' | 'history'
+type Tab = 'approved' | 'pending' | 'fees' | 'products' | 'history'
 type KList = { items: KEntry[]; counts: KCounts; categories: [string, string][] }
 const errText = (x: unknown) => x instanceof ApiError && x.message && x.message !== 'error' && x.message !== 'network' ? x.message : ''
 const money = (f: FeeRow) => f.price_dollars === null ? 'Ask the clinic' : `${f.price_prefix ? f.price_prefix + ' ' : ''}$${f.price_dollars.toFixed(2)}${f.unit ? ' ' + f.unit : ''}`
@@ -45,12 +45,12 @@ export function Knowledge() {
   const [reason, setReason] = useState('')
   const [review, setReview] = useState<number | null>(null)
 
-  const status = tab === 'history' ? 'all' : tab === 'fees' ? 'approved' : tab
+  const status = tab === 'history' ? 'all' : tab === 'fees' || tab === 'products' ? 'approved' : tab
   const qs = new URLSearchParams({ status })
   if (cat) qs.set('category', cat)
   if (q.trim()) qs.set('q', q.trim())
   if (tab === 'pending' && conflictsOnly) qs.set('conflicts', 'true')
-  const list = useLive<KList>(tab === 'fees' ? null : '/knowledge?' + qs.toString(), ['knowledge'])
+  const list = useLive<KList>(tab === 'fees' || tab === 'products' ? null : '/knowledge?' + qs.toString(), ['knowledge'])
   const counts = list.data?.counts
   const cats = list.data?.categories || []
   const items = (list.data?.items || []).filter((e) => tab !== 'history' || e.status === 'declined' || e.status === 'retired')
@@ -85,10 +85,10 @@ export function Knowledge() {
       <section className="card pad">
         <div className="kn-tabs">
           <Segmented<Tab> label="Section" value={tab} onChange={(t) => { setTab(t); setSel(new Set()) }}
-            options={[['approved', 'Approved'], ['pending', `Pending${counts ? ' ' + counts.pending : ''}`], ['fees', 'Fees'], ['history', 'Declined and retired']]} />
-          {tab !== 'fees' && <label className="searchf kn-search"><Icon n="search" size={16} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search knowledge" aria-label="Search knowledge" maxLength={80} /></label>}
+            options={[['approved', 'Approved'], ['pending', `Pending${counts ? ' ' + counts.pending : ''}`], ['fees', 'Fees'], ['products', 'Products'], ['history', 'Declined and retired']]} />
+          {tab !== 'fees' && tab !== 'products' && <label className="searchf kn-search"><Icon n="search" size={16} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search knowledge" aria-label="Search knowledge" maxLength={80} /></label>}
         </div>
-        {tab !== 'fees' && (
+        {tab !== 'fees' && tab !== 'products' && (
           <div className="kn-cats" role="group" aria-label="Category">
             <button className={'chipb' + (!cat ? ' on' : '')} aria-pressed={!cat} onClick={() => setCat('')}>All</button>
             {cats.map(([k, l]) => {
@@ -99,7 +99,7 @@ export function Knowledge() {
         )}
       </section>
 
-      {tab === 'fees' ? <Fees /> : (
+      {tab === 'products' ? <Products /> : tab === 'fees' ? <Fees /> : (
         <section className="kn-list">
           {tab === 'pending' && (
             <div className="card pad kn-pbar">
@@ -286,5 +286,61 @@ function OneByOne({ items, start, onClose }: { items: KEntry[]; start: number; o
         </div>
       ) : <p>Approved {done.approved}, rejected {done.rejected}, skipped {done.skipped}.</p>}
     </Modal>
+  )
+}
+
+
+type Prod = { id: number; name: string; price_cents: number | null; unit: string; pitch: string; triggers: string; species: string; status: string; source: string; line: string }
+
+/** Products the assistant may suggest when they fit. Imported or added as pending; the owner approves each one. */
+function Products() {
+  const { can, toast } = useApp()
+  const decide = can('knowledge.decide')
+  const list = useLive<{ items: Prod[]; upsell: { enabled: boolean; days_between: number } }>('/products', ['fees', 'knowledge'])
+  const [f, setF] = useState({ name: '', price: '', pitch: '', triggers: '', species: '' })
+  const items = list.data?.items || []
+  const up = list.data?.upsell
+  async function call(path: string, body?: unknown, method = 'POST', msg = 'Saved') {
+    try { await api(path, { method, body: body ?? {}, quiet: true }); toast(msg); list.reload() } catch (x) { toast(errText(x) || 'Not saved.') }
+  }
+  async function importFile(file: File) {
+    const fd = new FormData(); fd.append('file', file)
+    try { const r = await api<{ added: number; skipped: number }>('/products/import', { form: fd, quiet: true }); toast(`${r.added} products added for review, ${r.skipped} skipped`); list.reload() } catch (x) { toast(errText(x) || 'Import failed.') }
+  }
+  return (
+    <section className="kn-list">
+      <div className="card pad">
+        <h3>Suggestions</h3>
+        <p className="note">When on, the assistant may add one approved product sentence when it clearly fits (for example flea protection when someone books vaccines). Never in emergencies, health worries, complaints or after a loss, and not to the same person more than once every {up?.days_between ?? 14} days.</p>
+        {up && <label className="ck"><input type="checkbox" checked={up.enabled} disabled={!decide} onChange={(e) => call('/upsell', { enabled: e.target.checked, days_between: up.days_between }, 'PUT', e.target.checked ? 'Suggestions on' : 'Suggestions off')} /> Suggestions {up.enabled ? 'on' : 'off'}</label>}
+      </div>
+      <div className="card pad">
+        <h3>Import a product list</h3>
+        <p className="note">A CSV file with a header row. Columns: name, price, unit, pitch (the sentence the assistant says), triggers (words or visit types that make it fit, separated by commas), species (dog, cat or empty). Everything arrives as pending for you to approve.</p>
+        <input type="file" accept=".csv,text/csv" onChange={(e) => { const x = e.target.files?.[0]; if (x) importFile(x); e.target.value = '' }} aria-label="Product CSV file" />
+      </div>
+      <div className="card pad">
+        <div className="tablewrap"><table className="feet">
+          <thead><tr><th>Product</th><th>What the assistant says</th><th>Fits when</th><th>Status</th><th /></tr></thead>
+          <tbody>{items.map((p) => (
+            <tr key={p.id}><td><b>{p.name}</b>{p.species && <span className="mute small"> ({p.species}s)</span>}</td><td>{p.line || <span className="mute">No sentence yet</span>}</td><td className="mute">{p.triggers}</td><td>{p.status}</td>
+              <td className="rowbtn">{decide && p.status === 'pending' && <button className="btn okb small" onClick={() => call(`/products/${p.id}/approve`, {}, 'POST', 'Approved')}>Approve</button>}
+                {decide && p.status !== 'retired' && <button className="btn small ghost" onClick={() => call(`/products/${p.id}/retire`, {}, 'POST', 'Retired')}>{p.status === 'pending' ? 'Decline' : 'Retire'}</button>}</td></tr>
+          ))}</tbody>
+        </table></div>
+        {list.data && !items.length && <p className="mute">No products yet. Import your product list above.</p>}
+      </div>
+      <div className="card pad">
+        <h3>Add one product</h3>
+        <div className="form two">
+          <label>Name<input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} maxLength={160} /></label>
+          <label>Price in dollars<input inputMode="decimal" value={f.price} onChange={(e) => setF({ ...f, price: e.target.value })} /></label>
+          <label>What the assistant says<input value={f.pitch} onChange={(e) => setF({ ...f, pitch: e.target.value })} maxLength={300} placeholder="While you are in, we also carry ..." /></label>
+          <label>Fits when (comma separated)<input value={f.triggers} onChange={(e) => setF({ ...f, triggers: e.target.value })} maxLength={400} placeholder="Vaccines, flea, tick" /></label>
+          <label>Species<select value={f.species} onChange={(e) => setF({ ...f, species: e.target.value })}><option value="">Any</option><option value="dog">Dogs</option><option value="cat">Cats</option></select></label>
+        </div>
+        <button className="btn primary" disabled={f.name.trim().length < 2} onClick={() => call('/products', { name: f.name, price_dollars: f.price === '' ? null : Number(f.price), pitch: f.pitch, triggers: f.triggers, species: f.species }, 'POST', 'Added for approval').then(() => setF({ name: '', price: '', pitch: '', triggers: '', species: '' }))}>Add for approval</button>
+      </div>
+    </section>
   )
 }

@@ -38,7 +38,7 @@ MESSAGES = {
     "recordings_disabled": "Recordings are switched off. An admin turns them on in Admin, TELUS.",
     "not_configured": "The TELUS login is not set up on the server yet.",
     "login_failed": "TELUS did not accept the login. An admin should check the connection in Admin, TELUS.",
-    "write_scope_present": "The TELUS login can change things, so the helper refused to use it. Use a read-only login.",
+    "write_scope_present": "Playback needs a read-only TELUS login. An admin creates a TELUS app with only Read permissions and runs telus-setup --force on the server.",
     "disk_cap_reached": "The recordings storage limit is full. An admin can raise it in Admin, TELUS.",
     "disk_low": "The server is low on disk space.",
     "rate_limited": "TELUS asked us to slow down. Try again in a minute.",

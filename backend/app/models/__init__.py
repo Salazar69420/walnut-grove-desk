@@ -16,6 +16,7 @@ from app.models.crm import (
     Task,
     Visit,
 )
+from app.models.booking import Product, SmsOffer, UpsellLog
 from app.models.clinic import Campaign, CampaignRecipient, Fee, KnowledgeEntry, PhoneCall
 from app.models.core import Event, LoginAttempt, SessionRow, Setting, User
 from app.models.ops import (

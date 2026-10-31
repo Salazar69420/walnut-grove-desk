@@ -107,6 +107,7 @@ export function CalendarPage() {
         </div>
       </section>
 
+      <BookingHours />
       <section className="card cal-main">
         {list.error && !list.data ? <p className="sub pad">Could not load the calendar. It will try again.</p> : null}
         {view === 'month' ? (
@@ -181,6 +182,7 @@ function EventSheet({ ev, onClose, onChanged, canEdit, toast }: { ev: Ev | null;
             {ev.staff && <><dt>With</dt><dd>{ev.staff.display_name}</dd></>}
           </dl>
           {ev.source === 'import' && <p className="note">Imported appointments are read only. Change them in ImproMed.</p>}
+          {canEdit && ev.status === 'requested' && <ConfirmBox ev={ev} onDone={onChanged} toast={toast} />}
           {canEdit && ev.source === 'app' && (
             <div className="rowbtn">
               {ev.status !== 'done' && ev.status !== 'cancelled' && <button className="btn okb" onClick={() => setStatus('done')}>Mark done</button>}
@@ -239,5 +241,68 @@ function CreateSheet({ start, onClose, onSaved, staff }: { start: Date | null; o
         <p className="note">This adds the event here only. Enter real bookings in ImproMed too.</p>
       </div>
     </Sheet>
+  )
+}
+
+
+function ConfirmBox({ ev, onDone, toast }: { ev: Ev; onDone: () => void; toast: (m: string) => void }) {
+  const [notify, setNotify] = useState(true)
+  async function go() {
+    try {
+      const r = await api<{ texted: string | null }>(`/calendar/events/${ev.id}/confirm`, { method: 'POST', body: { notify }, quiet: true })
+      toast(r.texted && r.texted.startsWith('not sent') ? `Confirmed. The text was ${r.texted}` : notify && ev.contact ? 'Confirmed and the client was texted' : 'Confirmed')
+      onDone()
+    } catch (x) { toast(errText(x) || 'Not confirmed.') }
+  }
+  return (
+    <div className="pvw">
+      <p><b>Requested by text.</b> Check the time works, confirm it here, and enter it in ImproMed.</p>
+      {ev.contact && <label className="ck"><input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} /> Text {ev.contact.display_name} that it is confirmed</label>}
+      <div className="rowbtn"><button className="btn primary" onClick={go}>Confirm booking</button></div>
+    </div>
+  )
+}
+
+type Hours = { enabled: boolean; slot_minutes: number; lead_minutes: number; horizon_days: number; closed_dates: string[]; days: Record<string, string[][]>; preview: { label: string }[] }
+const DAYKEYS: [string, string][] = [['mon', 'Monday'], ['tue', 'Tuesday'], ['wed', 'Wednesday'], ['thu', 'Thursday'], ['fri', 'Friday'], ['sat', 'Saturday'], ['sun', 'Sunday']]
+
+/** The times the assistant may offer by text. Times already in the Calendar are skipped automatically. */
+function BookingHours() {
+  const { can, toast } = useApp()
+  const edit = can('afterhours.edit')
+  const [h, setH] = useState<Hours | null>(null)
+  const [closed, setClosed] = useState('')
+  const load = () => api<Hours>('/calendar/booking-hours', { quiet: true }).then((r) => { setH(r); setClosed(r.closed_dates.join(', ')) }).catch(() => {})
+  useEffect(() => { load() }, [])
+  if (!h) return null
+  const setDay = (k: string, i: 0 | 1, v: string) => setH({ ...h, days: { ...h.days, [k]: [[...(h.days[k]?.[0] || ['09:00', '17:00'])].map((x, j) => (j === i ? v : x))] } })
+  async function save() {
+    try {
+      const r = await api<Hours>('/calendar/booking-hours', { method: 'PUT', quiet: true, body: { enabled: h!.enabled, slot_minutes: h!.slot_minutes, lead_minutes: h!.lead_minutes, horizon_days: h!.horizon_days, days: h!.days, closed_dates: closed.split(',').map((x) => x.trim()).filter(Boolean) } })
+      setH(r); toast('Bookable hours saved')
+    } catch (x) { toast(errText(x) || 'Not saved.') }
+  }
+  return (
+    <details className="card pad bookhours">
+      <summary><b>Booking by text</b> <span className={'tag ' + (h.enabled ? 'ok' : '')}>{h.enabled ? 'On' : 'Off'}</span> <span className="mute small">The times the assistant may offer. Taken times in this calendar are skipped. Staff confirm every request.</span></summary>
+      <fieldset disabled={!edit} className="bh">
+        <label className="ck"><input type="checkbox" checked={h.enabled} onChange={(e) => setH({ ...h, enabled: e.target.checked })} /> Let the assistant offer times by text</label>
+        {DAYKEYS.map(([k, l]) => {
+          const r = h.days[k]?.[0]
+          return (
+            <div key={k} className="bh-row"><b>{l}</b>
+              <label className="ck"><input type="checkbox" checked={!r} onChange={(e) => setH({ ...h, days: { ...h.days, [k]: e.target.checked ? [] : [['09:00', '17:00']] } })} /> Closed</label>
+              {r && <><input type="time" value={r[0]} onChange={(e) => setDay(k, 0, e.target.value)} aria-label={`${l} first time`} /> to <input type="time" value={r[1]} onChange={(e) => setDay(k, 1, e.target.value)} aria-label={`${l} last end time`} /></>}
+            </div>
+          )
+        })}
+        <div className="bh-row"><b>Appointment every</b><select value={h.slot_minutes} onChange={(e) => setH({ ...h, slot_minutes: Number(e.target.value) })}>{[15, 20, 30, 45, 60].map((m) => <option key={m} value={m}>{m} minutes</option>)}</select></div>
+        <div className="bh-row"><b>Not sooner than</b><select value={h.lead_minutes} onChange={(e) => setH({ ...h, lead_minutes: Number(e.target.value) })}>{[0, 60, 120, 240, 1440].map((m) => <option key={m} value={m}>{m === 0 ? 'any time' : m < 1440 ? `${m / 60} hour${m === 60 ? '' : 's'} ahead` : 'the next day'}</option>)}</select></div>
+        <div className="bh-row"><b>Up to</b><select value={h.horizon_days} onChange={(e) => setH({ ...h, horizon_days: Number(e.target.value) })}>{[7, 14, 21, 30].map((d) => <option key={d} value={d}>{d} days ahead</option>)}</select></div>
+        <label className="bh-row"><b>Closed dates</b><input value={closed} onChange={(e) => setClosed(e.target.value)} placeholder="2026-12-25, 2026-12-26" /></label>
+        {edit && <div className="rowbtn"><button className="btn primary" onClick={save}>Save bookable hours</button></div>}
+      </fieldset>
+      <p className="small mute">Next open times: {h.preview.length ? h.preview.map((p) => p.label).join(' · ') : 'none'}</p>
+    </details>
   )
 }

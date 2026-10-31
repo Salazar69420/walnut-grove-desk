@@ -198,3 +198,7 @@ a.playb{color:var(--acc-t)}
 
 .modelpick{display:flex;flex-direction:column;gap:6px;flex:1;min-width:0}.modelpick select{width:100%;font-family:var(--mono);font-size:12px}
 .promptbox{width:100%;font-family:var(--mono);font-size:13px;line-height:1.5}
+
+.bookhours summary{cursor:pointer;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.bh{border:0;padding:8px 0 0;margin:0;display:flex;flex-direction:column;gap:8px}
+.bh-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.bh-row>b{min-width:150px}.bh-row input[type=time]{width:auto}

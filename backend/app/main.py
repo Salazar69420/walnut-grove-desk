@@ -10,7 +10,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 
 from app import config, db, migrate
-from app.api import admin_assistant as admin_assistant_api, admin_sms as admin_sms_api, assist as assist_api, campaigns as campaigns_api, contacts as contacts_api, crm_misc, home as home_api, knowledge as knowledge_api, phone as phone_api, phone_audio as phone_audio_api, reports as reports_api, tasks as tasks_api, timeline as timeline_api
+from app.api import admin_assistant as admin_assistant_api, booking as booking_api, admin_sms as admin_sms_api, assist as assist_api, campaigns as campaigns_api, contacts as contacts_api, crm_misc, home as home_api, knowledge as knowledge_api, phone as phone_api, phone_audio as phone_audio_api, reports as reports_api, tasks as tasks_api, timeline as timeline_api
 from app.api import admin, admin_ai, admin_telus, afterhours, auth, brief, callbacks, drafts, export, feed, health, imports, overnight, results, shifts, sim
 from app.assistant import routes as assistant_routes
 from app.retell import routes as retell_routes
@@ -65,7 +65,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
 
     # The CRM routers go first: /api/export/contacts.csv must win over the generic /api/export/{name}.csv.
     for r in (contacts_api.router, timeline_api.router, tasks_api.router, home_api.router, crm_misc.router,
-              knowledge_api.router, assist_api.router, admin_sms_api.router, admin_assistant_api.router, phone_api.router, phone_audio_api.router, campaigns_api.router, reports_api.router,
+              knowledge_api.router, assist_api.router, admin_sms_api.router, admin_assistant_api.router, booking_api.router, phone_api.router, phone_audio_api.router, campaigns_api.router, reports_api.router,
               auth.router, admin.router, callbacks.router, results.router, drafts.router, shifts.router, feed.router, export.router, health.router,
               admin_ai.router, admin_telus.router, imports.router, overnight.router, sim.router, afterhours.router, brief.router,
               assistant_routes.router, retell_routes.router):

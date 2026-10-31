@@ -19,7 +19,7 @@ router = APIRouter(prefix="/api", tags=["assistant"])
 
 class SuggestIn(Strict):
     # Optional: what the client said (for example on the phone). Without it, the latest text or email from the client is used.
-    text: str | None = Field(default=None, min_length=2, max_length=1500)
+    text: str | None = Field(default=None, min_length=1, max_length=1500)
 
 
 @router.post("/contacts/{contact_id}/suggest-reply")

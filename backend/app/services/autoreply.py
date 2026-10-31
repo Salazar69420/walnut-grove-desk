@@ -51,7 +51,7 @@ def maybe_reply(db: Session, contact: Contact, inbound: Message) -> Message | No
         ev.record(db, ev.CONVERSATIONS, "auto_reply_skipped", f"No automatic reply ({reason.replace('_', ' ')})", "AI assistant", "contact", contact.id,
                   {"reason": reason}, publish=False)
         return None
-    out = replies.suggest(db, contact, inbound.body)
+    out = replies.suggest(db, contact, inbound.body, act=True)
     try:
         msg = sender.send_to_contact(db, contact, None, channel="sms", body=str(T.auto_signed(out["draft"])), sender_kind="ai")
     except crm.CrmError as e:
