@@ -51,9 +51,20 @@ def row(rec: dict) -> dict | None:
             "s": duration, "n": number, "rec": str(rid) if rid is not None and _ID_RE.match(str(rid)) else None}
 
 
-def write(bridge: str, rows: list[dict]) -> None:
+def _calls_dir(bridge: str) -> str:
+    """<bridge>/calls, readable by the app's group (chmod and chown, never a setgid bit: the service has RestrictSUIDSGID)."""
     d = os.path.join(bridge, "calls")
     os.makedirs(d, mode=0o770, exist_ok=True)
+    try:
+        os.chmod(d, 0o770)
+        os.chown(d, -1, os.stat(bridge).st_gid)
+    except OSError:
+        pass
+    return d
+
+
+def write(bridge: str, rows: list[dict]) -> None:
+    d = _calls_dir(bridge)
     path = os.path.join(d, "live.json")
     tmp = f"{path}.{os.getpid()}.tmp"
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o660)
@@ -69,9 +80,8 @@ def write(bridge: str, rows: list[dict]) -> None:
 
 def write_status(bridge: str, ok: bool, code: str, calls: int = 0) -> None:
     """<bridge>/calls/status.json: did the last pull work, and if not a fixed code (never error text)."""
-    d = os.path.join(bridge, "calls")
     try:
-        os.makedirs(d, mode=0o770, exist_ok=True)
+        d = _calls_dir(bridge)
         tmp = os.path.join(d, f"status.json.{os.getpid()}.tmp")
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o660)
         with os.fdopen(fd, "w") as fh:

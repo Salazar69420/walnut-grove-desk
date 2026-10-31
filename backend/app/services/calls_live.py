@@ -89,12 +89,33 @@ def ingest(db: Session, data: dict) -> dict[str, int]:
         if c:
             touched.add(c.id)
             crm.touch_contact(db, c, at)
-    if counts["added"] or counts["numbers_added"]:
+    db.flush()
+    counts["linked"] = relink(db, touched)
+    if counts["added"] or counts["numbers_added"] or counts["linked"]:
         ev.record(db, ev.PHONE, "calls_synced", f"{counts['added']} new calls from TELUS", "TELUS", "phone_call", None, counts)
         for cid in touched:
             ev.queue_publish(db, "contacts", cid, None)
     db.commit()
     return counts
+
+
+def relink(db: Session, touched: set[int] | None = None) -> int:
+    """Calls with a number but no contact get linked once exactly one contact has that number (a contact added or given a number later)."""
+    rows = db.scalars(select(PhoneCall).where(PhoneCall.contact_id.is_(None), PhoneCall.phone.is_not(None)).limit(5000)).all()
+    if not rows:
+        return 0
+    owners: dict[str, list[Contact]] = {}
+    for c in db.scalars(select(Contact).where(Contact.phone.in_({r.phone for r in rows}), Contact.erased_at.is_(None))).all():
+        owners.setdefault(c.phone, []).append(c)
+    n = 0
+    for r in rows:
+        who = owners.get(r.phone, [])
+        if len(who) == 1:
+            r.contact_id, r.call_type = who[0].id, "patient" if who[0].kind == "patient" else "inquiry"
+            n += 1
+            if touched is not None:
+                touched.add(who[0].id)
+    return n
 
 
 def run_once() -> dict[str, int]:

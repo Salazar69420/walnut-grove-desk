@@ -21,14 +21,20 @@ def test_new_calls_are_added_once_and_linked(env):
         {"id": "../bad", "at": "x"},
     ]}
     with env.session() as s:
-        assert calls_live.ingest(s, data) == {"added": 2, "numbers_added": 1}
+        r = calls_live.ingest(s, data)
+        assert (r["added"], r["numbers_added"]) == (2, 1)
     with env.session() as s:
-        assert calls_live.ingest(s, data) == {"added": 0, "numbers_added": 0}
+        assert calls_live.ingest(s, data) == {"added": 0, "numbers_added": 0, "linked": 0}
         a1 = s.scalar(select(PhoneCall).where(PhoneCall.external_ref == "tel-a1"))
         a2 = s.scalar(select(PhoneCall).where(PhoneCall.external_ref == "tel-a2"))
         assert a1.contact_id == cid and a1.source == "telus" and a1.duration_seconds == 95
         assert a2.contact_id is None and a2.handled_by == "none" and a2.result == "missed"
         assert s.scalar(select(PhoneCall).where(PhoneCall.recording_id == "777")).phone == "+16045550199"
+        s.add(Contact(display_name="New Person", phone="+17785550188", kind="inquiry"))
+        s.commit()
+        assert calls_live.relink(s) >= 1
+        s.commit()
+        assert s.scalar(select(PhoneCall).where(PhoneCall.external_ref == "tel-a2")).contact_id is not None
 
 
 def test_the_badge_says_why_it_is_not_connected(env, garg, tmp_path):
