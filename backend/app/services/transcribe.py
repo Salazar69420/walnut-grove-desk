@@ -157,22 +157,28 @@ def analyse(cfg: dict[str, Any], transcript: str, when: str = "") -> dict[str, A
     return data
 
 
-def file_call(db: Session, c: PhoneCall, transcript: str, data: dict[str, Any]) -> None:
-    """Store the transcript and summary on the call, update the conversation line, and update or raise the task."""
+def file_call(db: Session, c: PhoneCall, transcript: str, data: dict[str, Any], *, historical: bool = False) -> None:
+    """Store the transcript and summary on the call, update the conversation line, and update or raise the task.
+    historical=True (older imported calls): labels, reports, contacts and call notes only; no tasks or Calendar requests months late."""
     c.transcript, c.transcript_state = transcript, "done"
     c.summary = re.sub(r"\s+", " ", str(data.get("summary") or "")).strip()[:1200] or None
     c.intent = data["intent"]
     follow = bool(data.get("follow_up_needed"))
     c.short_note = (INTENTS[c.intent] + ("; follow-up needed" if follow else ""))[:240]
-    learn_from_call(db, c, data)
+    learn_from_call(db, c, data, historical=historical)
     if c.intent != "wrong_number_or_spam" and data.get("caller_type") in ("patient", "inquiry"):
         c.call_type = data["caller_type"]  # every real call is a patient or an inquiry
     if c.contact_id is None and c.phone and c.intent not in ("wrong_number_or_spam", "vendor_or_business"):
-        _prospect(db, c, data)
-    agreed_appointment(db, c, data)
+        _prospect(db, c, data, need_name=historical)
+    elif c.contact_id and c.intent not in ("wrong_number_or_spam", "vendor_or_business"):
+        enrich_contact(db, c, data)
+    if not historical:
+        agreed_appointment(db, c, data)
     m = db.scalar(select(Message).where(Message.phone_call_id == c.id))
     if m is not None:
         m.body = c.short_note
+    if historical:
+        return
     if not c.phone or c.intent == "wrong_number_or_spam":
         return
     when = timeutil.local(c.started_at).strftime("%a %b %d, %I:%M %p").replace(" 0", " ")
@@ -241,16 +247,23 @@ def agreed_appointment(db: Session, c: PhoneCall, data: dict[str, Any]):
 MAX_CALL_NOTES_PER_DAY = 15
 
 
-def learn_from_call(db: Session, c: PhoneCall, data: dict[str, Any]) -> int:
+MAX_CALL_NOTES_FROM_HISTORY = 60  # older calls: enough to cover the common questions without burying the owner
+
+
+def learn_from_call(db: Session, c: PhoneCall, data: dict[str, Any], *, historical: bool = False) -> int:
     """How staff answered on the phone becomes PENDING knowledge, labelled "Call notes", for an owner to approve one by one."""
     from app.models import KnowledgeEntry, Pet
     from app.services import knowledge as kn
     items = data.get("clinic_knowledge") if isinstance(data.get("clinic_knowledge"), list) else []
     if not items or c.intent in ("wrong_number_or_spam", "vendor_or_business", "triage_symptom"):
         return 0
-    since = timeutil.now_utc() - timedelta(days=1)
-    if (db.scalar(select(func.count()).select_from(KnowledgeEntry).where(KnowledgeEntry.source_kind == "call", KnowledgeEntry.proposed_at >= since)) or 0) >= MAX_CALL_NOTES_PER_DAY:
-        return 0
+    if historical:
+        if (db.scalar(select(func.count()).select_from(KnowledgeEntry).where(KnowledgeEntry.source_ref.like("Call notes%"))) or 0) >= MAX_CALL_NOTES_FROM_HISTORY:
+            return 0
+    else:
+        since = timeutil.now_utc() - timedelta(days=1)
+        if (db.scalar(select(func.count()).select_from(KnowledgeEntry).where(KnowledgeEntry.source_ref.like("Call notes%"), KnowledgeEntry.proposed_at >= since)) or 0) >= MAX_CALL_NOTES_PER_DAY:
+            return 0
     personal = {str(data.get(k) or "").strip().lower() for k in ("caller_first_name", "caller_last_name", "pet_name")}
     if c.contact_id:
         ct = db.get(Contact, c.contact_id)
@@ -282,7 +295,7 @@ def learn_from_call(db: Session, c: PhoneCall, data: dict[str, Any]) -> int:
 NAME_OK = re.compile(r"^[A-Za-z][A-Za-z'\-]{1,29}$")
 
 
-def _prospect(db: Session, c: PhoneCall, data: dict[str, Any]) -> None:
+def _prospect(db: Session, c: PhoneCall, data: dict[str, Any], need_name: bool = False) -> None:
     """A number that called us with no contact yet becomes a prospect, only when exactly nobody has that number. Never texted until they opt in."""
     from app.models import Pet
     if db.scalar(select(Contact.id).where(Contact.phone == c.phone, Contact.erased_at.is_(None)).limit(1)) is not None:
@@ -290,6 +303,8 @@ def _prospect(db: Session, c: PhoneCall, data: dict[str, Any]) -> None:
     first, last = str(data.get("caller_first_name") or "").strip(), str(data.get("caller_last_name") or "").strip()
     first = first if NAME_OK.match(first) else ""
     last = last if first and NAME_OK.match(last) else ""
+    if need_name and not first:
+        return  # an old call with no name given: leave it as a number in the call log
     kind = data.get("caller_type") if data.get("caller_type") in ("patient", "inquiry") else "inquiry"
     name = f"{first} {last}".strip().title() if first else f"Caller {crm.phone_display(c.phone)}"
     ct = Contact(kind=kind, display_name=name[:120], phone=c.phone, email_consent="none", sms_consent="none", consent_source="Called the clinic, not opted in",
@@ -308,6 +323,37 @@ def _prospect(db: Session, c: PhoneCall, data: dict[str, Any]) -> None:
     for t in db.scalars(select(Task).where(Task.contact_id.is_(None), Task.status != "done", Task.reason.like(f"%{crm.phone_display(c.phone)}%"))).all():
         t.contact_id = ct.id
     ev.record(db, ev.CONTACTS, "contact_from_call", f"New {kind} contact from a call: {name}", "AI assistant", "contact", ct.id)
+
+
+AUTO_CREATED = ("Imported from a call recording. No consent recorded.", "Called the clinic, not opted in")
+
+
+def enrich_contact(db: Session, c: PhoneCall, data: dict[str, Any]) -> None:
+    """Fill in a contact the system created (never one staff made or edited by hand): full name, pets, patient or inquiry."""
+    from app.models import Pet
+    ct = db.get(Contact, c.contact_id)
+    if ct is None or ct.erased_at is not None or ct.consent_source not in AUTO_CREATED:
+        return
+    first, last = str(data.get("caller_first_name") or "").strip(), str(data.get("caller_last_name") or "").strip()
+    parts = (ct.display_name or "").split()
+    if NAME_OK.match(first):
+        if ct.display_name.startswith("Caller ") or not parts:
+            ct.display_name = f"{first} {last}".strip().title()[:120] if NAME_OK.match(last) else first.title()
+        elif len(parts) == 1 and parts[0].lower() == first.lower() and NAME_OK.match(last) and last.lower() != first.lower():
+            ct.display_name = f"{parts[0]} {last.title()}"[:120]
+    pet = str(data.get("pet_name") or "").strip()
+    have = {p.name.lower() for p in db.scalars(select(Pet).where(Pet.contact_id == ct.id)).all()}
+    if NAME_OK.match(pet) and pet.lower() not in have and pet.lower() not in {w.lower() for w in ct.display_name.split()} and len(have) < 6:
+        db.add(Pet(contact_id=ct.id, name=pet.title()[:80], species=str(data.get("species") or ""), status="active", is_demo=False))
+    elif NAME_OK.match(pet) and data.get("species"):
+        p = db.scalar(select(Pet).where(Pet.contact_id == ct.id, func.lower(Pet.name) == pet.lower(), Pet.species == "").limit(1))
+        if p is not None:
+            p.species = str(data["species"])
+    db.flush()
+    votes = dict(db.execute(select(PhoneCall.call_type, func.count()).where(PhoneCall.contact_id == ct.id, PhoneCall.call_type.in_(("patient", "inquiry")))
+                            .group_by(PhoneCall.call_type)).all())
+    if votes:
+        ct.kind = "patient" if votes.get("patient", 0) >= votes.get("inquiry", 0) else "inquiry"
 
 
 def _candidates(db: Session) -> list[PhoneCall]:

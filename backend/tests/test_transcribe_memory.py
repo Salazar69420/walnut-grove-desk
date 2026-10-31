@@ -170,3 +170,25 @@ def test_a_time_agreed_on_a_call_waits_in_the_calendar_for_approval(env, bridge,
     assert anita.post(f"/api/calendar/events/{eid}/confirm", {}).json()["item"]["status"] == "booked"
     with env.session() as s:
         assert s.scalar(select(Task).where(Task.contact_id == cid, Task.title.like("Confirm phone booking%"))).status == "done"
+
+
+def test_older_calls_fill_in_system_made_contacts_without_tasks(env, router):
+    from app.models import Pet
+    with env.session() as s:
+        ct = Contact(display_name="Dana", kind="inquiry", consent_source="Imported from a call recording. No consent recorded.", sms_consent="none")
+        staff_made = Contact(display_name="Rob Staffmade", kind="inquiry", consent_source="Said yes in person", sms_consent="full")
+        s.add_all([ct, staff_made])
+        s.flush()
+        a = PhoneCall(started_at=timeutil.now_utc() - timedelta(days=60), direction="inbound", source="import", transcript="x", contact_id=ct.id)
+        b = PhoneCall(started_at=timeutil.now_utc() - timedelta(days=60), direction="inbound", source="import", transcript="y", contact_id=staff_made.id)
+        s.add_all([a, b])
+        s.commit()
+        tasks_before = len(s.scalars(select(Task)).all())
+        data = {**router.analysis, "caller_first_name": "Dana", "caller_last_name": "Wu", "pet_name": "Biscuit", "species": "dog", "caller_type": "patient",
+                "clinic_knowledge": [], "appointment": {"agreed": True, "date": "2026-12-01", "time": "10:00", "visit": "vaccines"}}
+        transcribe.file_call(s, a, "x", data, historical=True)
+        transcribe.file_call(s, b, "y", data, historical=True)
+        s.commit()
+        assert ct.display_name == "Dana Wu" and ct.kind == "patient" and s.scalar(select(Pet.name).where(Pet.contact_id == ct.id)) == "Biscuit"
+        assert staff_made.display_name == "Rob Staffmade" and staff_made.kind == "inquiry"  # never touched
+        assert len(s.scalars(select(Task)).all()) == tasks_before and a.intent == "refill" and a.call_type == "patient"
