@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import { api, Me, setCsrf, setHandlers } from './api/client'
 import { startLive, stopLive, onEntity } from './live'
 
-type Theme = 'light' | 'dark' | 'auto'
 type Ctx = {
   me: Me | null
   ready: boolean
@@ -15,8 +14,6 @@ type Ctx = {
   toastShow: boolean
   toastUndo: (() => void) | null
   dismissToast: () => void
-  theme: Theme
-  setTheme: (t: Theme) => void
   busy: Set<string>
   run: <T>(key: string, fn: () => Promise<T>) => Promise<T | undefined>
 }
@@ -32,16 +29,8 @@ export function Provider({ children }: { children: ReactNode }) {
   const th = useRef<number>()
   const [toastUndo, setToastUndo] = useState<(() => void) | null>(null)
   const [busy, setBusy] = useState<Set<string>>(new Set())
-  const [theme, setThemeState] = useState<Theme>(() => {
-    try { const t = localStorage.getItem('wgd-theme'); if (t === 'light' || t === 'dark' || t === 'auto') return t } catch { /* */ }
-    return 'auto'
-  })
-
-  useEffect(() => {
-    const el = document.documentElement
-    if (theme === 'auto') el.removeAttribute('data-theme'); else el.setAttribute('data-theme', theme)
-  }, [theme])
-  const setTheme = (t: Theme) => { setThemeState(t); try { localStorage.setItem('wgd-theme', t) } catch { /* */ } }
+  // Light only: forget the old theme choice (the dark theme was removed)
+  useEffect(() => { document.documentElement.removeAttribute('data-theme'); try { localStorage.removeItem('wgd-theme') } catch { /* */ } }, [])
 
   const toast = useCallback((t: string, undo?: () => void) => {
     setToastText(t); setToastShow(true); setToastUndo(undo ? () => undo : null)
@@ -90,7 +79,7 @@ export function Provider({ children }: { children: ReactNode }) {
   }, [])
 
   return (
-    <C.Provider value={{ me, ready, can, refreshMe, setMe, toast, toastText, toastShow, toastUndo, dismissToast, theme, setTheme, busy, run }}>
+    <C.Provider value={{ me, ready, can, refreshMe, setMe, toast, toastText, toastShow, toastUndo, dismissToast, busy, run }}>
       {children}
     </C.Provider>
   )

@@ -27,6 +27,7 @@ from app.models import (
 )
 from app.services import events as ev
 from app.services import timeutil
+from app.services import task_view
 
 # ---------------------------------------------------------------- constants
 CONSENT_VALUES = ("full", "transactional", "none", "unsubscribed")
@@ -310,6 +311,8 @@ def task_dicts(db: Session, tasks: Iterable[Task]) -> list[dict[str, Any]]:
         "raised_by": t.raised_by, "created_at": timeutil.iso(t.created_at), "conversation_id": t.conversation_id,
         "contact": contact_brief(contacts.get(t.contact_id)) if t.contact_id else None,
         "assigned": user_brief(users.get(t.assigned_to)) if t.assigned_to else None,
+        "glance": task_view.glance(t.title, t.reason, t.kind, TASK_KIND_LABELS.get(t.kind, t.kind),
+                                   contacts[t.contact_id].display_name if t.contact_id in contacts else None),
     } for t in tasks]
 
 

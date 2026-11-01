@@ -9,11 +9,15 @@ import { GuestCard, type CardTab } from '../components/GuestCard'
 import { Item } from '../components/Timeline'
 import { useStaff } from '../lib/store'
 import { exact, fromLocalInput, hueFor, toLocalInput } from '../lib/fmt'
-import { TASK_KINDS, type Row, type Task, type TItem } from '../lib/types'
+import { TASK_KINDS, type Glance, type Row, type Task, type TItem } from '../lib/types'
 
 type Data = { items: Task[]; counts: { open: number; in_progress: number; mine: number; unassigned: number } }
 const STATUS: [string, string][] = [['open', 'Open'], ['in_progress', 'In progress'], ['done', 'Done']]
 const PRI: Record<string, string> = { high: 'High', normal: 'Normal', low: 'Low' }
+const GROUPS: [Glance['group'], string][] = [['urgent', 'Urgent'], ['missed', 'Missed calls'], ['booking', 'Bookings to confirm'], ['care', 'Pickups, refills, results'], ['text', 'Text replies'], ['admin', 'Records and business'], ['other', 'Other']]
+const CHANNEL: Record<string, [string, string]> = { phone: ['phone', 'Call'], missed: ['phone', 'Missed call'], text: ['chat', 'Text'] }
+const g0 = (t: Task): Glance => t.glance || { label: t.kind_label, group: t.priority === 'high' ? 'urgent' : 'other', tone: 'acc', urgent: t.priority === 'high', who: t.contact?.display_name || '', phone: '', channel: '', when: '', appointment: '', summary: t.reason || '', next_step: '', attempts: 0 }
+const groupOf = (t: Task) => (t.priority === 'high' ? 'urgent' : g0(t).group)
 const errText = (x: unknown) => x instanceof ApiError && x.message && x.message !== 'error' && x.message !== 'network' ? x.message : ''
 
 export function Tasks() {
@@ -27,6 +31,7 @@ export function Tasks() {
   const kind = sp.get('kind') || ''
   const assigned = sp.get('assigned') || 'all'
   const q = sp.get('q') || ''
+  const grp = sp.get('grp') || ''
   const openId = Number(sp.get('open')) || 0
   const [qText, setQText] = useState(q)
   const [cardTab, setCardTab] = useState<CardTab>('contact')
@@ -45,7 +50,10 @@ export function Tasks() {
   if (kind) qs.set('kind', kind)
   if (q) qs.set('q', q)
   const list = useLive<Data>('/tasks?' + qs.toString(), ['tasks'])
-  const items = list.data?.items || []
+  const all = list.data?.items || []
+  const items = grp === 'unassigned' ? all.filter((t) => !t.assigned) : grp ? all.filter((t) => groupOf(t) === grp) : all
+  const byGroup = GROUPS.map(([k, l]) => [k, l, all.filter((t) => groupOf(t) === k)] as const).filter(([, , ts]) => ts.length > 0)
+  const unassigned = all.filter((t) => !t.assigned).length
   const counts = list.data?.counts
   const fromList = items.find((t) => t.id === openId) || null
   const sel = fromList || (cache && cache.id === openId ? cache : null)
@@ -95,7 +103,7 @@ export function Tasks() {
   const tabLabel = (k: string, l: string) => k === 'open' && counts ? `${l} ${counts.open}` : k === 'in_progress' && counts ? `${l} ${counts.in_progress}` : l
 
   return (
-    <div className={'tasks3' + (openId && !narrow ? ' has' : '')}>
+    <div className={'tasks3' + (openId && !narrow ? ' has' : '') + (!sel && !narrow ? ' board' : '')}>
       {showList && (
         <section className="tpane tlist card" aria-label="Task list">
           <div className="tl-top">
@@ -104,6 +112,10 @@ export function Tasks() {
               {STATUS.map(([k, l]) => <button key={k} role="tab" aria-selected={status === k} onClick={() => set({ status: k === 'open' ? null : k })}>{tabLabel(k, l)}</button>)}
             </div>
             <label className="searchf"><Icon n="search" size={16} /><input value={qText} onChange={(e) => setQText(e.target.value)} placeholder="Search tasks" aria-label="Search tasks" maxLength={80} /></label>
+            {all.length > 0 && status !== 'done' && <div className="tglance" role="group" aria-label="Show only">
+              {byGroup.map(([k, l, ts]) => <button key={k} className={'gchip g-' + k} aria-pressed={grp === k} onClick={() => set({ grp: grp === k ? null : k })}><b>{ts.length}</b>{l}</button>)}
+              {unassigned > 0 && <button className="gchip g-un" aria-pressed={grp === 'unassigned'} onClick={() => set({ grp: grp === 'unassigned' ? null : 'unassigned' })}><b>{unassigned}</b>Unassigned</button>}
+            </div>}
             <div className="tfil">
               <select value={assigned} onChange={(e) => set({ assigned: e.target.value === 'all' ? null : e.target.value })} aria-label="Assigned to">
                 <option value="all">Everyone</option><option value="me">Me</option><option value="none">Unassigned</option>
@@ -115,24 +127,16 @@ export function Tasks() {
           </div>
           <div className="tl-list">
             {list.loading && !list.data ? <SkeletonRows n={7} h={72} /> : list.error && !list.data ? <p className="sub pad">Could not load tasks. It will try again.</p> : items.length === 0 ? (
-              <Empty icon="check" title={status === 'done' ? 'Nothing finished yet' : 'You are all caught up'} text={status === 'done' ? 'Finished tasks show up here.' : q || cls || kind || assigned !== 'all' ? 'No tasks match these filters.' : 'There are no tasks in this list. New ones appear here by themselves.'} />
-            ) : items.map((t) => (
-              <button key={t.id} className={'trow p-' + t.priority + (t.id === openId ? ' on' : '')} aria-current={t.id === openId ? 'true' : undefined} onClick={() => set({ open: String(t.id) })}>
-                <div className="tr-m">
-                  <b className="tr-t">{t.title}</b>
-                  <div className="tr-s"><span className="tag">{t.kind_label}</span>{t.raised_by === 'ai' && <span className="tag acc">AI</span>}{t.priority === 'high' && <span className="tag high">High</span>}</div>
-                  <div className="tr-p">{t.contact ? <><Avatar name={t.contact.display_name} initials={t.contact.initials} hue={t.contact.avatar_hue} size={20} />{t.contact.display_name}</> : <span className="mute">No person linked</span>}<span className="mute">· <Time iso={t.created_at} /></span></div>
-                </div>
-                <div className="tr-r">{t.assigned ? <Avatar name={t.assigned.display_name} initials={t.assigned.initials} hue={hueFor(t.assigned.id)} size={28} /> : <span className="tag warn">Open</span>}</div>
-              </button>
-            ))}
+              <Empty icon="check" title={status === 'done' ? 'Nothing finished yet' : 'You are all caught up'} text={status === 'done' ? 'Finished tasks show up here.' : q || cls || kind || grp || assigned !== 'all' ? 'No tasks match these filters.' : 'There are no tasks in this list. New ones appear here by themselves.'} />
+            ) : items.map((t) => <TaskRow key={t.id} t={t} on={t.id === openId} onOpen={() => set({ open: String(t.id) })} />)}
           </div>
         </section>
       )}
       {showDetail && (
         <section className="tpane tdet" aria-label="Task details">
           {!sel ? (
-            <div className="card dempty"><Empty icon="tasks" title="Pick a task" text="Choose a task on the left to see why it was raised and who it is about." /></div>
+            all.length > 0 && status !== 'done' ? <Board groups={byGroup} onOpen={(id) => set({ open: String(id) })} onGroup={(k) => set({ grp: k })} />
+              : <div className="card dempty"><Empty icon="tasks" title="Pick a task" text="Choose a task on the left to see why it was raised and who it is about." /></div>
           ) : (
             <>
               <Detail t={sel} onBack={narrow ? () => set({ open: null }) : undefined} staff={staff} update={update} take={take} can={can('tasks.work')} />
@@ -141,7 +145,7 @@ export function Tasks() {
           )}
         </section>
       )}
-      {wide && showDetail && (
+      {wide && showDetail && sel && (
         <aside className="tpane tcard card" aria-label="Guest Card">
           {sel?.contact ? <GuestCard contactId={sel.contact.id} tab={cardTab} onTab={setCardTab} showOpen /> : <Empty icon="user" title="No person on this task" text={sel ? 'This task is not linked to a contact.' : 'The Guest Card shows here.'} />}
         </aside>
@@ -160,22 +164,32 @@ function Detail({ t, onBack, staff, update, take, can }: { t: Task; onBack?: () 
     const s = staff.find((x) => String(x.id) === v)
     update(t, { assigned_to: v ? Number(v) : null }, { assigned: s ? { id: s.id, display_name: s.display_name, initials: s.initials } : null }, s ? `Assigned to ${s.display_name}` : 'Now unassigned')
   }
+  const g = g0(t)
   const raised = t.raised_by === 'ai' ? 'Raised by AI' : t.raised_by === 'rule' ? 'Raised by a rule' : null
   return (
     <div className="card tdetail">
       {onBack && <button className="btn small back" onClick={onBack}><Icon n="chevL" size={14} /> All tasks</button>}
       <div className={'td-h p-' + t.priority}>
         <div className="td-tags">
-          <span className="tag">{t.kind_label}</span>
+          <span className={'lab t-' + g.tone}>{g.label}</span>
           <span className={'tag ' + (t.status === 'done' ? 'ok' : t.status === 'in_progress' ? 'acc' : 'warn')}>{t.status === 'in_progress' ? 'In progress' : t.status === 'done' ? 'Done' : 'Open'}</span>
-          {t.priority === 'high' && <span className="tag high">High priority</span>}
+          {(t.priority === 'high' || g.urgent) && <span className="tag high">Urgent</span>}
           {raised && <span className="tag ai"><Icon n="sparkle" size={12} /> {raised}</span>}
           <span className="tag">{t.classification === 'patient' ? 'Patient' : 'Inquiry'}</span>
         </div>
-        <h2>{t.title}</h2>
-        <p className="mute small">Created <Time iso={t.created_at} />{t.due_at && <> · Due <time title={exact(t.due_at)}>{exact(t.due_at)}</time></>}</p>
+        <h2>{g.who || t.title}</h2>
+        <div className="td-facts">
+          {g.phone && <a className="ph" href={`tel:${g.phone.replace(/[^\d+]/g, '')}`}><Icon n="phone" size={14} /> {g.phone}</a>}
+          {g.channel && <span><Icon n={CHANNEL[g.channel][0]} size={14} /> {CHANNEL[g.channel][1]}{g.when ? `, ${g.when}` : ''}{g.attempts > 1 ? ` (${g.attempts} tries)` : ''}</span>}
+          {g.appointment && <span className="appt"><Icon n="cal" size={14} /> Asked for {g.appointment}</span>}
+          <span className="mute">Raised <Time iso={t.created_at} /></span>
+          {t.due_at && <span>Due <time title={exact(t.due_at)}>{exact(t.due_at)}</time></span>}
+        </div>
       </div>
-      <section className="td-s"><h4>Why this task</h4><p>{t.reason || 'No reason was given.'}</p></section>
+      <section className="td-s"><h4>What happened</h4><p className="td-sum">{g.summary || t.reason || 'No reason was given.'}</p>
+        {g.next_step && <p className="td-next"><b>Next step</b> {g.next_step}</p>}
+        {t.reason && t.reason !== g.summary && <details className="td-full"><summary>Full note</summary><p className="mute small">{t.title}</p><pre>{t.reason}</pre></details>}
+      </section>
       {t.contact && (
         <section className="td-s">
           <h4>Who it is about</h4>
@@ -272,5 +286,57 @@ function NewTask({ open, onClose, onCreated }: { open: boolean; onClose: () => v
         </div>
       </form>
     </Sheet>
+  )
+}
+
+function TaskRow({ t, on, onOpen }: { t: Task; on: boolean; onOpen: () => void }) {
+  const g = g0(t)
+  const who = g.who || t.contact?.display_name || ''
+  return (
+    <button className={'trow t-' + g.tone + (on ? ' on' : '')} aria-current={on ? 'true' : undefined} onClick={onOpen}>
+      <div className="tr-m">
+        <div className="tr-top">
+          <span className={'lab t-' + g.tone}>{g.label}</span>
+          {(t.priority === 'high' || g.urgent) && <span className="tag high">Urgent</span>}
+          {g.appointment && <span className="tag appt">{g.appointment}</span>}
+          <span className="spacer" /><span className="tr-time"><Time iso={t.created_at} /></span>
+        </div>
+        <div className="tr-who">
+          {t.contact && g.who !== 'Unknown caller' ? <Avatar name={t.contact.display_name} initials={t.contact.initials} hue={t.contact.avatar_hue} size={22} /> : null}
+          <b>{who || 'No person linked'}</b>{g.phone && <span className="ph">{g.phone}</span>}
+        </div>
+        {g.summary && <p className="tr-sum">{g.summary}</p>}
+        <div className="tr-meta">
+          {g.channel && <span><Icon n={CHANNEL[g.channel][0]} size={12} /> {CHANNEL[g.channel][1]}{g.attempts > 1 ? ` x${g.attempts}` : ''}</span>}
+          <span>{t.classification === 'patient' ? 'Patient' : 'Inquiry'}</span>
+          {t.raised_by === 'ai' && <span className="ai">AI</span>}
+          <span className="spacer" />
+          {t.assigned ? <span className="asg"><Avatar name={t.assigned.display_name} initials={t.assigned.initials} hue={hueFor(t.assigned.id)} size={18} />{t.assigned.display_name.split(' ')[0]}</span> : <span className="unasg">Unassigned</span>}
+        </div>
+      </div>
+    </button>
+  )
+}
+
+/** With no task open: every open task grouped by what needs deciding, so the day can be read at one look. */
+function Board({ groups, onOpen, onGroup }: { groups: readonly (readonly [string, string, Task[]])[]; onOpen: (id: number) => void; onGroup: (k: string) => void }) {
+  return (
+    <div className="tboard">
+      {groups.map(([k, l, ts]) => (
+        <section key={k} className={'card tb-col g-' + k}>
+          <header><b>{l}</b><span className="tb-n">{ts.length}</span>{ts.length > 4 && <button className="linkbtn" onClick={() => onGroup(k)}>Show all</button>}</header>
+          {ts.slice(0, 4).map((t) => {
+            const g = g0(t)
+            return (
+              <button key={t.id} className="tb-i" onClick={() => onOpen(t.id)}>
+                <span className="tb-l"><span className={'lab t-' + g.tone}>{g.label}</span><span className="tr-time"><Time iso={t.created_at} /></span></span>
+                <b>{g.who || t.contact?.display_name || t.title}{g.phone && <span className="ph"> {g.phone}</span>}</b>
+                {(g.appointment || g.summary) && <span className="tb-s">{g.appointment ? `Asked for ${g.appointment}. ` : ''}{g.summary}</span>}
+              </button>
+            )
+          })}
+        </section>
+      ))}
+    </div>
   )
 }

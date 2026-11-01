@@ -22,6 +22,12 @@ export type Task = {
   priority: 'high' | 'normal' | 'low'; status: 'open' | 'in_progress' | 'done'; due_at: string | null; raised_by: 'ai' | 'human' | 'rule'; created_at: string
   contact: { id: number; display_name: string; kind: Kind; initials: string; avatar_hue: number } | null
   assigned: { id: number; display_name: string; initials: string } | null
+  glance?: Glance
+}
+/** A task laid out for reading at a glance (server side, from the generated title and note). */
+export type Glance = {
+  label: string; group: 'urgent' | 'booking' | 'missed' | 'care' | 'admin' | 'text' | 'other'; tone: string; urgent: boolean
+  who: string; phone: string; channel: '' | 'phone' | 'missed' | 'text'; when: string; appointment: string; summary: string; next_step: string; attempts: number
 }
 export type Link = { id: number; relationship: string; note: string | null; contact: { id: number; display_name: string; kind: Kind; initials: string; avatar_hue: number } }
 export type Visit = { id: number; pet: { id: number; name: string } | null; visited_at: string; kind: string; summary: string | null; source: string }
@@ -37,7 +43,7 @@ export type TItem = {
   subject: string | null; body: string | null; at: string; delivery_state: string | null; delivery_code?: string | null; scheduled_for: string | null
   attachments: { id: number; filename: string; mime: string; bytes: number }[]
   mentions: { id: number; display_name: string }[]
-  meta?: { call?: { id: number; has_recording: boolean; has_transcript: boolean; seconds: number } }
+  meta?: { call?: { id: number; has_recording: boolean; has_transcript: boolean; seconds: number }; glance?: Glance; status?: string }
   pending?: boolean
 }
 export type Staff = { id: number; display_name: string; initials: string; role: string }

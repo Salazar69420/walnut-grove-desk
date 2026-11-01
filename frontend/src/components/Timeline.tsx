@@ -114,6 +114,13 @@ function deliveryText(it: TItem): string | null {
 const DELIVERY_TAG: Record<string, string> = { scheduled_dry_run: 'Scheduled', dry_run: 'Practice', queued: 'Sending', sent: 'Sent', failed: 'Not sent' }
 
 export function Item({ it, contact }: { it: TItem; contact: Row }) {
+  const tg = it.type === 'task' ? it.meta?.glance : undefined
+  if (tg) {
+    return (
+      <div className="sysline"><span className="sl-ic"><Icon n="tasks" size={14} /></span>
+        <span><span className={'lab t-' + tg.tone}>{tg.label}</span>{' '}{tg.appointment ? `Asked for ${tg.appointment}. ` : ''}{tg.summary || it.subject}{it.meta?.status === 'done' ? ' (done)' : ''}</span><Clock iso={it.at} /></div>
+    )
+  }
   if (it.type === 'visit' || it.type === 'task') {
     const label = it.type === 'visit' ? 'Visit' : 'Task'
     const text = [it.subject, it.body].filter(Boolean).join(': ') || label

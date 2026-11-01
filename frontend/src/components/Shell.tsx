@@ -12,7 +12,7 @@ import { Pop, useDialog } from './ui'
 import { NAV, isWorkspace } from './nav'
 
 export function Shell() {
-  const { me, can, setMe, theme, setTheme, run, busy } = useApp()
+  const { me, can, setMe, run, busy } = useApp()
   const nav = useNavigate()
   const loc = useLocation()
   const [pal, setPal] = useState(false)
@@ -81,12 +81,6 @@ export function Shell() {
           {(close) => (
             <div className="menu" role="menu">
               <div className="menu-h"><b>{u.display_name}</b><span>{u.title}</span></div>
-              <div className="menu-s">Theme</div>
-              <div className="seg" role="group" aria-label="Theme">
-                {(['light', 'dark', 'auto'] as const).map((t) => (
-                  <button key={t} aria-pressed={theme === t} onClick={() => setTheme(t)}>{t === 'light' ? 'Light' : t === 'dark' ? 'Dark' : 'Auto'}</button>
-                ))}
-              </div>
               <button className="menu-i" role="menuitem" onClick={() => { close(); signOut() }} disabled={busy.has('signout')}>Sign out</button>
             </div>
           )}

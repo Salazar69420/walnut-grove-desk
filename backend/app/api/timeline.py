@@ -16,6 +16,7 @@ from app.security.auth import require
 from app.services import crm, sms_mode
 from app.services import events as ev
 from app.services import sender, timeutil
+from app.services import task_view
 
 router = APIRouter(prefix="/api", tags=["conversations"])
 
@@ -129,7 +130,8 @@ def build_items(db: Session, contact: Contact, *, messages: list[Message] = (), 
             "id": t.id, "type": "task", "channel": "task", "direction": None,
             "sender": {"kind": "system", "name": "Task", "initials": ""}, "subject": t.title, "body": t.reason,
             "at": timeutil.iso(t.created_at), "delivery_state": None, "scheduled_for": None, "attachments": [], "mentions": [],
-            "meta": {"kind": t.kind, "status": t.status, "priority": t.priority, "raised_by": t.raised_by},
+            "meta": {"kind": t.kind, "status": t.status, "priority": t.priority, "raised_by": t.raised_by,
+                     "glance": task_view.glance(t.title, t.reason, t.kind, crm.TASK_KIND_LABELS.get(t.kind, t.kind), None)},
         })
     out.sort(key=lambda i: (i["at"], i["type"], i["id"]), reverse=True)
     return out

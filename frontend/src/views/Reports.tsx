@@ -24,7 +24,7 @@ export function Reports() {
       {!cat ? <SkeletonRows n={3} h={80} /> : (
         <>
           {fav.length > 0 && <section><h2 className="rp-g">My reports</h2><div className="rp-grid">{cat.filter((c) => fav.includes(c.key)).map((c) => <Tile key={c.key} c={c} on toggle={toggle} />)}</div></section>}
-          {groups.map((g) => <section key={g}><h2 className="rp-g">{g}</h2><div className="rp-grid">{cat.filter((c) => c.group === g).map((c) => <Tile key={c.key} c={c} on={fav.includes(c.key)} toggle={toggle} />)}</div></section>)}
+          <div className="rp-groups">{groups.map((g) => <section key={g}><h2 className="rp-g">{g}</h2><div className="rp-grid">{cat.filter((c) => c.group === g).map((c) => <Tile key={c.key} c={c} on={fav.includes(c.key)} toggle={toggle} />)}</div></section>)}</div>
         </>
       )}
     </div>

@@ -135,11 +135,13 @@ function EventItem({ e }: { e: Ev }) {
   return e.contact ? <Link to={`/contacts/${e.contact.id}?tab=calendar`} className={cls}>{inner}</Link> : <div className={cls}>{inner}</div>
 }
 function TaskItem({ t }: { t: Task }) {
+  const g = t.glance
   return (
-    <Link to={`/tasks?open=${t.id}`} className={'titem p-' + t.priority}>
+    <Link to={`/tasks?open=${t.id}`} className={'titem p-' + t.priority + (t.glance ? ' t-' + t.glance.tone : '')}>
       <div className="ti-m">
-        <b>{t.title}</b>
-        <div className="ti-s"><span className="tag">{t.kind_label}</span>{t.raised_by === 'ai' && <span className="tag acc">AI</span>}{t.priority === 'high' && <span className="tag high">High</span>}{t.contact && <span className="mute">{t.contact.display_name}</span>}</div>
+        <div className="ti-s"><span className={'lab t-' + (g?.tone || 'acc')}>{g?.label || t.kind_label}</span>{(t.priority === 'high' || g?.urgent) && <span className="tag high">Urgent</span>}{g?.appointment && <span className="tag appt">{g.appointment}</span>}</div>
+        <b>{g?.who || t.contact?.display_name || t.title}{g?.phone && <span className="ph"> {g.phone}</span>}</b>
+        {g?.summary && <span className="ti-sum">{g.summary}</span>}
       </div>
       <div className="ti-r">{t.assigned ? <Avatar name={t.assigned.display_name} initials={t.assigned.initials} hue={hueFor(t.assigned.id)} size={28} /> : <span className="tag warn">Unassigned</span>}</div>
     </Link>
