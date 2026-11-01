@@ -517,7 +517,7 @@ a.nav.active{color:var(--acc-t)}
   .main-grid,.main-grid.ws{grid-template-columns:minmax(0,1fr)}
   .side{flex-direction:row;overflow-x:auto;flex-wrap:nowrap;padding:6px;gap:2px;scrollbar-width:none;position:static}
   .side::-webkit-scrollbar{display:none}
-  .me{display:none}
+  .side .me{display:none}
   .navg{flex-direction:row;gap:2px;flex:none}
   .navg+.navg{margin:0 0 0 6px;padding-left:6px;border-left:1px solid var(--line)}
   .navh{display:none}
