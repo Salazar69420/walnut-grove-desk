@@ -14,6 +14,16 @@ from app.seed import reference_data as ref
 router = APIRouter(prefix="/api/assistant", tags=["assistant"])
 
 
+AI_GREETING = "Hi {name}. I can look up anything in the app: tasks, people, calls, texts, the calendar, knowledge, reports, campaigns and the website. Ask, or tap a question."
+AI_CHIPS = {
+    "owner": ["What needs my decision today?", "What came in since yesterday?", "How many calls did we miss this week, and who still needs a call back?",
+              "Which bookings are waiting for approval?", "Who is waiting for a reply?", "How is the website doing in search?"],
+    "desk": ["What is most urgent right now?", "Who still needs a call back?", "Which bookings are waiting for approval?", "Who is waiting for a reply?",
+             "What is on the calendar today?"],
+    "nurse": ["Anything urgent today?", "Who still needs a call back?", "What is on the calendar today?", "Which tasks are mine?"],
+}
+
+
 def chips_for(user: User) -> list[list[str]]:
     return ref.CHIPS.get(user.role, [])
 
@@ -23,6 +33,8 @@ def chips(user: User = Depends(require("assistant.use")), db: Session = Depends(
     g = ref.GREETINGS[user.role].format(name=user.display_name)
     from app.assistant import staff_agent
     on = staff_agent.enabled(db)
+    if on:  # with AI on, the buttons ask the AI about the real data (the fixed answers below are the fallback when AI is off)
+        return {"greeting": AI_GREETING.format(name=user.display_name), "chips": [{"key": f"ai{i}", "question": q} for i, q in enumerate(AI_CHIPS.get(user.role, AI_CHIPS["desk"]))], "ai": True}
     return {"greeting": g, "chips": [{"key": k, "question": q} for k, q in chips_for(user)], "ai": on}
 
 

@@ -6,13 +6,13 @@ import json
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.adapters import llm
 from app.api.overnight import summary as overnight_summary
 from app.db import get_db
-from app.models import Draft, LabResult, Shift, Suggestion, User
+from app.models import CalendarEvent, Contact, Draft, KnowledgeEntry, LabResult, PhoneCall, Shift, Suggestion, Task, User
 from app.rules.engine import run_rules
 from app.security.auth import require
 from app.seed import reference_data as ref
@@ -41,66 +41,50 @@ def greeting(user: User, now) -> str:
 
 def date_line(now) -> str:
     d = timeutil.local(now)
-    return f"{d.strftime('%A, %B')} {d.day}. Here is what the front desk and nurses logged since yesterday."
+    return f"{d.strftime('%A, %B')} {d.day}. Here is where the clinic stands right now."
 
 
 def kpis(db: Session, now) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    cb = metrics.open_callbacks(db)
-    waiting = metrics.results_waiting(db, now)
-    missed = metrics.missed_last_week(db, now)
-    ov = overnight_summary(db)
-    origin = metrics.data_origins(db)
+    """The four numbers at the top, from the real record: tasks, phone calls, booking requests and unread messages."""
+    from datetime import timedelta
+    from app.api.home import _unread_flag
+    active = Task.status.in_(("open", "in_progress"))
+    count = lambda stmt: db.scalar(select(func.count()).select_from(stmt.subquery())) or 0  # noqa: E731
+    missed_q = lambda a, b: select(PhoneCall.id).where(PhoneCall.direction == "inbound", PhoneCall.result.in_(("missed", "voicemail")),  # noqa: E731
+                                                       PhoneCall.started_at >= a, PhoneCall.started_at < b)
+    week = now - timedelta(days=7)
+    f = {
+        "open": count(select(Task.id).where(active)),
+        "urgent": count(select(Task.id).where(active, Task.priority == "high")),
+        "unassigned": count(select(Task.id).where(active, Task.assigned_to.is_(None))),
+        "callbacks": count(select(Task.id).where(active, Task.kind == "callback")),
+        "missed": count(missed_q(week, now)),
+        "missed_prev": count(missed_q(now - timedelta(days=14), week)),
+        "calls": count(select(PhoneCall.id).where(PhoneCall.started_at >= week, PhoneCall.started_at < now)),
+        "bookings": count(select(CalendarEvent.id).where(CalendarEvent.status == "requested")),
+        "waiting": count(select(Contact.id).where(Contact.erased_at.is_(None), _unread_flag())),
+        "knowledge": count(select(KnowledgeEntry.id).where(KnowledgeEntry.status == "pending")),
+    }
     items = [
-        {"key": "callbacks_open", "value": cb["open"], "label": "Callbacks still open", "alert": cb["high"] > 0,
-         "origin": origin["callbacks_open"]},
-        {"key": "results_waiting", "value": len(waiting), "label": "Results waiting 2+ days", "alert": len(waiting) > 0,
-         "origin": origin["results_waiting"]},
-        {"key": "missed_last_week", "value": missed["value"],
-         "label": ("Missed calls last 7 days" if missed.get("live") else "Missed calls last week") + (" (example)" if missed["demo"] else ""),
-         "alert": False, "origin": "example" if missed["demo"] else "live"},
-        {"key": "overnight_pending", "value": ov["pending"], "label": "Overnight items to review", "alert": ov["pending"] > 0,
-         "origin": origin["overnight_pending"]},
+        {"key": "open_tasks", "value": f["open"], "label": f"Open tasks, {f['urgent']} urgent", "alert": f["urgent"] > 0, "link": "/tasks", "origin": "live"},
+        {"key": "missed_calls", "value": f["missed"], "label": "Missed calls, last 7 days", "alert": False, "link": "/phone", "origin": "live"},
+        {"key": "bookings_waiting", "value": f["bookings"], "label": "Bookings to approve", "alert": f["bookings"] > 0, "link": "/calendar", "origin": "live"},
+        {"key": "people_waiting", "value": f["waiting"], "label": "Waiting for a reply", "alert": False, "link": "/home", "origin": "live"},
     ]
-    facts = {"open": cb["open"], "high": cb["high"], "waiting": len(waiting), "missed": missed["value"],
-             "pending": ov["pending"], "overnight_total": ov["total"], "emergency_pending": ov["emergency_pending"],
-             "age_days": metrics.rules(db)["results_age_days"]}
-    if missed.get("live"):
-        lv = metrics.Live(db)
-        prev = lv.missed("prev7d")
-        calls = lv.calls("7d")
-        facts.update({
-            "live_origin": "live", "days": 7, "hours": 24,
-            "live_delta": None if prev is None else abs(missed["value"] - prev),
-            "live_delta_sign": None if prev is None else (missed["value"] > prev) - (missed["value"] < prev),
-            "live_no_contact": missed.get("never"), "live_calls": calls["all"] if calls else None,
-        })
-    return items, facts
+    return items, f
 
 
 def template_paragraph(f: dict[str, Any]) -> str:
     def n(v: int, one: str, many: str) -> str:
         return one if v == 1 else many
 
-    if f.get("live_origin") == "live":
-        # Real numbers from the phone system (docs/CONTRACT_LIVE_BRIEF.md).
-        missed = f"{f['missed']} inbound {n(f['missed'], 'call', 'calls')} went unanswered in the last 7 days"
-        sign, d = f.get("live_delta_sign"), f.get("live_delta")
-        if sign is not None:
-            missed += ", " + ("the same as the week before" if sign == 0 else f"{d} {'more' if sign > 0 else 'fewer'} than the week before")
-        nc = f.get("live_no_contact")
-        if nc is not None:
-            missed += f", and {nc} of those {n(nc, 'caller', 'callers')} had no contact within 24 hours"
-        missed += "."
-        extra = [f"The phones took {f['live_calls']} {n(f['live_calls'], 'call', 'calls')} in the last 7 days."] if f.get("live_calls") is not None else []
-    else:
-        missed, extra = f"{f['missed']} {n(f['missed'], 'call', 'calls')} went unanswered last week.", []
-    parts = [
-        f"{f['open']} {n(f['open'], 'callback is', 'callbacks are')} open and {f['high']} {n(f['high'], 'is', 'are')} high priority.",
-        f"{f['waiting']} lab {n(f['waiting'], 'result has', 'results have')} waited {f['age_days']} days or more.",
-        missed, *extra,
-        f"{f['pending']} overnight {n(f['pending'], 'item still needs', 'items still need')} someone to look at {n(f['pending'], 'it', 'them')}.",
-    ]
-    return " ".join(parts)
+    week = "the same as" if f["missed"] == f["missed_prev"] else f"{abs(f['missed'] - f['missed_prev'])} {'more' if f['missed'] > f['missed_prev'] else 'fewer'} than"
+    return " ".join([
+        f"{f['open']} {n(f['open'], 'task is', 'tasks are')} open: {f['urgent']} urgent and {f['unassigned']} not assigned to anyone.",
+        f"{f['callbacks']} {n(f['callbacks'], 'caller still needs', 'callers still need')} a call back.",
+        f"{f['missed']} inbound {n(f['missed'], 'call', 'calls')} went unanswered in the last 7 days, {week} the week before, out of {f['calls']} {n(f['calls'], 'call', 'calls')}.",
+        f"{f['bookings']} {n(f['bookings'], 'booking is', 'bookings are')} waiting for approval and {f['knowledge']} knowledge {n(f['knowledge'], 'suggestion is', 'suggestions are')} waiting for review.",
+    ])
 
 
 def brief_text(db: Session, facts: dict[str, Any]) -> dict[str, str]:

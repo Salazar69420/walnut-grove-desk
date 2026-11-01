@@ -238,17 +238,15 @@ def test_brief_shape_and_numbers(garg, priya):
     b = garg.get("/api/brief").json()
     assert b["greeting"].startswith("Good ") and ", Dr. Garg" in b["greeting"]
     k = {x["key"]: x for x in b["kpis"]}
-    assert k["callbacks_open"]["value"] == 6 and k["callbacks_open"]["alert"] is True
-    assert k["results_waiting"]["value"] == 3 and k["results_waiting"]["alert"] is True
-    assert k["missed_last_week"]["value"] == 41 and k["missed_last_week"]["label"].endswith("(example)")
-    assert k["overnight_pending"]["value"] == 5
+    assert list(k) == ["open_tasks", "missed_calls", "bookings_waiting", "people_waiting"] and all(x["origin"] == "live" and x["link"] for x in k.values())
+    assert k["open_tasks"]["label"].startswith("Open tasks, ") and k["missed_calls"]["label"] == "Missed calls, last 7 days"
     assert b["overnight"]["total"] == 5
     assert [s["rule_key"] for s in b["suggestions"]] == ["desk_shift", "missed_texts", "recall_batch", "old_results"]
     c = b["chart"]
     assert c["mode"] == "example" and c["available_modes"] == ["example"] and c["calls"][1] == 21 and c["limit"] == 12
     assert c["hours"][0] == "8a" and len(c["cover"]) == 10 and c["calls_label"] == "Example numbers"
     assert c["cover"][1] == 1 and c["per_person"][1] == 21.0
-    assert b["text"]["source"] == "template" and "6 callbacks are open and 2 are high priority." in b["text"]["paragraph"]
+    assert b["text"]["source"] == "template" and f"{k['open_tasks']['value']} task" in b["text"]["paragraph"] and "went unanswered in the last 7 days" in b["text"]["paragraph"]
 
 
 def test_chart_real_mode_from_analytics(garg):
@@ -353,14 +351,10 @@ def test_brief_wording_rejected_and_accepted(env, garg, priya, llm_env):
     # same metrics again: cached, no second model call, no second event
     garg.get("/api/brief")
     assert events_text(env).count("Brief wording rejected: number not in the record") == 1
-    # change the record, and the model now answers with the right numbers
-    priya.post("/api/callbacks/3/claim")
-    priya.post("/api/callbacks/3/done")
-    base = garg.get("/api/brief").json()["text"]  # still rejected text cached for new key? new key: model reply is still bad
-    holder["reply"] = "Friendly summary: 5 callbacks are open and 2 are high priority. 3 lab results have waited 2 days or more. 41 calls went unanswered last week. 5 overnight items need a look."
-    priya.post("/api/callbacks/2/claim")
-    priya.post("/api/callbacks/2/done")
-    holder["reply"] = "Friendly summary: 4 callbacks are open and 2 are high priority. 3 lab results have waited 2 days or more. 41 calls went unanswered last week. 5 overnight items need a look."
+    # change the record (a new task), and the model now answers with numbers that are in it
+    k = {x["key"]: x["value"] for x in garg.get("/api/brief").json()["kpis"]}
+    assert priya.post("/api/tasks", {"kind": "other", "classification": "inquiry", "title": "Order more gauze"}).status_code in (200, 201)
+    holder["reply"] = f"Friendly summary: {k['open_tasks'] + 1} tasks are open and {k['bookings_waiting']} bookings wait for approval."
     t = garg.get("/api/brief").json()["text"]
     assert t["source"] == "model" and t["paragraph"].startswith("Friendly summary")
 
@@ -693,8 +687,6 @@ def test_import_calls_private_rows_and_kpi(env, garg, priya):
         assert db.scalar(text("SELECT count(*) FROM visible_calls")) == 3
         assert db.scalar(text("SELECT count(*) FROM visible_calls WHERE call_id='p1'")) == 0
     assert "Imported 4 calls" in events_text(env)
-    k = {x["key"]: x for x in garg.get("/api/brief").json()["kpis"]}
-    assert k["missed_last_week"]["value"] == 2 and "example" not in k["missed_last_week"]["label"]
     a = ask(garg, "missed")
     assert "2 calls went unanswered last week" in flat(a) and "Secret" not in json.dumps(a)
     # private rows never reach exports

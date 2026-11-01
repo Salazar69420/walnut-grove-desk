@@ -428,6 +428,7 @@ def step(db: Session) -> dict[str, int]:
             counts["done"] += 1
         _queued_at.pop(cid, None)
         db.commit()
+        phone_audio.discard_copy(c.recording_id)  # the transcript does the job from here (a retry asks for a fresh copy); play fetches on demand
     return counts
 
 

@@ -31,6 +31,7 @@ router = APIRouter(prefix="/api/phone/calls", tags=["phone"])
 PLAY_DIR = "play"
 MAX_AUDIO_BYTES = 200 * 1024 * 1024
 AUDIO_TYPES = {"mp3": "audio/mpeg", "wav": "audio/wav", "ogg": "audio/ogg", "m4a": "audio/mp4", "mp4": "audio/mp4", "webm": "audio/webm", "audio": "application/octet-stream"}
+PLAY_GRACE = 600  # seconds a copy someone pressed play on is left alone (the helper deletes leftovers after 10 minutes anyway)
 REQUEST_AGAIN_AFTER = 45  # seconds before another request for the same recording is allowed
 _asked: dict[str, float] = {}
 
@@ -96,6 +97,23 @@ def request_copy(c: PhoneCall, requested_by: str) -> None:
     body = {"v": 1, "id": job_id, "mode": "play", "recording_id": c.recording_id, "call_date": timeutil.local(c.started_at).date().isoformat(),
             "requested_by": requested_by[:60], "requested_at": bridge._now_iso()}
     bridge._atomic_write(bridge._bridge(), os.path.join(req_dir, job_id + ".json"), body)
+
+
+def discard_copy(rid: str) -> bool:
+    """Delete the short-lived audio copy once its transcript is saved, so recordings never pile up on the server.
+    Kept while someone pressed play on it in the last few minutes (they may still be listening). Never follows links."""
+    if time.monotonic() - _asked.get(rid, -1e9) < PLAY_GRACE:
+        return False
+    gone = False
+    for ext in [*AUDIO_TYPES, "json"]:
+        path = os.path.join(_play_dir(), f"{rid}.{ext}")
+        try:
+            if stat.S_ISREG(os.lstat(path).st_mode):
+                os.unlink(path)
+                gone = True
+        except OSError:
+            continue
+    return gone
 
 
 def _log_play(db: Session, user: User, c: PhoneCall) -> None:

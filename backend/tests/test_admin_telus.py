@@ -113,7 +113,7 @@ def test_get_defaults_when_nothing_written(bridge, garg):
     j = garg.get("/api/admin/telus").json()
     assert j["status"] is None and j["bridge_ok"] is True and j["busy"] is False
     assert j["settings"]["recordings_enabled"] is False
-    assert (j["settings"]["max_gb"], j["settings"]["keep_days"], j["settings"]["max_per_run_cap"]) == (10, 30, 200)
+    assert (j["settings"]["max_gb"], j["settings"]["keep_days"], j["settings"]["max_per_run_cap"]) == (10, 1, 200)
     assert set(j["messages"]) == {"ok", "partial", "recordings_disabled", "not_configured", "login_failed", "write_scope_present",
                                   "disk_cap_reached", "disk_low", "rate_limited", "no_recordings", "error"}
     assert all(isinstance(t, str) and t and "\u2014" not in t and "\u2013" not in t for t in j["messages"].values())

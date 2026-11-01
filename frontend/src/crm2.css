@@ -378,3 +378,4 @@ a.playb{color:var(--acc-t)}
 .rp-groups{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:4px 16px;align-items:start}
 .rp-groups .rp-grid{grid-template-columns:1fr}
 @media (max-width:780px){.tglance{flex-wrap:nowrap;overflow-x:auto;padding-bottom:2px}.gchip{flex:none}}
+.kpi-l{text-align:left;font:inherit;color:inherit;cursor:pointer}.kpi-l:hover{border-color:var(--accent)}

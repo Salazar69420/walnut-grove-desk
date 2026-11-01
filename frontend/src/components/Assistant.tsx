@@ -113,7 +113,7 @@ export function Assistant() {
       </div>
       <div className="chips">
         {chips.map((c) => (
-          <button key={c.key} type="button" disabled={waiting} onClick={() => ask({ key: c.key }, c.question).then(() => { if (c.key === 'pickup') toast('Draft added to Messages to approve') })}>{c.question}</button>
+          <button key={c.key} type="button" disabled={waiting} onClick={() => aiOn ? chat(c.question) : ask({ key: c.key }, c.question).then(() => { if (c.key === 'pickup') toast('Draft added to Messages to approve') })}>{c.question}</button>
         ))}
       </div>
       <form className="send" onSubmit={submit}>

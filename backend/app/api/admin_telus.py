@@ -53,7 +53,7 @@ MESSAGES: dict[str, str] = {
     "error": "Something went wrong. Try again. If it keeps happening, tell the person who looks after the server.",
 }
 
-DEFAULTS: dict[str, Any] = {"recordings_enabled": False, "max_gb": 10, "keep_days": 30, "max_per_run_cap": 200}
+DEFAULTS: dict[str, Any] = {"recordings_enabled": False, "max_gb": 10, "keep_days": 1, "max_per_run_cap": 200}
 
 
 # ---------------------------------------------------------------- schemas

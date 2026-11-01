@@ -1,7 +1,8 @@
 """The staff assistant with AI: answers questions about the clinic's data with lookup tools, and proposes changes that a person confirms.
 
 * Every tool runs with the signed-in person's own permissions (a tool they may not use is not even offered to the model).
-* The model only sees what the tools return. Call transcripts, recordings, secrets and keys are never available to it.
+* The model only sees what the tools return. Recordings, secrets and keys are never available to it. A call transcript is
+  available only to people who may read transcripts on the Phone page (owners), one call at a time, and each read is in the access log.
 * Changes: the model can only call propose_change. The server checks the action and the person's permission, keeps the proposal for
   15 minutes, and shows it as a card. Nothing changes until the person presses Confirm; the permission is checked again then.
 * Off unless the owner turns on "AI for staff" in Admin > AI assistant (it sends clinic data to OpenRouter).
@@ -21,15 +22,15 @@ from sqlalchemy.orm import Session
 
 from app.adapters import llm as llm_adapter
 from app.assistant import ai, booking, upsell
-from app.models import (CalendarEvent, Campaign, Contact, Fee, KnowledgeEntry, Message, Pet, PhoneCall, Product, Task, User, Visit)
+from app.models import (Automation, CalendarEvent, Campaign, Contact, Creative, Fee, KnowledgeEntry, Message, Pet, PhoneCall, Product, Task, User, Visit)
 from app.security import crypto
 from app.security.permissions import has_perm
-from app.services import crm, settings_store, sms_mode, timeutil
+from app.services import crm, settings_store, sms_mode, task_view, timeutil
 from app.services import events as ev
 from app.services import knowledge as kn
 
-MAX_STEPS = 6
-MAX_TOOL_CHARS = 7000
+MAX_STEPS = 8
+MAX_TOOL_CHARS = 12000
 PENDING_SECONDS = 900
 _pending: dict[str, dict[str, Any]] = {}
 
@@ -135,10 +136,20 @@ def t_tasks(db: Session, user: User, status: str = "active", priority: str = "",
         stmt = stmt.where(Task.priority == priority)
     if kind:
         stmt = stmt.where(Task.kind == kind)
-    rows = db.scalars(stmt.order_by(Task.created_at.desc()).limit(min(int(limit or 20), 50))).all()
+    total = db.scalar(select(func.count()).select_from(stmt.subquery()))
+    rows = db.scalars(stmt.order_by(Task.created_at.desc()).limit(min(int(limit or 25), 60))).all()
     names = {u.id: u.display_name for u in db.scalars(select(User)).all()}
-    return {"tasks": [{"id": t.id, "title": t.title, "kind": t.kind, "priority": t.priority, "status": t.status, "raised_by": t.raised_by,
-                       "assigned_to": names.get(t.assigned_to), "contact_id": t.contact_id, "created": timeutil.iso(t.created_at), "reason": (t.reason or "")[:200]} for t in rows]}
+    cids = {t.contact_id for t in rows if t.contact_id}
+    people = {c.id: c.display_name for c in db.scalars(select(Contact).where(Contact.id.in_(cids))).all()} if cids else {}
+    out, groups = [], {}
+    for t in rows:
+        g = task_view.glance(t.title, t.reason, t.kind, crm.TASK_KIND_LABELS.get(t.kind, t.kind), people.get(t.contact_id))
+        grp = "urgent" if t.priority == "high" else g["group"]
+        groups[grp] = groups.get(grp, 0) + 1
+        out.append({"id": t.id, "label": g["label"], "who": g["who"], "phone": g["phone"] or None, "summary": g["summary"], "next_step": g["next_step"] or None,
+                    "appointment_asked_for": g["appointment"] or None, "when": g["when"] or None, "priority": t.priority, "status": t.status, "raised_by": t.raised_by,
+                    "assigned_to": names.get(t.assigned_to), "contact_id": t.contact_id, "created": timeutil.iso(t.created_at)})
+    return {"total_matching": total, "shown": len(out), "by_group": groups, "tasks": out}
 
 
 def t_calendar(db: Session, user: User, from_date: str = "", to_date: str = "", **_) -> dict:
@@ -283,6 +294,60 @@ def t_audit(db: Session, user: User, limit: int = 25, contains: str = "", **_) -
 
 
 # ---------------------------------------------------------------- changes the model may propose (executed only on Confirm)
+def t_people_waiting(db: Session, user: User, limit: int = 20, **_) -> dict:
+    """Contacts whose latest message in is not read yet (the Home page's "people waiting")."""
+    from app.api.home import _unread_flag
+    unread = _unread_flag()
+    base = select(Contact).where(Contact.erased_at.is_(None), unread)
+    total = db.scalar(select(func.count()).select_from(base.subquery())) or 0
+    rows = db.scalars(base.order_by(Contact.last_active_at.desc()).limit(min(int(limit or 20), 40))).all()
+    out = []
+    for c in rows:
+        m = db.scalar(select(Message).where(Message.contact_id == c.id, Message.direction == "in").order_by(Message.created_at.desc()).limit(1))
+        out.append({**_cbrief(c), "last_in": (m.body or "")[:160] if m else None, "channel": m.channel if m else None, "at": timeutil.iso(m.created_at) if m else None})
+    return {"total_waiting": total, "people": out}
+
+
+def t_contacts_summary(db: Session, user: User, days: int = 7, **_) -> dict:
+    """How many patients and inquiries, how many are new, and where they came from."""
+    since = timeutil.now_utc() - timedelta(days=max(1, min(int(days or 7), 365)))
+    live = select(Contact).where(Contact.erased_at.is_(None))
+    by_kind = dict(db.execute(select(Contact.kind, func.count()).where(Contact.erased_at.is_(None)).group_by(Contact.kind)).all())
+    new = db.scalars(live.where(Contact.created_at >= since).order_by(Contact.created_at.desc()).limit(25)).all()
+    return {"by_kind": by_kind, "total": sum(by_kind.values()), "days": int(days or 7),
+            "new_in_period": db.scalar(select(func.count()).select_from(live.where(Contact.created_at >= since).subquery())),
+            "new_by_kind": dict(db.execute(select(Contact.kind, func.count()).where(Contact.erased_at.is_(None), Contact.created_at >= since).group_by(Contact.kind)).all()),
+            "new_by_source": dict(db.execute(select(Contact.source, func.count()).where(Contact.erased_at.is_(None), Contact.created_at >= since).group_by(Contact.source)).all()),
+            "newest": [{**_cbrief(c), "created": timeutil.iso(c.created_at)} for c in new]}
+
+
+def t_call_transcript(db: Session, user: User, call_id: int = 0, **_) -> dict:
+    """What was said on one call. Owners only (phone.transcript), like the Phone page; the read is in the access log."""
+    if not has_perm(user, "phone.transcript"):
+        return {"error": "transcripts are for owners only"}
+    r = db.get(PhoneCall, int(call_id or 0))
+    if r is None:
+        return {"error": "no such call"}
+    if not r.transcript:
+        return {"error": "this call has no transcript", "call": _call(r, user)}
+    crm.log_access(db, user, r.contact_id, "view", detail="call transcript (staff assistant)", dedupe_seconds=60)
+    return {"call": _call(r, user), "transcript": r.transcript[:6000]}
+
+
+def t_creatives(db: Session, user: User, **_) -> dict:
+    from app.services import creatives as cs
+    rows = db.scalars(select(Creative).order_by(Creative.id.desc()).limit(30)).all()
+    return {"settings": cs.public_cfg(db), "items": [{"id": c.id, "title": c.title, "kind": c.kind, "format": c.format, "status": c.status, "caption": (c.caption or "")[:200],
+                                                       "cost_usd": round((c.cost_usd or 0) + (c.llm_cost_usd or 0), 2), "share_link": cs.share_url(c), "error": c.error or None,
+                                                       "created": timeutil.iso(c.created_at)} for c in rows]}
+
+
+def t_automations(db: Session, user: User, **_) -> dict:
+    rows = db.scalars(select(Automation).order_by(Automation.id)).all()
+    return {"automations": [{"id": a.id, "name": a.name, "on": a.enabled, "when": a.trigger_type, "trigger": json.loads(a.trigger_json or "{}"), "action": a.action,
+                             "runs": a.run_count, "last_run": timeutil.iso(a.last_run_at) if a.last_run_at else None, "last_ok": a.last_ok, "last_result": a.last_result} for a in rows]}
+
+
 def _a_add_knowledge(db, user, p):
     e = kn.propose(db, category=p.get("category") or "clinic_info", title=str(p["title"]), body=str(p["text"]), proposed_by="human", user=user,
                    source_kind="manual", source_ref="Added through the staff assistant")
@@ -566,7 +631,7 @@ TOOLS: list[tuple[str, str, Callable, dict]] = [
     ("home.view", "clinic_overview", t_overview, _fn("clinic_overview", "Counts for today: contacts, open tasks, calendar, calls, texts, pending knowledge, and which assistant settings are on.")),
     ("contacts.view", "search", t_search, _fn("search", "Find contacts (by name, email or phone digits), pets, tasks and text messages.", {"query": {"type": "string"}}, ["query"])),
     ("contacts.view", "contact_details", t_contact, _fn("contact_details", "Everything about one contact: details, consent, pets, open tasks, upcoming appointments, recent messages.", {"contact_id": {"type": "integer"}}, ["contact_id"])),
-    ("tasks.view", "list_tasks", t_tasks, _fn("list_tasks", "Tasks. status: active (default), open, in_progress, done or all. assigned: me, unassigned, me_or_unassigned, a staff name, or empty for everyone.",
+    ("tasks.view", "list_tasks", t_tasks, _fn("list_tasks", "Tasks, each with a label (Missed call, Pickup, Confirm booking...), who, number, one-line summary and next step, plus totals by group. status: active (default), open, in_progress, done or all. assigned: me, unassigned, me_or_unassigned, a staff name, or empty for everyone. kind: callback, booking, refill, results, complaint, escalation, other.",
                                             {"status": {"type": "string"}, "priority": {"type": "string"}, "kind": {"type": "string"}, "assigned": {"type": "string"}, "limit": {"type": "integer"}})),
     ("calendar.view", "calendar", t_calendar, _fn("calendar", "Appointments between two dates (default the next 7 days), whether booking by text is on, and the next open times. Give the same date twice to get every open time that day.", {"from_date": DATE, "to_date": DATE})),
     ("phone.view", "phone_calls", t_calls, _fn("phone_calls", "Phone calls between two dates (default last 7 days) with totals by result. handled_by: human, ai or none. Notes only, never transcripts.",
@@ -582,6 +647,11 @@ TOOLS: list[tuple[str, str, Callable, dict]] = [
     ("website.view", "website", t_website, _fn("website", "The clinic website: latest SEO audit with scores for Google, Maps and AI search, issues to fix, Google PageSpeed, and the deployment agent's recent changes (pull requests).")),
     ("website.view", "blog_posts", t_blog, _fn("blog_posts", "The blog posts on the clinic website.")),
     ("home.view", "my_chats", t_chats, _fn("my_chats", "This person's own team chats (Everyone, direct, groups): unread counts and latest messages. Only conversations they are in.")),
+    ("home.view", "people_waiting", t_people_waiting, _fn("people_waiting", "People whose latest text or email to the clinic has not been read yet, newest first, with what they wrote.", {"limit": {"type": "integer"}})),
+    ("contacts.view", "contacts_summary", t_contacts_summary, _fn("contacts_summary", "How many patients and inquiries there are, how many contacts are new in the last N days (default 7), by kind and by where they came from.", {"days": {"type": "integer"}})),
+    ("phone.transcript", "call_transcript", t_call_transcript, _fn("call_transcript", "The transcript of ONE call (get the call id from phone_calls or contact_details first). Only when the question needs what was actually said; quote briefly.", {"call_id": {"type": "integer"}}, ["call_id"])),
+    ("creatives.view", "creative_studio", t_creatives, _fn("creative_studio", "Creative studio: images and short videos made for campaigns, their status, cost, share links, and this month's spend and budget.")),
+    ("automations.view", "automations", t_automations, _fn("automations", "The automations (scheduled reports, chat posts, tasks, texts): what starts each one, whether it is on, and how its last run went.")),
     ("reports.view", "report", t_report, _fn("report", "Run a report: agents, pending_knowledge, conversion, recall, call_volume or campaigns.", {"key": {"type": "string"}, "from_date": DATE, "to_date": DATE}, ["key"])),
 ]
 PROPOSE = _fn("propose_change", "Propose a change. It is shown to the person with a Confirm button and only happens if they press it. Actions and params: "
@@ -621,7 +691,8 @@ the website and corrections), Phone (live TELUS calls, transcripts and summaries
 (the site's pages and blog posts), SEO agent (Google, Maps and AI-search audits, AI fix plan, deployment agent that opens pull requests),
 Creative studio (clinic images and short videos made through a short interview, attachable to campaigns), Chats (team chat), and Admin. The client text assistant is called
 {agent_name} and only texts the numbers on the test list until the owner switches texting to live.
-- Use the tools to look things up. Never guess a number, name, date or setting; if a tool does not have it, say so.
+- Use the tools to look things up, as many as the question needs (several in one step is fine). Never guess a number, name, date or setting; if a tool does not have it, say so.
+- For "what should I look at", "what needs my decision" or "what happened since yesterday": check urgent and unassigned tasks, booking requests waiting, people waiting for a reply, missed calls, and pending knowledge, then give the few most important items first.
 - Times in tool results are UTC (ending in Z or +00:00). Always say times in Vancouver time, never UTC.
 - Answer briefly in plain words. Use short bullet lines starting with "- " for lists. Mention contact names, not ids.
 - To change anything, call propose_change once per change with a clear one-sentence summary, then tell the person to press Confirm. Never say a change is done before they confirm.
@@ -639,11 +710,11 @@ def run(db: Session, user: User, history: list[dict[str, str]]) -> dict[str, Any
     proposals: list[dict] = []
     used: list[str] = []
     for _ in range(MAX_STEPS):
-        payload = {"model": cfg["model"], "messages": msgs, "tools": defs, "tool_choice": "auto", "temperature": 0.1, "max_tokens": 900,
+        payload = {"model": cfg["model"], "messages": msgs, "tools": defs, "tool_choice": "auto", "temperature": 0.1, "max_tokens": 1400,
                    "provider": {"require_parameters": True, **({"data_collection": "deny"} if cfg["deny_data_collection"] else {})}}
         db.commit()  # never hold the database while waiting for the model (every transaction takes the write lock)
         try:
-            with httpx.Client(timeout=40, transport=llm_adapter.TRANSPORT) as c:
+            with httpx.Client(timeout=60, transport=llm_adapter.TRANSPORT) as c:
                 r = c.post(ai.URL, json=payload, headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json", "X-Title": "Walnut Grove Desk"})
         except httpx.HTTPError:
             raise AgentFailed("network") from None

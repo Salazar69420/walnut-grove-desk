@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy import select
 
 from app.adapters import llm as llm_adapter
-from app.models import KnowledgeEntry, Task
+from app.models import KnowledgeEntry, Task, User
 
 
 class Script:
@@ -164,3 +164,26 @@ def test_it_knows_the_new_areas_and_can_act_on_them(env, garg, priya, monkeypatc
     chat(priya, "hi")
     pnames = {t["function"]["name"] for t in s3.requests[0]["tools"]}
     assert "my_chats" in pnames and "website" in pnames and not any(n == "system_status" for n in pnames)
+
+
+
+def test_chips_ask_the_ai_about_real_data_when_on(env, garg, priya):
+    on(garg)
+    c = garg.get("/api/assistant/chips").json()
+    assert c["ai"] is True and "What needs my decision today?" in [x["question"] for x in c["chips"]] and c["greeting"].startswith("Hi Dr. Garg.")
+    assert "Who still needs a call back?" in [x["question"] for x in priya.get("/api/assistant/chips").json()["chips"]]
+
+
+def test_new_lookups(env, garg, priya):
+    from app.assistant import staff_agent as sa
+    with env.session() as db:
+        g = db.scalar(select(User).where(User.username == "garg"))
+        p = db.scalar(select(User).where(User.username == "priya"))
+        t = sa.t_tasks(db, g)
+        assert "total_matching" in t and "by_group" in t and all("label" in x and "summary" in x for x in t["tasks"])
+        assert "total_waiting" in sa.t_people_waiting(db, g) and "by_kind" in sa.t_contacts_summary(db, g)
+        assert "items" in sa.t_creatives(db, g) and "automations" in sa.t_automations(db, g)
+        assert sa.t_call_transcript(db, p, call_id=1) == {"error": "transcripts are for owners only"}
+        names = {d["function"]["name"] for d in sa.tools_for(g)[0]}
+        assert {"people_waiting", "contacts_summary", "call_transcript", "creative_studio", "automations"} <= names
+        assert "call_transcript" not in {d["function"]["name"] for d in sa.tools_for(p)[0]}

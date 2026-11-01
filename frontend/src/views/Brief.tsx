@@ -9,7 +9,7 @@ type Chart = { mode: 'real' | 'example'; available_modes: string[]; hours: strin
 type Sug = { id: number; rule_key: string; title: string; why: string; status: string }
 type Brief = {
   greeting: string; date_line: string
-  kpis: { key: string; value: number | string; label: string; alert: boolean }[]
+  kpis: { key: string; value: number | string; label: string; alert: boolean; link?: string }[]
   overnight: { total: number; booking: number; callback: number; emergency: number; pending: number }
   suggestions: Sug[]
   chart: Chart
@@ -69,7 +69,9 @@ export function Brief() {
       <div><h1>{d.greeting}</h1><p className="lead">{d.date_line}</p></div>
       {d.text?.paragraph && <section className="card"><p style={{ margin: 0 }}>{d.text.paragraph}</p></section>}
       <div className="kpis">
-        {d.kpis.map((k) => <div key={k.key} className={'kpi' + (k.alert ? ' alert' : '')}><div className="n mono">{k.value}</div><div className="l">{k.label}</div></div>)}
+        {d.kpis.map((k) => k.link
+          ? <button key={k.key} type="button" className={'kpi kpi-l' + (k.alert ? ' alert' : '')} onClick={() => nav(k.link!)}><div className="n mono">{k.value}</div><div className="l">{k.label}</div></button>
+          : <div key={k.key} className={'kpi' + (k.alert ? ' alert' : '')}><div className="n mono">{k.value}</div><div className="l">{k.label}</div></div>)}
       </div>
       <section className="card">
         <div className="hd2">

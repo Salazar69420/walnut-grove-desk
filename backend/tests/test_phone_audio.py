@@ -143,3 +143,15 @@ def test_the_page_can_see_that_the_helper_is_downloading(env, bridge, garg):
     (bridge / "play").mkdir()
     (bridge / "play" / f"{RID}.json").write_text(json.dumps({"v": 1, "state": "working", "code": "working", "ext": "", "bytes": 0, "at": "x"}))
     assert garg.get(f"/api/phone/calls/{cid}/listen").json() == {"state": "working"}
+
+
+def test_copy_is_deleted_after_transcription_unless_someone_is_listening(tmp_path, monkeypatch):
+    from app.api import phone_audio
+    play = tmp_path / "play"
+    play.mkdir()
+    monkeypatch.setattr(phone_audio, "_play_dir", lambda: str(play))
+    for name in ("111.mp3", "111.json", "222.mp3", "222.json"):
+        (play / name).write_bytes(b"x")
+    monkeypatch.setitem(phone_audio._asked, "222", __import__("time").monotonic())  # pressed play just now
+    assert phone_audio.discard_copy("111") is True and phone_audio.discard_copy("222") is False
+    assert sorted(p.name for p in play.iterdir()) == ["222.json", "222.mp3"]

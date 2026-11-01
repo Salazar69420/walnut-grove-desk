@@ -47,7 +47,7 @@ PROGRESS_EVERY = 10
 FILE_SLEEP = 1.0                     # polite pause between recordings
 MAX_CONSECUTIVE_FAILURES = 10
 PLAY_DIR = "play"                    # inside the bridge folder: short-lived audio the app streams to owners
-PLAY_TTL = 900                       # seconds a played recording stays in the bridge before it is deleted (15 minutes)
+PLAY_TTL = 600                       # seconds a played recording stays in the bridge before it is deleted (10 minutes)
 PLAY_CODES = ("working", "ready", "recordings_disabled", "not_configured", "login_failed", "write_scope_present",
               "disk_cap_reached", "disk_low", "rate_limited", "not_found", "error")
 _PLAY_FILE = re.compile(r"^\.?[0-9]{1,24}\.[A-Za-z0-9._-]{1,30}$")
@@ -133,7 +133,7 @@ class Settings(BaseModel):
         return v
 
 
-DEFAULT_SETTINGS = Settings(v=1, recordings_enabled=False, max_gb=10, keep_days=30, max_per_run_cap=200)
+DEFAULT_SETTINGS = Settings(v=1, recordings_enabled=False, max_gb=10, keep_days=1, max_per_run_cap=200)
 
 
 class _Job(BaseModel):
@@ -415,6 +415,7 @@ class Worker:
             jobs.sort(key=lambda j: j.req.mode != "play")  # a person waiting to hear a call goes first (stable sort)
             jobs = jobs[:MAX_JOBS_PER_RUN]
             self._play_cleanup()
+            self._retention_cleanup()
             if not jobs:
                 if rejected:
                     self.flush()
@@ -542,6 +543,16 @@ class Worker:
                     recordings.secure_delete(e.path)
             except OSError:
                 continue
+
+    def _retention_cleanup(self) -> None:
+        """Every run, not only after a bulk download: recordings older than keep_days leave the server (transcripts stay)."""
+        if not os.path.exists(self.db_path):
+            return
+        try:
+            with _closing(dbm.connect(self.db_path, create=False)) as conn:
+                recordings.cleanup(self.root, conn, self.settings.keep_days, self.now())
+        except Exception as e:  # noqa: BLE001
+            log.error("retention cleanup failed (%s)", type(e).__name__)
 
     def _play_result(self, rid: str, code: str, ext: str = "", nbytes: int = 0) -> None:
         d = self._play_dir()
