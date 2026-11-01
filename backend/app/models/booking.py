@@ -70,10 +70,11 @@ class WebsiteAudit(Base):
 
 
 class WebsiteChange(Base):
-    """One change the deployment agent made to the website code: a branch and pull request; merged automatically or after approval."""
+    """One change the deployment agent made to the website code: a Vercel preview deployment (head_sha), then, after approval or
+    automatically, the same files deployed to production (branch). 'merged' means it is live."""
 
     __tablename__ = "website_changes"
-    __table_args__ = (CheckConstraint("status in ('planning','building','ready','merged','failed','rejected')", name="status"),
+    __table_args__ = (CheckConstraint("status in ('planning','building','ready','deploying','merged','failed','rejected')", name="status"),
                       CheckConstraint("mode in ('auto','approve')", name="mode"))
 
     id: Mapped[int] = mapped_column(primary_key=True)

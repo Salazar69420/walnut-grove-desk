@@ -30,7 +30,7 @@ def _deploy_tick() -> None:
     from app.models import WebsiteChange
     from app.services import deploy_agent
     with app_db.get_sessionmaker()() as s:
-        for c in s.scalars(select(WebsiteChange).where(WebsiteChange.status == "building", WebsiteChange.mode == "auto").limit(3)).all():
+        for c in s.scalars(select(WebsiteChange).where(WebsiteChange.status.in_(("building", "deploying"))).limit(3)).all():
             before = c.status
             _after_merge(s, before, deploy_agent.refresh(s, c))
 

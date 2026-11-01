@@ -274,7 +274,13 @@ Backlog lives in section 7 (known gaps) and section 8 (next steps).
 
 ### 11.4 Journal (newest first)
 
-**2026-11-01 UTC, session 3 (latest): phone app layout and home-screen app**
+**2026-11-01 UTC, session 3 (latest): SEO deployment agent moved from GitHub to Vercel**
+- The owner has access to the clinic's Vercel team (`walnut-groves-projects`, project `walnut-grove`, the real site www.walnutgroveanimalclinic.com) but not to the GitHub repo it builds from (`xyberdeploymentsca-eng/walnut-grove`, public). The agent no longer uses GitHub tokens or pull requests.
+- `app/services/deploy_agent.py`: reads the code that is live (the agent's own stored copy when the live production deployment was made by it, else the exact public commit Vercel built from, via codeload, read only), the AI writes checked edits, the full site is uploaded to Vercel as a PREVIEW deployment (`POST /v13/deployments`, missing files uploaded with `/v2/files`), and on Approve (or automatically in auto mode) the same files are deployed with `target: production`. Files are kept by SHA-1 in `<db dir>/site/blobs`, manifests per deployment in `<db dir>/site/deployments`. Statuses: planning, building (preview), ready, deploying (production), merged (live), failed, rejected (migration 0016 adds 'deploying').
+- Settings (`website_deploy`): Vercel token (encrypted, scope = the clinic's team), team (name from the address bar or team_ id), project (name or prj_ id). Connecting checks the project and its domains and points the SEO audit at the first custom domain.
+- Caveat for the owner: the Vercel project still auto-deploys from the GitHub repo; a push there would replace agent changes (the agent then starts from that newer commit next time). Disconnecting Git in Vercel makes the agent the only source of changes.
+
+**2026-11-01 UTC, session 3: phone app layout and home-screen app**
 - Phones (780px and narrower) get an app layout; desktop is unchanged. Title bar with the page name and search/chats/bell/account icons; bottom tab bar Home, Tasks (open count), Calendar (requests count), Contacts, More (sheet with every other section and Sign out). The sidebar is not rendered on phones.
 - Tasks on phones: each row has Done and Call (when there is a number; `phone` on task dicts); coming back to the app after a call asks "Finished with X? Mark done". Task details have a fixed Call / Text / Done bar; Done returns to the list with Undo.
 - Calendar on phones: "Waiting for approval" cards with Confirm / Decline (`GET /api/calendar/requests`), same "Text the client the answer" choice as the event sheet.

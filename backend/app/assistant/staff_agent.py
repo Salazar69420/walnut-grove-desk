@@ -473,7 +473,7 @@ def t_website(db: Session, user: User, **_) -> dict:
                         "issues": [{k: i.get(k) for k in ("area", "severity", "title", "count", "fix")} for i in json.loads(a.issues_json or "[]")][:20],
                         "has_ai_fix_plan": bool(a.ai_plan)}
     out["deployment_agent"] = {**{k: v for k, v in deploy_agent.public(deploy_agent.get_cfg(db)).items() if k != "token_last4"},
-                               "recent_changes": [{k: v for k, v in deploy_agent.view(c).items() if k in ("id", "status", "mode", "summary", "pr_url", "created_at", "error")}
+                               "recent_changes": [{k: v for k, v in deploy_agent.view(c).items() if k in ("id", "status", "mode", "summary", "preview_url", "created_at", "error")}
                                                   for c in db.scalars(select(WebsiteChange).order_by(WebsiteChange.id.desc()).limit(5)).all()]}
     return out
 
@@ -541,7 +541,7 @@ def _a_website(db, user, p):
     try:
         c = deploy_agent.start(db, a, [], user.display_name, p.get("mode") if p.get("mode") in ("auto", "approve") else None)
     except ValueError as e:
-        raise crm.CrmError(409, "Add the GitHub token in SEO agent first." if str(e) == "no_token" else "The OpenRouter key is not set.")
+        raise crm.CrmError(409, "Connect Vercel in SEO agent first." if str(e) == "no_token" else "The OpenRouter key is not set.")
     return f"The deployment agent is writing the fixes ({c.mode} mode); follow it in SEO agent."
 
 
@@ -644,7 +644,7 @@ TOOLS: list[tuple[str, str, Callable, dict]] = [
     ("admin.users", "staff_list", t_users, _fn("staff_list", "Staff accounts: name, role, admin, active, last time they used the app.")),
     ("admin.audit", "audit_log", t_audit, _fn("audit_log", "The latest entries of the audit log (who did what), including sign-ins and admin changes.", {"limit": {"type": "integer"}, "contains": {"type": "string"}})),
     ("calendar.view", "booking_requests", t_booking_requests, _fn("booking_requests", "Appointments waiting for approval or decline (asked by text, agreed on a call or in a staff text), with the client.")),
-    ("website.view", "website", t_website, _fn("website", "The clinic website: latest SEO audit with scores for Google, Maps and AI search, issues to fix, Google PageSpeed, and the deployment agent's recent changes (pull requests).")),
+    ("website.view", "website", t_website, _fn("website", "The clinic website: latest SEO audit with scores for Google, Maps and AI search, issues to fix, Google PageSpeed, and the deployment agent's recent changes (Vercel previews and what went live).")),
     ("website.view", "blog_posts", t_blog, _fn("blog_posts", "The blog posts on the clinic website.")),
     ("home.view", "my_chats", t_chats, _fn("my_chats", "This person's own team chats (Everyone, direct, groups): unread counts and latest messages. Only conversations they are in.")),
     ("home.view", "people_waiting", t_people_waiting, _fn("people_waiting", "People whose latest text or email to the clinic has not been read yet, newest first, with what they wrote.", {"limit": {"type": "integer"}})),
@@ -688,7 +688,7 @@ What the app has (so you can point people to the right place): Home, Tasks (call
 client assistant raises, booking confirmations), Contacts (texts, emails, calls with play and transcript, notes; contacts found on calls
 start "not opted in"), Calendar (requested appointments to Confirm or Decline), Knowledge & Fees (pending suggestions from call notes,
 the website and corrections), Phone (live TELUS calls, transcripts and summaries, "Why people call"), Campaigns, Reports, Website content
-(the site's pages and blog posts), SEO agent (Google, Maps and AI-search audits, AI fix plan, deployment agent that opens pull requests),
+(the site's pages and blog posts), SEO agent (Google, Maps and AI-search audits, AI fix plan, deployment agent that deploys fixes to the site on Vercel as a preview, then live after approval),
 Creative studio (clinic images and short videos made through a short interview, attachable to campaigns), Chats (team chat), and Admin. The client text assistant is called
 {agent_name} and only texts the numbers on the test list until the owner switches texting to live.
 - Use the tools to look things up, as many as the question needs (several in one step is fine). Never guess a number, name, date or setting; if a tool does not have it, say so.

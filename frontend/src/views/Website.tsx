@@ -55,7 +55,7 @@ export function WebsiteContent() {
   return (
     <div className="php web">
       <div className="hd2">
-        <div><h1>Website content</h1><p className="lead">Every page of <a href={v.settings.url} target="_blank" rel="noreferrer">{v.settings.url.replace('https://', '')}</a>, read from the live site. Edit the words in <a href={v.settings.studio} target="_blank" rel="noreferrer">Sanity Studio</a>; the code lives in <a href={v.settings.repo} target="_blank" rel="noreferrer">GitHub</a>.</p></div>
+        <div><h1>Website content</h1><p className="lead">Every page of <a href={v.settings.url} target="_blank" rel="noreferrer">{v.settings.url.replace('https://', '')}</a>, read from the live site. Edit the words in <a href={v.settings.studio} target="_blank" rel="noreferrer">Sanity Studio</a>; the site is hosted on <a href={v.settings.repo} target="_blank" rel="noreferrer">Vercel</a>.</p></div>
         <div className="rowbtn">{v.can_run && v.latest && <button className="btn" disabled={busy} onClick={learn}>{busy ? 'Reading...' : 'Suggest knowledge from the site'}</button>}<RunButton v={v} load={load} /></div>
       </div>
       {!v.latest ? <Empty icon="list" title={v.running ? 'Reading the website...' : 'The website has not been read yet'} text="The first audit reads every page; then they show here." />
@@ -164,48 +164,65 @@ export function WebsiteSeo() {
 }
 
 // ---------------------------------------------------------------- deployment agent
-type Change = { id: number; status: string; mode: 'auto' | 'approve'; created_at: string; created_by: string; pr_url: string; preview_url: string; summary: string; error: string; merged_at: string | null; issues: string[]; diff?: string }
-type DeployView = { settings: { repo: string; branch: string; mode: 'auto' | 'approve'; has_token: boolean; token_last4: string | null }; changes: Change[]; can_run: boolean }
-const CH_LABEL: Record<string, string> = { planning: 'Writing the change...', building: 'Vercel is building a preview...', ready: 'Preview built, waiting for approval', merged: 'Deployed', failed: 'Failed', rejected: 'Rejected' }
+type Change = { id: number; status: string; mode: 'auto' | 'approve'; created_at: string; created_by: string; inspect_url: string | null; preview_url: string | null; summary: string; error: string; merged_at: string | null; issues: string[]; diff?: string }
+type DeploySettings = { mode: 'auto' | 'approve'; has_token: boolean; token_last4: string | null; team_id: string; project_id: string; project_name: string; domains: string[]; connected: boolean }
+type DeployView = { settings: DeploySettings; changes: Change[]; can_run: boolean }
+const CH_LABEL: Record<string, string> = { planning: 'Writing the change...', building: 'Vercel is building a preview...', ready: 'Preview ready, waiting for approval', deploying: 'Going live...', merged: 'Live', failed: 'Failed', rejected: 'Rejected' }
 
 export function DeployAgent({ auditId, issues }: { auditId: number; issues: Issue[] }) {
   const { toast, can } = useApp()
   const [d, setD] = useState<DeployView | null>(null)
-  const [token, setToken] = useState('')
+  const [f, setF] = useState({ token: '', team_id: '', project_id: '' })
+  useEffect(() => { if (d) setF((x) => ({ ...x, team_id: x.team_id || d.settings.team_id, project_id: x.project_id || d.settings.project_name || d.settings.project_id })) }, [d?.settings.team_id, d?.settings.project_name]) // eslint-disable-line react-hooks/exhaustive-deps
+  const [editing, setEditing] = useState(false)
   const [pick, setPick] = useState<string[]>([])
   const [open, setOpen] = useState<Change | null>(null)
   const load = () => api<DeployView>('/website/deploy', { quiet: true }).then(setD).catch(() => {})
   useEffect(() => { load() }, [])
-  const busy = !!d?.changes.some((c) => c.status === 'planning' || c.status === 'building')
+  const busy = !!d?.changes.some((c) => c.status === 'planning' || c.status === 'building' || c.status === 'deploying')
   useEffect(() => { if (!busy) return; const t = window.setInterval(load, 8000); return () => clearInterval(t) }, [busy])
   if (!d) return null
   const s = d.settings
   async function save(body: Record<string, unknown>, msg: string) {
-    try { const r = await api<{ settings: DeployView['settings'] }>('/website/deploy/settings', { method: 'PUT', body, quiet: true }); setD({ ...d!, settings: r.settings }); setToken(''); toast(msg) }
-    catch (x) { toast(err(x, 'Not saved.')) }
+    try {
+      const r = await api<{ settings: DeploySettings; note?: string }>('/website/deploy/settings', { method: 'PUT', body, quiet: true })
+      setD({ ...d!, settings: r.settings }); setF({ token: '', team_id: '', project_id: '' }); setEditing(false); toast(r.note ? `${msg} ${r.note}` : msg)
+    } catch (x) { toast(err(x, 'Not saved.')) }
   }
   async function run() {
-    try { await api('/website/deploy', { method: 'POST', body: { audit_id: auditId, codes: pick }, quiet: true }); toast('The agent is writing the change. It opens a pull request when done.'); load() }
+    try { await api('/website/deploy', { method: 'POST', body: { audit_id: auditId, codes: pick }, quiet: true }); toast('The agent is writing the change. Vercel builds a preview when it is done.'); load() }
     catch (x) { toast(err(x, 'Could not start the agent.')) }
   }
   async function decide(c: Change, action: 'approve' | 'reject') {
-    try { await api(`/website/deploy/${c.id}/${action}`, { method: 'POST', body: {}, quiet: true }); toast(action === 'approve' ? 'Deploying. The live site updates in a minute or two, then it is audited again.' : 'Rejected. The pull request was closed.'); setOpen(null); load() }
+    try { await api(`/website/deploy/${c.id}/${action}`, { method: 'POST', body: {}, quiet: true }); toast(action === 'approve' ? 'Going live. The site updates in a minute or two, then it is audited again.' : 'Rejected. Nothing changed on the live site.'); setOpen(null); load() }
     catch (x) { toast(err(x, 'Not done.')) }
   }
+  const connectForm = (
+    <div className="web-token">
+      <p><b>Connect Vercel.</b> Create a token at <a href="https://vercel.com/account/settings/tokens" target="_blank" rel="noreferrer">vercel.com/account/settings/tokens</a> with <b>Scope</b> set to the clinic's team, and paste it here. Team and project are the names in the Vercel address (vercel.com/<b>team</b>/<b>project</b>); they are filled in. The token is checked against the project and stored encrypted; it is never shown again.</p>
+      <label className="fld"><span>Vercel token</span><input type="password" value={f.token} onChange={(e) => setF({ ...f, token: e.target.value.trim() })} placeholder={s.has_token ? `Leave empty to keep the one ending ${s.token_last4}` : 'Paste the token'} autoComplete="off" /></label>
+      <div className="bk-row">
+        <label className="fld"><span>Team</span><input value={f.team_id} onChange={(e) => setF({ ...f, team_id: e.target.value.trim() })} placeholder="walnut-groves-projects" autoComplete="off" /></label>
+        <label className="fld"><span>Project</span><input value={f.project_id} onChange={(e) => setF({ ...f, project_id: e.target.value.trim() })} placeholder="walnut-grove" autoComplete="off" /></label>
+      </div>
+      <div className="rowbtn">
+        <button className="btn primary" disabled={(!f.token && !s.has_token) || !f.project_id}
+          onClick={() => save({ ...(f.token ? { token: f.token } : {}), team_id: f.team_id, project_id: f.project_id }, 'Vercel connected.')}>Check and connect</button>
+        {editing && <button className="btn" onClick={() => setEditing(false)}>Cancel</button>}
+      </div>
+    </div>
+  )
   return (
     <section className="card pad">
       <div className="rowbtn" style={{ justifyContent: 'space-between' }}><h3 style={{ margin: 0 }}>Deployment agent</h3>
-        {d.can_run && s.has_token && <div className="seg" role="radiogroup" aria-label="Mode">{([['approve', 'Approve each change'], ['auto', 'Fix and deploy automatically']] as const).map(([k, l]) =>
-          <button key={k} role="radio" aria-checked={s.mode === k} className={s.mode === k ? 'on' : ''} disabled={!can('admin.settings')} onClick={() => save({ mode: k }, k === 'auto' ? 'Changes now deploy by themselves when the preview build passes.' : 'Each change now waits for your approval.')}>{l}</button>)}</div>}
+        {d.can_run && s.connected && <div className="seg" role="radiogroup" aria-label="Mode">{([['approve', 'Approve each change'], ['auto', 'Fix and deploy automatically']] as const).map(([k, l]) =>
+          <button key={k} role="radio" aria-checked={s.mode === k} className={s.mode === k ? 'on' : ''} disabled={!can('admin.settings')} onClick={() => save({ mode: k }, k === 'auto' ? 'Changes now go live by themselves when the preview build passes.' : 'Each change now waits for your approval.')}>{l}</button>)}</div>}
       </div>
-      <p className="mute">The agent edits the site's code on GitHub ({s.repo}), opens a pull request, and Vercel builds a preview. {s.mode === 'auto' ? 'In automatic mode it is merged as soon as the build passes.' : 'You read the change and click Approve and deploy.'} A failed build is never deployed; after deploying, the site is audited again.</p>
-      {!s.has_token ? (can('admin.settings') ? (
-        <div className="web-token">
-          <p><b>Connect GitHub.</b> Make a fine-grained token on GitHub (Settings, Developer settings, Personal access tokens, Fine-grained): only the repository <code>{s.repo}</code>, permissions <b>Contents: Read and write</b>, <b>Pull requests: Read and write</b>, <b>Commit statuses: Read</b>. Paste it here; it is stored encrypted and never shown again.</p>
-          <div className="rowbtn"><input type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder="github_pat_..." aria-label="GitHub token" autoComplete="off" /><button className="btn primary" disabled={token.length < 20} onClick={() => save({ token }, 'GitHub connected')}>Save token</button></div>
-        </div>) : <p className="mute">An admin connects GitHub first.</p>) : d.can_run && (
+      <p className="mute">The agent reads the code that is live on Vercel, makes the fixes, and uploads them to Vercel as a preview. {s.mode === 'auto' ? 'In automatic mode the preview goes live as soon as it builds.' : 'You look at the change and click Approve and deploy.'} A failed build never reaches the live site; after it goes live, the site is audited again. No GitHub account is needed.</p>
+      {(!s.connected || editing) ? (can('admin.settings') ? connectForm : <p className="mute">An admin connects Vercel first.</p>) : d.can_run && (
         <>
-          <p className="small mute">GitHub token ending {s.token_last4}. {can('admin.settings') && <button className="linkbtn" onClick={() => save({ clear_token: true }, 'Token removed')}>Remove</button>}</p>
+          <p className="small mute">Vercel project <b>{s.project_name || s.project_id}</b>{s.domains.length > 0 && <> serving {s.domains.slice(0, 2).join(', ')}</>}, token ending {s.token_last4}.
+            {can('admin.settings') && <> <button className="linkbtn" onClick={() => setEditing(true)}>Change</button> · <button className="linkbtn" onClick={() => save({ clear_token: true }, 'Vercel disconnected.')}>Disconnect</button></>}</p>
           <details><summary>Choose which issues to fix ({pick.length ? pick.length : 'all'})</summary>
             {issues.map((i) => <label key={i.code} className="ck"><input type="checkbox" checked={pick.includes(i.code)} onChange={(e) => setPick(e.target.checked ? [...pick, i.code] : pick.filter((x) => x !== i.code))} /> {i.title}</label>)}
           </details>
@@ -216,13 +233,13 @@ export function DeployAgent({ auditId, issues }: { auditId: number; issues: Issu
         <tr key={c.id} className="click" onClick={() => api<{ item: Change }>(`/website/deploy/${c.id}`, { quiet: true }).then((r) => setOpen(r.item)).catch(() => {})}>
           <td><b>{CH_LABEL[c.status] || c.status}</b><div className="mute small">{when(c.created_at)} by {c.created_by}, {c.mode === 'auto' ? 'automatic' : 'needs approval'}</div></td>
           <td className="ell">{c.summary || c.error || ''}</td>
-          <td>{c.pr_url && <a href={c.pr_url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>Pull request</a>}</td>
+          <td>{c.preview_url && <a href={c.preview_url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>Preview</a>}</td>
         </tr>))}</tbody></table>}
       <Sheet open={!!open} onClose={() => setOpen(null)} title="Website change">
         {open && <div className="evd">
           <p><b>{CH_LABEL[open.status] || open.status}</b>{open.error && <> {open.error}</>}</p>
-          {open.summary && <p>{open.summary}</p>}
-          <p>{open.pr_url && <a href={open.pr_url} target="_blank" rel="noreferrer">Open the pull request on GitHub</a>}{open.preview_url && <> · <a href={open.preview_url} target="_blank" rel="noreferrer">Preview</a></>}</p>
+          {open.summary && <p style={{ whiteSpace: 'pre-wrap' }}>{open.summary}</p>}
+          <p>{open.preview_url && <a href={open.preview_url} target="_blank" rel="noreferrer">Open the preview</a>}{open.inspect_url && <> · <a href={open.inspect_url} target="_blank" rel="noreferrer">Build on Vercel</a></>}</p>
           {d.can_run && (open.status === 'ready' || open.status === 'building') && <div className="rowbtn"><button className="btn primary" disabled={open.status !== 'ready'} onClick={() => decide(open, 'approve')}>{open.status === 'ready' ? 'Approve and deploy' : 'Waiting for the preview build...'}</button><button className="btn danger" onClick={() => decide(open, 'reject')}>Reject</button></div>}
           {open.diff && <pre className="web-plan">{open.diff}</pre>}
         </div>}

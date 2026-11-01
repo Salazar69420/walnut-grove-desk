@@ -80,45 +80,63 @@ from app.models import WebsiteAudit, WebsiteChange
 from app.services import blog, deploy_agent, timeutil
 
 
+def _tarball(files: dict[str, bytes]) -> bytes:
+    import io
+    import tarfile
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as t:
+        for path, data in files.items():
+            info = tarfile.TarInfo("walnut-grove-bd16e31/" + path)
+            info.size = len(data)
+            t.addfile(info, io.BytesIO(data))
+    return buf.getvalue()
+
+
 class FakeWorld:
+    """A fake Vercel API and a fake public code download (codeload)."""
     def __init__(self):
         self.calls: list[tuple[str, str]] = []
-        self.merged = False
         self.created: list[dict] = []
+        self.deploys: list[dict] = []
+        self.uploaded: set[str] = set()
+        self.live = "dpl_git"
+        self.state = "READY"
+        self.downloads = 0
 
     def gh(self, r: httpx.Request) -> httpx.Response:
         p, m = r.url.path, r.method
         self.calls.append((m, p))
-        if p.endswith("/git/ref/heads/main"):
-            return httpx.Response(200, json={"object": {"sha": "base"}})
-        if p.endswith("/git/commits/base"):
-            return httpx.Response(200, json={"tree": {"sha": "t0"}})
-        if "/git/trees/t0" in p:
-            return httpx.Response(200, json={"tree": [{"path": "app/layout.tsx", "type": "blob"}, {"path": "app/page.tsx", "type": "blob"}]})
-        if "/contents/app/layout.tsx" in p:
-            return httpx.Response(200, json={"encoding": "base64", "content": base64.b64encode(b"export const metadata = { title: 'Walnut Grove' }\n").decode()})
-        if "/contents/" in p:
-            return httpx.Response(404, json={})
-        if p.endswith("/git/blobs"):
-            return httpx.Response(201, json={"sha": "b1"})
-        if p.endswith("/git/trees"):
-            return httpx.Response(201, json={"sha": "t1"})
-        if p.endswith("/git/commits"):
-            return httpx.Response(201, json={"sha": "c1"})
-        if p.endswith("/git/refs"):
-            return httpx.Response(201, json={})
-        if p.endswith("/pulls") and m == "POST":
-            return httpx.Response(201, json={"number": 7, "html_url": "https://github.com/x/y/pull/7"})
-        if p.endswith("/commits/c1/status"):
-            return httpx.Response(200, json={"statuses": [{"state": "success", "context": "Vercel", "target_url": "https://preview.example"}]})
-        if p.endswith("/commits/c1/check-runs"):
-            return httpx.Response(200, json={"check_runs": []})
-        if p.endswith("/pulls/7/merge"):
-            self.merged = True
-            return httpx.Response(200, json={"merged": True})
-        if p.endswith("/pulls/7"):
-            return httpx.Response(200, json={"merged": self.merged, "state": "closed" if self.merged else "open"})
-        return httpx.Response(404, json={})
+        if r.url.host == "api.vercel.com" and r.url.params.get("slug") not in (None, "walnut-groves-projects") or r.url.params.get("teamId") not in (None, "team_1"):
+            return httpx.Response(403, json={"error": {"code": "forbidden", "message": "Not your team"}})
+        if r.url.host == "codeload.github.com":
+            self.downloads += 1
+            return httpx.Response(200, content=_tarball({"app/layout.tsx": b"export const metadata = { title: 'Walnut Grove' }\n", "app/page.tsx": b"export default function P() { return null }\n",
+                                                        "package.json": b"{}", ".env": b"SECRET=1", "node_modules/x/index.js": b"x"}))
+        if r.headers.get("authorization") != "Bearer vcp_" + "x" * 30:
+            return httpx.Response(403, json={"error": {"code": "forbidden", "message": "Not authorized"}})
+        if p in ("/v9/projects/prj_1", "/v9/projects/walnut-grove"):
+            return httpx.Response(200, json={"id": "prj_1", "name": "walnut-grove", "framework": "nextjs"})
+        if p == "/v9/projects/prj_1/domains":
+            return httpx.Response(200, json={"domains": [{"name": "walnut-grove.vercel.app"}, {"name": "walnutgroveanimalclinic.com", "redirect": "www.walnutgroveanimalclinic.com"}, {"name": "www.walnutgroveanimalclinic.com"}]})
+        if p == "/v6/deployments":
+            meta = {"githubCommitOrg": "xyberdeploymentsca-eng", "githubCommitRepo": "walnut-grove", "githubCommitSha": "bd16e3113e"} if self.live == "dpl_git" else {"walnutDesk": "seo-agent"}
+            return httpx.Response(200, json={"deployments": [{"uid": self.live, "meta": meta}]})
+        if p == "/v2/files" and m == "POST":
+            self.uploaded.add(r.headers["x-vercel-digest"])
+            return httpx.Response(200, json={})
+        if p == "/v13/deployments" and m == "POST":
+            body = json.loads(r.content)
+            missing = [f["sha"] for f in body["files"] if f["sha"] not in self.uploaded]
+            if missing:
+                return httpx.Response(400, json={"error": {"code": "missing_files", "message": "Missing files", "missing": missing}})
+            self.deploys.append(body)
+            dep = f"dpl_{len(self.deploys)}"
+            if body.get("target") == "production":
+                self.live = dep
+            return httpx.Response(200, json={"id": dep, "url": f"walnut-grove-{dep}.vercel.app", "inspectorUrl": f"https://vercel.com/i/{dep}"})
+        if p.startswith("/v13/deployments/"):
+            return httpx.Response(200, json={"readyState": self.state})
+        return httpx.Response(404, json={"error": {"code": "not_found"}})
 
     def ai(self, r: httpx.Request) -> httpx.Response:
         body = json.loads(r.content)
@@ -163,27 +181,66 @@ def _audit(env):
         return a.id
 
 
-def test_the_agent_opens_a_pull_request_with_only_safe_edits_and_merges_after_approval(env, garg, world):
-    assert garg.put("/api/admin/assistant", {"api_key": "sk-or-v1-testkey-1234"}).status_code == 200
-    assert garg.put("/api/website/deploy/settings", {"token": "github_pat_" + "x" * 30, "mode": "approve"}).status_code == 200
-    aid = _audit(env)
-    r = garg.post("/api/website/deploy", {"audit_id": aid})
+TOKEN = "vcp_" + "x" * 30
+
+
+def _connect(garg, mode="approve"):
+    garg.put("/api/admin/assistant", {"api_key": "sk-or-v1-testkey-1234"})
+    return garg.put("/api/website/deploy/settings", {"token": TOKEN, "team_id": "team_1", "project_id": "prj_1", "mode": mode})
+
+
+def test_connecting_vercel_checks_the_project_and_points_the_audit_at_its_domain(env, garg, world):
+    bad = garg.put("/api/website/deploy/settings", {"token": "vcp_" + "y" * 30, "team_id": "team_1", "project_id": "prj_1"})
+    assert bad.status_code == 400 and "token" in bad.json()["detail"]
+    r = garg.put("/api/website/deploy/settings", {"token": TOKEN, "team_id": "walnut-groves-projects", "project_id": "walnut-grove"})  # the names from the address bar
+    assert r.status_code == 200, r.text
+    s = r.json()["settings"]
+    assert s["project_id"] == "prj_1"  # stored as the id Vercel gave back
+    assert s["connected"] and s["project_name"] == "walnut-grove" and s["domains"][0] == "www.walnutgroveanimalclinic.com" and "walnutgroveanimalclinic.com" not in s["domains"][1:]
+    assert "token_enc" not in json.dumps(r.json()) and TOKEN not in json.dumps(r.json())
+    assert garg.get("/api/website").json()["settings"]["url"] == "https://www.walnutgroveanimalclinic.com"
+
+
+def test_the_agent_deploys_a_preview_with_only_safe_edits_and_ships_it_after_approval(env, garg, world):
+    assert _connect(garg).status_code == 200
+    r = garg.post("/api/website/deploy", {"audit_id": _audit(env)})
     assert r.status_code == 202, r.text
     with env.session() as s:
         c = s.scalar(select(WebsiteChange))
-        assert c.status == "building" and c.pr_number == 7 and "Langley vet" in c.diff and "llms.txt" in c.diff and "passwd" not in c.diff
+        assert c.status == "building" and c.head_sha == "dpl_1" and "Langley vet" in c.diff and "llms.txt" in c.diff and "passwd" not in c.diff
         cid = c.id
-    assert garg.get(f"/api/website/deploy/{cid}").json()["item"]["status"] == "ready" and not world.merged  # approve mode waits
-    assert garg.post(f"/api/website/deploy/{cid}/approve", {}).json()["item"]["status"] == "merged" and world.merged
+    preview = world.deploys[0]
+    paths = {f["file"] for f in preview["files"]}
+    assert "target" not in preview and preview["project"] == "prj_1" and {"app/layout.tsx", "public/llms.txt", "package.json"} <= paths
+    assert not any(p.startswith((".env", "node_modules")) for p in paths) and world.downloads == 1
+    item = garg.get(f"/api/website/deploy/{cid}").json()["item"]
+    assert item["status"] == "ready" and item["preview_url"] == "https://walnut-grove-dpl_1.vercel.app" and len(world.deploys) == 1  # approve mode waits
+    assert garg.post(f"/api/website/deploy/{cid}/approve", {}).json()["item"]["status"] == "deploying"
+    assert world.deploys[1]["target"] == "production" and world.deploys[1]["files"] == preview["files"]
+    assert garg.get(f"/api/website/deploy/{cid}").json()["item"]["status"] == "merged"
+    # the next change starts from the agent's own copy of what is live: no second download
+    # (the fake AI repeats the same edit, which is already live, so nothing new is deployed)
+    garg.post("/api/website/deploy", {"audit_id": _audit(env)})
+    with env.session() as s:
+        last = s.scalars(select(WebsiteChange).order_by(WebsiteChange.id.desc())).first()
+        assert last.status == "failed" and "could be applied safely" in last.error
+    assert world.downloads == 1 and len(world.deploys) == 2
 
 
-def test_auto_mode_merges_when_the_build_passes(env, garg, world):
-    garg.put("/api/admin/assistant", {"api_key": "sk-or-v1-testkey-1234"})
-    garg.put("/api/website/deploy/settings", {"token": "github_pat_" + "x" * 30, "mode": "auto"})
+def test_auto_mode_ships_when_the_preview_builds_and_a_failed_build_never_does(env, garg, world):
+    _connect(garg, mode="auto")
     garg.post("/api/website/deploy", {"audit_id": _audit(env)})
     with env.session() as s:
         c = deploy_agent.refresh(s, s.scalar(select(WebsiteChange)))
-        assert c.status == "merged" and world.merged
+        assert c.status == "deploying"
+        c = deploy_agent.refresh(s, c)
+        assert c.status == "merged"
+    world.state = "ERROR"
+    garg.post("/api/website/deploy", {"audit_id": _audit(env)})
+    with env.session() as s:
+        c = s.scalars(select(WebsiteChange).order_by(WebsiteChange.id.desc())).first()
+        c = deploy_agent.refresh(s, c)
+        assert c.status == "failed" and not any(d.get("target") == "production" for d in world.deploys[2:])
 
 
 def test_blog_posts_are_listed_added_and_removed(env, garg, world):

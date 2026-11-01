@@ -133,7 +133,7 @@ def _audit_now(who: str) -> None:
 def deploy_overview(user: User = Depends(require("website.view")), db: Session = Depends(get_db)):
     rows = db.scalars(select(WebsiteChange).order_by(WebsiteChange.id.desc()).limit(10)).all()
     for c in rows[:3]:
-        if c.status in ("building", "ready"):
+        if c.status in ("building", "ready", "deploying"):
             before = c.status
             c2 = deploy_agent.refresh(db, c)
             _after_merge(db, before, c2)
@@ -168,7 +168,7 @@ def deploy_start(body: DeployIn, user: User = Depends(require("website.run")), d
     try:
         c = deploy_agent.start(db, a, body.codes, user.display_name, body.mode)
     except ValueError as e:
-        raise HTTPException(status_code=409, detail="Add a GitHub token for the website repo first (SEO agent, Deployment settings)." if str(e) == "no_token"
+        raise HTTPException(status_code=409, detail="Connect Vercel first (SEO agent, Deployment agent)." if str(e) == "no_token"
                             else "The OpenRouter key is not set (Admin, AI assistant).")
     ev.record(db, ev.ADMIN, "website_change_started", f"{user.display_name} asked the deployment agent to fix the website ({c.mode})", user, "setting", website.KEY)
     db.commit()
@@ -187,8 +187,8 @@ def deploy_decide(cid: int, action: str, user: User = Depends(require("website.r
     before = c.status
     try:
         c = deploy_agent.approve(db, c) if action == "approve" else deploy_agent.reject(db, c)
-    except RuntimeError as e:
-        raise HTTPException(status_code=502, detail=f"GitHub refused ({e}).")
+    except deploy_agent.VercelError as e:
+        raise HTTPException(status_code=502, detail=f"Vercel refused: {e.message or e}")
     _after_merge(db, before, c)
     ev.record(db, ev.ADMIN, f"website_change_{action}d", f"{user.display_name} {'deployed' if action == 'approve' else 'rejected'} a website change", user, "setting", website.KEY)
     db.commit()
@@ -197,30 +197,48 @@ def deploy_decide(cid: int, action: str, user: User = Depends(require("website.r
 
 class DeploySettingsIn(Strict):
     token: str | None = Field(default=None, min_length=20, max_length=300)
+    team_id: str | None = Field(default=None, max_length=80, pattern=r"^[A-Za-z0-9_-]*$")
+    project_id: str | None = Field(default=None, max_length=100, pattern=r"^[A-Za-z0-9_.-]+$")
     clear_token: bool = False
     mode: str | None = Field(default=None, pattern="^(auto|approve)$")
-    repo: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
-    branch: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_./-]{1,80}$")
 
 
 @router.put("/deploy/settings")
 def deploy_settings(body: DeploySettingsIn, user: User = Depends(require("admin.settings")), db: Session = Depends(get_db)):
+    """Connect the clinic's Vercel project: the token is checked against the project before it is stored (encrypted)."""
     cfg = deploy_agent.get_cfg(db)
-    if body.token:
-        t = body.token.strip()
-        if " " in t or not t.isprintable():
-            raise HTTPException(status_code=400, detail="That token has spaces or hidden characters. Paste it again.")
-        cfg["token_enc"], cfg["token_last4"] = crypto.encrypt(t), t[-4:]
+    note = ""
     if body.clear_token:
-        cfg["token_enc"], cfg["token_last4"] = "", None
-    for k in ("mode", "repo", "branch"):
-        v = getattr(body, k)
-        if v:
-            cfg[k] = v
+        cfg.update(token_enc="", token_last4=None)
+    if body.token or body.project_id or body.team_id is not None:
+        token = (body.token or "").strip() or (crypto.decrypt(cfg["token_enc"]) if cfg["token_enc"] else "")
+        if not token or " " in token or not token.isprintable():
+            raise HTTPException(status_code=400, detail="Paste the Vercel token (it has no spaces).")
+        team = (body.team_id if body.team_id is not None else cfg["team_id"]).strip()
+        project = (body.project_id or cfg["project_id"] or cfg["project_name"]).strip()
+        if not project:
+            raise HTTPException(status_code=400, detail="Add the project name (as in vercel.com/<team>/<project>).")
+        db.commit()
+        try:
+            info = deploy_agent.check_connection(token, team, project)
+        except deploy_agent.VercelError as e:
+            raise HTTPException(status_code=400, detail=("Vercel did not accept the token for that team. Check the token's scope is the clinic's team and the Team ID." if e.status in (401, 403)
+                                                         else "Vercel has no project with that name in that team." if e.status == 404 else f"Vercel said: {e.message or e}"))
+        except httpx.HTTPError:
+            raise HTTPException(status_code=502, detail="Could not reach Vercel. Try again.")
+        cfg.update(token_enc=crypto.encrypt(token), token_last4=token[-4:], team_id=team, **info)
+        if info["domains"]:  # audit and link the site the project actually serves
+            main = info["domains"][0]
+            ws = website.get_settings(db)
+            ws.update(url=f"https://{main}", studio=f"https://{main}/studio", repo="https://vercel.com/dashboard")
+            settings_store.put_raw(db, website.KEY, {k: ws[k] for k in ("url", "canonical", "studio", "repo")}, by=user.display_name)
+            note = f"The SEO audit now checks https://{main}."
+    if body.mode:
+        cfg["mode"] = body.mode
     settings_store.put_raw(db, deploy_agent.KEY, cfg, by=user.display_name)
-    ev.record(db, ev.ADMIN, "website_deploy_settings", f"{user.display_name} changed the deployment agent settings (mode {cfg['mode']})", user, "setting", deploy_agent.KEY)
+    ev.record(db, ev.ADMIN, "website_deploy_settings", f"{user.display_name} changed the deployment agent settings (Vercel project {cfg['project_name'] or 'none'}, mode {cfg['mode']})", user, "setting", deploy_agent.KEY)
     db.commit()
-    return {"settings": deploy_agent.public(cfg)}
+    return {"settings": deploy_agent.public(cfg), "note": note}
 
 
 # ---------------------------------------------------------------- blog posts (through the site's CMS)
