@@ -274,7 +274,14 @@ Backlog lives in section 7 (known gaps) and section 8 (next steps).
 
 ### 11.4 Journal (newest first)
 
-**2026-11-01 UTC, session 3 (latest): SEO deployment agent moved from GitHub to Vercel**
+**2026-11-01 UTC, session 3 (latest): SEO of the live site, shipped through Vercel**
+- Audit of https://www.walnutgroveanimalclinic.com (audit 5): score 48 (Google 64, Maps 88, AI 96). Fixes written and reviewed by Claude (not the in-app model, at the owner's request), on top of the live commit bd16e31 of the public repo: the earlier fork commit c04f831 (one www address in canonicals/sitemap/robots, VeterinaryCare JSON-LD in the HTML, a title, description and single H1 per page, FAQPage JSON-LD, public/llms.txt) plus: sitemap `revalidate = 3600` and the built-in blog articles listed, blog titles kept to 60 characters.
+- Shipped as deployment-agent changes 4 and 5 (Vercel preview built, then production). A local build was not allowed on the server (third-party install scripts), so Vercel's build was the gate, plus a before/after snapshot of all 41 pages: all 200, text at least 97% identical, every sitemap URL 200. Rollback point: production deployment dpl_9wqxnMLD87BE4kCAetwiTw6vCP4V (the old GitHub build).
+- Result (audit 8): score 96 (Google 96, Maps 100, AI 100). Left: 15 titles a little over 60 characters (set in the CMS by the clinic), 3 short pages (Contact, How-to videos, Pet food recalls) that need real content.
+- Security finding (pre-existing): the site reads `NEXT_PUBLIC_SANITY_TOKEN`, so the CMS token is in the public JavaScript. Owner to check its permissions in Sanity and replace it; the code should use a server-only variable.
+- Work copy of the site code: /mnt/HC_Volume_107328495/seo-work/live (branch `seo`, local commits only; nothing pushed to GitHub).
+
+**2026-11-01 UTC, session 3: SEO deployment agent moved from GitHub to Vercel**
 - The owner has access to the clinic's Vercel team (`walnut-groves-projects`, project `walnut-grove`, the real site www.walnutgroveanimalclinic.com) but not to the GitHub repo it builds from (`xyberdeploymentsca-eng/walnut-grove`, public). The agent no longer uses GitHub tokens or pull requests.
 - `app/services/deploy_agent.py`: reads the code that is live (the agent's own stored copy when the live production deployment was made by it, else the exact public commit Vercel built from, via codeload, read only), the AI writes checked edits, the full site is uploaded to Vercel as a PREVIEW deployment (`POST /v13/deployments`, missing files uploaded with `/v2/files`), and on Approve (or automatically in auto mode) the same files are deployed with `target: production`. Files are kept by SHA-1 in `<db dir>/site/blobs`, manifests per deployment in `<db dir>/site/deployments`. Statuses: planning, building (preview), ready, deploying (production), merged (live), failed, rejected (migration 0016 adds 'deploying').
 - Settings (`website_deploy`): Vercel token (encrypted, scope = the clinic's team), team (name from the address bar or team_ id), project (name or prj_ id). Connecting checks the project and its domains and points the SEO audit at the first custom domain.
