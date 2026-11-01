@@ -415,3 +415,29 @@ a.playb{color:var(--acc-t)}
 /* a single day (Day view) gets the whole width */
 .cal-grid.one .cg-body,.cal-grid.one .cg-head{grid-template-columns:52px minmax(0,1fr)}
 @media (max-width:780px){.cal-grid.one .cg-body,.cal-grid.one .cg-head{grid-template-columns:44px minmax(0,1fr)}}
+.lk-res>span.av2{display:inline-grid;flex:none;flex-direction:initial}
+
+/* ---------- A conversation on a phone: the history gets the screen ---------- */
+@media (max-width:780px){
+  .work.fit:has(.cpage){height:auto;min-height:0;overflow:visible}
+  .cpage{height:auto}
+  .cbody{display:block}
+  .conv2{overflow:visible}
+  .conv2 .tl-wrap{flex:none;height:min(64dvh,640px);border-radius:0}
+  .chead{gap:8px}
+  .ch-n{flex-wrap:nowrap;min-width:0}.ch-n h1{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+  .ch-s{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ch-r .btn{padding:0 12px}
+  .conv-h{padding:6px 8px}.conv-h .seg2{max-width:100%}
+  /* nothing can be sent on this channel: say so in one line instead of an empty, locked text box */
+  .comp.blocked textarea,.comp.blocked .comp-bar,.comp.blocked .practice,.comp.blocked .subj{display:none}
+  .comp .warnbox2{font-size:13px;font-weight:500;padding:8px 10px}
+  .comp .warnbox2 span{min-width:0}
+  .comp-top{flex-wrap:nowrap;overflow-x:auto}
+}
+.lk-l>span.av2{display:inline-grid;flex:none;flex-direction:initial}
+@media (max-width:780px){
+  .ch-r .btn{width:44px;padding:0;justify-content:center}
+  body:has(.cpage) .asst-fab{width:52px;padding:0;justify-content:center}
+  body:has(.cpage) .asst-fab span{display:none}
+}

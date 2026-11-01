@@ -157,7 +157,7 @@ export function Composer({ contact, tl, onEditConsent }: { contact: Row; tl: TL;
   }
 
   return (
-    <div className={'comp' + (drag ? ' drag' : '') + (mode === 'note' ? ' isnote' : '')} onDragOver={(e) => { e.preventDefault(); setDrag(true) }} onDragLeave={(e) => { if (e.currentTarget === e.target) setDrag(false) }} onDrop={onDrop}>
+    <div className={'comp' + (drag ? ' drag' : '') + (mode === 'note' ? ' isnote' : '') + (blocked ? ' blocked' : '')} onDragOver={(e) => { e.preventDefault(); setDrag(true) }} onDragLeave={(e) => { if (e.currentTarget === e.target) setDrag(false) }} onDrop={onDrop}>
       <div className="comp-top">
         <div className="seg2" role="tablist" aria-label="What to write">
           {([['sms', 'Text'], ['email', 'Email'], ['note', 'Internal note']] as [Mode, string][]).map(([k, l]) => (

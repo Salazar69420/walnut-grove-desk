@@ -66,8 +66,8 @@ export function ContactPage() {
         <div className="ch-r">
           {c && <span className="ch-own hide-s" title="Owner">{c.owner ? <><Avatar name={c.owner.display_name} size={24} hue={(c.owner.id * 67 + 23) % 360} />{c.owner.display_name}</> : <span className="mute">No owner</span>}</span>}
           {c?.phone
-            ? <a className="btn" href={`tel:${c.phone}`} title={`Call ${c.display_name} with your phone or softphone`}><Icon n="phone" size={16} /> Call</a>
-            : <span title="No phone number on file" className="calltip"><button className="btn" disabled aria-disabled="true"><Icon n="phone" size={16} /> Call</button></span>}
+            ? <a className="btn" href={`tel:${c.phone}`} aria-label={`Call ${c.display_name}`} title={`Call ${c.display_name} with your phone or softphone`}><Icon n="phone" size={16} /> <span className="hide-s">Call</span></a>
+            : <span title="No phone number on file" className="calltip"><button className="btn" disabled aria-disabled="true" aria-label="Call"><Icon n="phone" size={16} /> <span className="hide-s">Call</span></button></span>}
           {c && can('tasks.work') && <button className="btn primary" onClick={() => setBooking(true)} title={`Book an appointment for ${c.display_name}`}><Icon n="cal" size={16} /> <span className="hide-s">Book appointment</span></button>}
           {!stacked && <button className="btn" onClick={toggle} aria-expanded={open} aria-controls="gc-side"><Icon n={open ? 'chevR' : 'chevL'} size={16} /> Guest Card</button>}
         </div>
