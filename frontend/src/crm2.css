@@ -454,3 +454,85 @@ a.playb{color:var(--acc-t)}
 .tr-act:hover{border-color:var(--accent);color:var(--acc-t)}
 .trow.isdone .tr-m{opacity:.65}
 @media (max-width:780px){.tr-act{width:46px;height:46px}.tr-act.sm{width:34px;height:34px}}
+
+/* =====================================================================
+   Phone app layout (780px and narrower). Desktop is untouched.
+   Title bar at the top, tabs at the bottom, content edge to edge.
+   ===================================================================== */
+.tabbar,.appbar-t,.appbar-i{display:none}
+@media (max-width:780px){
+  html,body{background:var(--bg)}
+  body{padding:0;-webkit-tap-highlight-color:transparent;overscroll-behavior-y:none}
+  .app{gap:0;max-width:none}
+  .top{position:sticky;top:0;z-index:30;border-radius:0;border-width:0 0 1px;box-shadow:none;flex-wrap:nowrap;gap:2px;
+       padding:calc(env(safe-area-inset-top,0px) + 6px) max(10px,env(safe-area-inset-right,0px)) 6px max(14px,env(safe-area-inset-left,0px));
+       background:rgba(255,255,255,.92);backdrop-filter:saturate(1.6) blur(14px);-webkit-backdrop-filter:saturate(1.6) blur(14px)}
+  .appbar-t{display:block;flex:1;min-width:0;margin:0;font-size:21px;font-weight:700;letter-spacing:-.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .appbar-i{display:inline-grid}
+  .top .spacer{display:none}
+  .top .btn.chats-btn{border:0;background:transparent;width:42px;padding:0;justify-content:center;position:relative}
+  .top .chats-btn .count{position:absolute;top:2px;right:0}
+  .top .umenu{border:0;padding:0 2px}.top .umenu>svg{display:none}
+  .top .pill{display:none}
+  .main-grid,.main-grid.ws{display:block;padding:10px max(10px,env(safe-area-inset-left,0px)) 0 max(10px,env(safe-area-inset-right,0px))}
+  .work{padding-bottom:calc(86px + env(safe-area-inset-bottom,0px))}
+  .work.fit{height:auto;min-height:0;overflow:visible}
+  /* the title bar already says where you are */
+  .hd2>div:first-child>h1,.hd2 .lead,.tl-h h1{display:none}
+  .hd2{margin-bottom:0}
+  /* bottom tabs */
+  .tabbar{display:grid;grid-template-columns:repeat(5,1fr);position:fixed;left:0;right:0;bottom:0;z-index:35;
+          padding:4px max(4px,env(safe-area-inset-right,0px)) calc(4px + env(safe-area-inset-bottom,0px)) max(4px,env(safe-area-inset-left,0px));
+          background:rgba(255,255,255,.94);backdrop-filter:saturate(1.6) blur(14px);-webkit-backdrop-filter:saturate(1.6) blur(14px);border-top:1px solid var(--line)}
+  .tab{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-height:50px;border:0;background:none;color:var(--mute);
+       font-size:10.5px;font-weight:600;text-decoration:none;padding:0;cursor:pointer}
+  .tab.on{color:var(--accent)}
+  .tab-i{position:relative;display:grid;place-items:center;width:44px;height:28px;border-radius:14px}
+  .tab.on .tab-i{background:var(--accent-soft)}
+  .tab-b{position:absolute;top:-4px;left:28px;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--crit);color:#fff;font-size:10.5px;font-weight:700;display:grid;place-items:center;border:2px solid #fff}
+  /* things that float sit above the tabs */
+  .asst-fab{bottom:calc(72px + env(safe-area-inset-bottom,0px));right:14px}
+  .toast{bottom:calc(76px + env(safe-area-inset-bottom,0px))}
+  .drawer{padding-top:env(safe-area-inset-top,0px)}
+  /* More: a list like a phone's settings */
+  .more{display:flex;flex-direction:column;gap:14px;padding-bottom:calc(20px + env(safe-area-inset-bottom,0px))}
+  .more-g{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .more-g .navh{padding:10px 14px 4px}
+  .more-i{display:flex;align-items:center;gap:12px;width:100%;min-height:50px;padding:0 14px;border:0;border-top:1px solid var(--line);background:none;color:var(--ink);text-decoration:none;font-size:16px;text-align:left}
+  .more-i>span:first-of-type{flex:1}
+  .more-i>svg:last-child{color:var(--mute)}
+  .more-i.active{color:var(--accent);font-weight:600}
+  .more-me{display:flex;gap:12px;align-items:center;padding:10px 14px}.more-me b{display:block}.more-me span{font-size:13px;color:var(--mute)}
+  .sheet{padding-top:env(safe-area-inset-top,0px)}
+  /* cards breathe a little less on a small screen */
+  .card{border-radius:14px}
+}
+/* phone task actions: Done and Call in the list, everything else in the task */
+.tr-act.call{display:none}
+.td-bar{display:none}
+@media (max-width:780px){
+  .tr-act.call{display:grid;color:var(--acc-t);border-color:var(--accent);text-decoration:none}
+  .tr-act.sm{display:none}
+  .tdetail{padding-bottom:84px}
+  .td-bar{display:flex;gap:8px;position:fixed;left:0;right:0;bottom:calc(58px + env(safe-area-inset-bottom,0px));z-index:34;
+          padding:10px max(12px,env(safe-area-inset-right,0px)) 10px max(12px,env(safe-area-inset-left,0px));
+          background:rgba(255,255,255,.96);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-top:1px solid var(--line)}
+  .td-bar .btn{flex:1;justify-content:center;min-height:48px;font-size:16px;border-radius:14px;text-decoration:none;gap:6px}
+  .td-bar .okb{background:var(--ok);border-color:var(--ok);color:#fff}
+  body:has(.td-bar) .asst-fab{display:none}
+  .tdetail .back{min-height:40px}
+}
+/* phone: bookings to answer at the top of the calendar */
+.rq{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:4px 0 10px;margin-bottom:10px}
+.rq-h{display:flex;align-items:center;gap:8px;padding:10px 14px 6px;font-size:15px}
+.rq-c{display:flex;flex-direction:column;gap:10px;padding:12px 14px;border-top:1px solid var(--line)}
+.rq-m{display:flex;flex-direction:column;gap:2px}.rq-m b{font-size:16px}.rq-m span{color:var(--ink);opacity:.8}.rq-m small{color:var(--mute)}
+.rq-a{display:grid;grid-template-columns:1fr 1.4fr;gap:8px}.rq-a .btn{min-height:46px;justify-content:center;font-size:15px;border-radius:12px}
+.rq-a .okb{background:var(--ok);border-color:var(--ok);color:#fff}
+.rq-n{padding:8px 14px 0;font-size:14px}
+@media (max-width:780px){.app{grid-template-columns:minmax(0,1fr)}.app>*,.main-grid,.work{min-width:0;max-width:100%}}
+@media (max-width:780px){
+  /* outside Home the Ask button is a small circle, so it does not cover row buttons */
+  body:not(:has(.stats)) .asst-fab{width:52px;height:52px;padding:0;justify-content:center}
+  body:not(:has(.stats)) .asst-fab span{display:none}
+}

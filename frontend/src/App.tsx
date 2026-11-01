@@ -35,7 +35,7 @@ function Guard({ perm, admin, children }: { perm?: string; admin?: boolean; chil
 }
 
 export function App() {
-  const { me, ready, toastText, toastShow, toastUndo, dismissToast } = useApp()
+  const { me, ready, toastText, toastShow, toastUndo, toastLabel, dismissToast } = useApp()
   const loc = useLocation()
   let body
   if (!ready) body = <div className="auth"><p className="lead">Loading</p></div>
@@ -82,7 +82,7 @@ export function App() {
       {body}
       <div className={'toast' + (toastShow ? ' show' : '') + (toastUndo ? ' act' : '')} role="status" aria-live="polite">
         <span>{toastText}</span>
-        {toastUndo && toastShow && <button className="toast-undo" onClick={() => { const f = toastUndo; dismissToast(); f() }}>Undo</button>}
+        {toastUndo && toastShow && <button className="toast-undo" onClick={() => { const f = toastUndo; dismissToast(); f() }}>{toastLabel}</button>}
       </div>
     </>
   )

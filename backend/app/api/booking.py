@@ -18,6 +18,8 @@ from app.assistant import booking, upsell
 from app.db import get_db
 from app.models import CalendarEvent, Contact, Pet, Product, SmsOffer, Task, User, VisitType
 from app.security.auth import require
+from app.security.permissions import has_perm as user_can
+from app.security.permissions import has_perm as user_can
 from app.services import crm, sender, settings_store, timeutil
 from app.services import events as ev
 
@@ -76,6 +78,24 @@ def _close_booking_tasks(db: Session, e: CalendarEvent, user: User) -> None:
     for t in db.scalars(select(Task).where(Task.contact_id == e.contact_id, Task.kind == "booking", Task.status != "done",
                                           Task.title.like("Confirm % booking%"))).all():
         t.status, t.done_at, t.done_by = "done", timeutil.now_utc(), user.id
+
+
+@router.get("/calendar/requests")
+def requests(user: User = Depends(require("calendar.view")), db: Session = Depends(get_db)):
+    """Appointments waiting for a yes or no (asked by text, agreed on a call or in a staff text), soonest first."""
+    since = timeutil.now_utc() - timedelta(days=1)
+    rows = db.scalars(select(CalendarEvent).where(CalendarEvent.status == "requested", CalendarEvent.starts_at >= since)
+                      .order_by(CalendarEvent.starts_at).limit(50)).all()
+    return {"items": crm.event_dicts(db, rows), "can_decide": user_can(user, "tasks.work")}
+
+
+@router.get("/calendar/requests")
+def requests(user: User = Depends(require("calendar.view")), db: Session = Depends(get_db)):
+    """Appointments waiting for a yes or no (asked by text, agreed on a call or in a staff text), soonest first."""
+    since = timeutil.now_utc() - timedelta(days=1)
+    rows = db.scalars(select(CalendarEvent).where(CalendarEvent.status == "requested", CalendarEvent.starts_at >= since)
+                      .order_by(CalendarEvent.starts_at).limit(50)).all()
+    return {"items": crm.event_dicts(db, rows), "can_decide": user_can(user, "tasks.work")}
 
 
 @router.post("/calendar/events/{event_id}/confirm")

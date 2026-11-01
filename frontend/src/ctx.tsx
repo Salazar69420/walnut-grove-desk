@@ -9,7 +9,8 @@ type Ctx = {
   can: (p: string) => boolean
   refreshMe: () => Promise<Me | null>
   setMe: (m: Me | null) => void
-  toast: (t: string, undo?: () => void) => void
+  toast: (t: string, undo?: () => void, label?: string) => void
+  toastLabel: string
   toastText: string
   toastShow: boolean
   toastUndo: (() => void) | null
@@ -28,14 +29,15 @@ export function Provider({ children }: { children: ReactNode }) {
   const [toastShow, setToastShow] = useState(false)
   const th = useRef<number>()
   const [toastUndo, setToastUndo] = useState<(() => void) | null>(null)
+  const [toastLabel, setToastLabel] = useState('Undo')
   const [busy, setBusy] = useState<Set<string>>(new Set())
   // Light only: forget the old theme choice (the dark theme was removed)
   useEffect(() => { document.documentElement.removeAttribute('data-theme'); try { localStorage.removeItem('wgd-theme') } catch { /* */ } }, [])
 
-  const toast = useCallback((t: string, undo?: () => void) => {
-    setToastText(t); setToastShow(true); setToastUndo(undo ? () => undo : null)
+  const toast = useCallback((t: string, undo?: () => void, label = 'Undo') => {
+    setToastText(t); setToastShow(true); setToastUndo(undo ? () => undo : null); setToastLabel(label)
     clearTimeout(th.current)
-    th.current = window.setTimeout(() => setToastShow(false), undo ? 7000 : 3200)
+    th.current = window.setTimeout(() => setToastShow(false), undo ? (label === 'Undo' ? 7000 : 12000) : 3200)
   }, [])
   const dismissToast = useCallback(() => { clearTimeout(th.current); setToastShow(false) }, [])
 
@@ -79,7 +81,7 @@ export function Provider({ children }: { children: ReactNode }) {
   }, [])
 
   return (
-    <C.Provider value={{ me, ready, can, refreshMe, setMe, toast, toastText, toastShow, toastUndo, dismissToast, busy, run }}>
+    <C.Provider value={{ me, ready, can, refreshMe, setMe, toast, toastText, toastShow, toastUndo, toastLabel, dismissToast, busy, run }}>
       {children}
     </C.Provider>
   )

@@ -34,3 +34,16 @@ def test_bookings_keep_the_appointment_time():
 def test_free_form_titles_fall_back_to_the_kind():
     g = glance("Ask Dr. Garg about the new fee", "Someone asked about dental pricing.", "unknown_knowledge", "Needs an answer", None)
     assert g["label"] == "Needs an answer" and g["summary"] == "Someone asked about dental pricing." and g["who"] == ""
+
+
+def test_requests_list_and_task_phone(env, garg, anita):
+    r = garg.get("/api/calendar/requests").json()
+    assert r["can_decide"] is True and all(e["status"] == "requested" for e in r["items"])
+    t = garg.get("/api/tasks?status=active").json()["items"]
+    assert all("phone" in x for x in t)
+
+
+def test_requests_list_and_task_phone(env, garg):
+    r = garg.get("/api/calendar/requests").json()
+    assert r["can_decide"] is True and all(e["status"] == "requested" for e in r["items"])
+    assert all("phone" in x for x in garg.get("/api/tasks?status=active").json()["items"])

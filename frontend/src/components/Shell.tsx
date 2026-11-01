@@ -8,8 +8,8 @@ import { Bell } from './Bell'
 import { Chats, useChatUnread } from './Chats'
 import { Palette } from './Palette'
 import { Icon } from './icons'
-import { Pop, useDialog, useMedia } from './ui'
-import { NAV, isWorkspace } from './nav'
+import { Pop, Sheet, useDialog, useMedia } from './ui'
+import { NAV, isWorkspace, type NavItem } from './nav'
 
 export function Shell() {
   const { me, can, setMe, run, busy } = useApp()
@@ -18,11 +18,13 @@ export function Shell() {
   const [pal, setPal] = useState(false)
   const [asst, setAsst] = useState(false)
   const [chats, setChats] = useState(false)
-  const phone = useMedia('(max-width: 780px)')  // on a phone the assistant opens full screen from a floating button
+  const phone = useMedia('(max-width: 780px)')  // a phone gets an app layout: title bar, bottom tabs, full-screen assistant
   const cbs = useLive<{ items: any[] }>(can('callbacks.view') ? '/callbacks' : null, ['callbacks'])
   const ov = useLive<{ summary: { pending: number } }>(can('overnight.view') ? '/overnight' : null, ['overnight'])
   const rs = useLive<{ items: any[] }>(can('results.view') ? '/results' : null, ['results'])
   const tk = useLive<{ counts: { open: number; in_progress: number; mine: number } }>(can('tasks.view') ? '/tasks?status=active&assigned=all' : null, ['tasks'])
+  const reqs = useLive<{ items: any[] }>(phone && can('calendar.view') ? '/calendar/requests' : null, ['events_cal'])
+  const [more, setMore] = useState(false)
   const settingsLive = useLive<any>(null, ['settings'])
   void settingsLive
 
@@ -33,7 +35,7 @@ export function Shell() {
     document.addEventListener('keydown', f)
     return () => document.removeEventListener('keydown', f)
   }, [can])
-  useEffect(() => { setAsst(false) }, [loc.pathname])
+  useEffect(() => { setAsst(false); setMore(false) }, [loc.pathname])
   useEffect(() => { document.getElementById('work')?.focus({ preventScroll: true }) }, [loc.pathname])
 
   if (!me) return null
@@ -63,9 +65,10 @@ export function Shell() {
     <div className="app">
       <a className="skip" href="#work">Skip to content</a>
       <div className="top">
-        <div className="brand"><div className="logo">W</div><span className="brand-t">Walnut Grove Desk</span></div>
+        {phone ? <h1 className="appbar-t">{pageTitle(loc.pathname)}</h1> : <div className="brand"><div className="logo">W</div><span className="brand-t">Walnut Grove Desk</span></div>}
         {me.settings.banner_on && <span className="pill hide-s">Prototype, example data</span>}
-        {can('contacts.view') && (
+        {phone && can('contacts.view') && <button className="ibtn appbar-i" onClick={() => setPal(true)} aria-label="Search people, pets, tasks and messages"><Icon n="search" size={20} /></button>}
+        {!phone && can('contacts.view') && (
           <button className="searchbtn" onClick={() => setPal(true)} aria-label="Search people, pets, tasks and messages">
             <Icon n="search" size={18} /><span className="st">Search people, pets, tasks</span><kbd className="hide-s">{/Mac|iPhone|iPad/.test(navigator.platform) ? 'Cmd K' : 'Ctrl K'}</kbd>
           </button>
@@ -88,7 +91,7 @@ export function Shell() {
         </Pop>
       </div>
       <div className={'main-grid' + (ws ? ' ws' : '')}>
-        <nav className="side" aria-label="Sections">
+        {!phone && <nav className="side" aria-label="Sections">
           <div className="me"><div className="av">{u.initials}</div><div><b>{u.display_name}</b><span>{u.title}</span></div></div>
           {NAV.map((g) => {
             const list = g.items.filter((i) => i.admin ? u.is_admin : !i.perm || can(i.perm))
@@ -118,7 +121,7 @@ export function Shell() {
               </div>
             )
           })}
-        </nav>
+        </nav>}
         <main className={'work' + (fit ? ' fit' : '')} id="work" tabIndex={-1}><Outlet /></main>
         {canAssist && !ws && !phone && <Assistant />}
       </div>
@@ -126,7 +129,47 @@ export function Shell() {
       {canAssist && phone && !asst && !chats && <button className="asst-fab" onClick={() => { setAsst(true); setChats(false) }} aria-label="Open the assistant"><Icon n="sparkle" size={20} /><span>Ask</span></button>}
       <Drawer open={chats} onClose={() => setChats(false)} label="Chats">{chats && <Chats />}</Drawer>
       <Palette open={pal} onClose={() => setPal(false)} />
+      {phone && <TabBar counts={{ '/tasks': taskCount, '/calendar': reqs.data ? reqs.data.items.length : null }} can={can} onMore={() => setMore(true)} moreOn={more} />}
+      {phone && <Sheet open={more} onClose={() => setMore(false)} title="More">
+        <div className="more">
+          {NAV.map((g) => {
+            const list = g.items.filter((i) => !TABS.includes(i.to) && (i.admin ? u.is_admin : !i.perm || can(i.perm)))
+            if (!list.length) return null
+            return <div key={g.group} className="more-g"><div className="navh">{g.group}</div>{list.map((i) => {
+              const [n, hot] = counts[i.to] || [null, false]
+              return <NavLink key={i.to} to={i.to} className="more-i"><Icon n={i.icon} size={18} /><span>{i.label}</span>{n ? <span className={'count' + (hot ? ' hot' : '')}>{n}</span> : null}<Icon n="chevR" size={16} /></NavLink>
+            })}</div>
+          })}
+          <div className="more-g"><div className="navh">Account</div>
+            <div className="more-me"><span className="av">{u.initials}</span><div><b>{u.display_name}</b><span>{u.title}</span></div></div>
+            <button className="more-i" onClick={signOut} disabled={busy.has('signout')}><Icon n="x" size={18} /><span>Sign out</span></button>
+          </div>
+        </div>
+      </Sheet>}
     </div>
+  )
+}
+
+const TABS = ['/home', '/tasks', '/calendar', '/contacts']
+const ALL: NavItem[] = NAV.flatMap((g) => g.items)
+function pageTitle(path: string): string {
+  if (/^\/contacts\/\d+/.test(path)) return 'Contact'
+  return ALL.find((i) => path === i.to || path.startsWith(i.to + '/'))?.label || 'Walnut Desk'
+}
+
+/** Phone only: the four everyday places at the thumb, and More for the rest. */
+function TabBar({ counts, can, onMore, moreOn }: { counts: Record<string, number | null>; can: (p: string) => boolean; onMore: () => void; moreOn: boolean }) {
+  const tabs = ALL.filter((i) => TABS.includes(i.to) && (!i.perm || can(i.perm)))
+  return (
+    <nav className="tabbar" aria-label="Main">
+      {tabs.map((i) => (
+        <NavLink key={i.to} to={i.to} className={({ isActive }) => 'tab' + (isActive && !moreOn ? ' on' : '')}>
+          <span className="tab-i"><Icon n={i.icon} size={22} />{counts[i.to] ? <span className="tab-b">{(counts[i.to] as number) > 99 ? '99+' : counts[i.to]}</span> : null}</span>
+          <span>{i.label}</span>
+        </NavLink>
+      ))}
+      <button className={'tab' + (moreOn ? ' on' : '')} onClick={onMore} aria-expanded={moreOn}><span className="tab-i"><Icon n="menu" size={22} /></span><span>More</span></button>
+    </nav>
   )
 }
 

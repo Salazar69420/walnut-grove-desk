@@ -6,7 +6,7 @@ import { useLive } from '../live'
 import { Empty, Segmented, Sheet, useMedia } from '../components/ui'
 import { Icon } from '../components/icons'
 import { useStaff } from '../lib/store'
-import { evParts, fromLocalInput, ls, lsSet, toLocalInput } from '../lib/fmt'
+import { clock, dayLabel, evParts, fromLocalInput, ls, lsSet, toLocalInput, VIA_LABEL } from '../lib/fmt'
 import { EVENT_HUE, EVENT_KINDS, EVENT_LABEL, type Ev, type Row } from '../lib/types'
 
 type View = 'week' | 'day' | 'month'
@@ -85,6 +85,7 @@ export function CalendarPage() {
         <div><h1>Calendar</h1><p className="lead">Appointments, surgeries and calls. Imported ImproMed appointments are read only.</p></div>
         {can('calendar.edit') && <button className="btn primary" onClick={() => setCreating(new Date())}><Icon n="plus" size={16} /> Create</button>}
       </div>
+      {narrow && <Requests onChanged={() => list.reload()} />}
       <section className="card cal-bar">
         <div className="cal-nav">
           <button className="btn small" onClick={() => go(new Date())}>Today</button>
@@ -313,5 +314,47 @@ function BookingHours() {
       </fieldset>
       <p className="small mute">Next open times: {h.preview.length ? h.preview.map((p) => p.label).join(' · ') : 'none'}</p>
     </details>
+  )
+}
+
+/** Phone: bookings waiting for a yes or no, each answered right here (no sheet to open). */
+function Requests({ onChanged }: { onChanged: () => void }) {
+  const { toast } = useApp()
+  const r = useLive<{ items: Ev[]; can_decide: boolean }>('/calendar/requests', ['events_cal'])
+  const [notify, setNotify] = useState(true)
+  const [busy, setBusy] = useState(0)
+  const items = r.data?.items || []
+  if (!items.length) return null
+  async function decide(e: Ev, action: 'confirm' | 'decline') {
+    setBusy(e.id)
+    try {
+      const out = await api<{ texted: string | null }>(`/calendar/events/${e.id}/${action}`, { method: 'POST', body: { notify }, quiet: true })
+      const word = action === 'confirm' ? 'Confirmed' : 'Declined'
+      toast(out.texted && out.texted.startsWith('not sent') ? `${word}. The text was ${out.texted}` : notify && e.contact ? `${word} and the client was texted` : word)
+      r.reload(); onChanged()
+    } catch (x) { toast(x instanceof ApiError && x.message && x.message !== 'error' ? x.message : 'That did not work. Try again.') }
+    setBusy(0)
+  }
+  return (
+    <section className="rq" aria-label="Bookings waiting for approval">
+      <div className="rq-h"><b>Waiting for approval</b><span className="count hot">{items.length}</span></div>
+      {items.map((e) => {
+        const p = evParts(e)
+        return (
+          <div key={e.id} className="rq-c">
+            <div className="rq-m">
+              <b>{p.who || p.what}</b>
+              <span>{dayLabel(e.starts_at)}, {clock(e.starts_at)}{p.who ? ` · ${p.what}` : ''}</span>
+              {p.via && <small>{VIA_LABEL[p.via]}</small>}
+            </div>
+            {r.data?.can_decide && <div className="rq-a">
+              <button className="btn" disabled={busy === e.id} onClick={() => decide(e, 'decline')}>Decline</button>
+              <button className="btn okb" disabled={busy === e.id} onClick={() => decide(e, 'confirm')}>Confirm</button>
+            </div>}
+          </div>
+        )
+      })}
+      {r.data?.can_decide && <label className="ck rq-n"><input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} /> Text the client the answer</label>}
+    </section>
   )
 }

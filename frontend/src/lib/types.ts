@@ -23,6 +23,7 @@ export type Task = {
   contact: { id: number; display_name: string; kind: Kind; initials: string; avatar_hue: number } | null
   assigned: { id: number; display_name: string; initials: string } | null
   glance?: Glance
+  phone?: string | null
 }
 /** A task laid out for reading at a glance (server side, from the generated title and note). */
 export type Glance = {

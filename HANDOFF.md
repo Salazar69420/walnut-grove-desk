@@ -274,7 +274,14 @@ Backlog lives in section 7 (known gaps) and section 8 (next steps).
 
 ### 11.4 Journal (newest first)
 
-**2026-11-01 UTC, session 3 (latest): light theme, 16:9 layout, tasks at a glance, real Brief, assistant reads everything, recordings not kept**
+**2026-11-01 UTC, session 3 (latest): phone app layout and home-screen app**
+- Phones (780px and narrower) get an app layout; desktop is unchanged. Title bar with the page name and search/chats/bell/account icons; bottom tab bar Home, Tasks (open count), Calendar (requests count), Contacts, More (sheet with every other section and Sign out). The sidebar is not rendered on phones.
+- Tasks on phones: each row has Done and Call (when there is a number; `phone` on task dicts); coming back to the app after a call asks "Finished with X? Mark done". Task details have a fixed Call / Text / Done bar; Done returns to the list with Undo.
+- Calendar on phones: "Waiting for approval" cards with Confirm / Decline (`GET /api/calendar/requests`), same "Text the client the answer" choice as the event sheet.
+- Home-screen app: `frontend/public/manifest.json`, icons (`icon-192.png`, `icon-512.png`, `apple-touch-icon.png`), Apple meta tags; opens full screen as "Walnut Desk". No service worker (no offline cache, so updates show on the next open).
+- Toasts can carry an action other than Undo (`toast(text, fn, label)`).
+
+**2026-11-01 UTC, session 3: light theme, 16:9 layout, tasks at a glance, real Brief, assistant reads everything, recordings not kept**
 - Dark theme and its switch removed (`color-scheme: light`). The 1500px cap is gone; wider columns at 1600px and 1900px.
 - Tasks: `app/services/task_view.py` turns each generated title and note into label, who, number, when, one clean sentence and next step (`glance` on every task dict and on timeline task items). Task rows, the Home task list and the timeline use it; group filter chips; with no task open, an overview board grouped by what needs deciding.
 - Brief: the four numbers and the paragraph now come from the real record (open and urgent tasks, missed inbound calls in 7 days vs the week before, bookings to approve, people waiting for a reply, pending knowledge), not the prototype callbacks/lab-results/demo call log. Tiles open their page.

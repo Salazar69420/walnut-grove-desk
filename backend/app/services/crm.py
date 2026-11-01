@@ -310,6 +310,8 @@ def task_dicts(db: Session, tasks: Iterable[Task]) -> list[dict[str, Any]]:
         "title": t.title, "reason": t.reason, "priority": t.priority, "status": t.status, "due_at": timeutil.iso(t.due_at),
         "raised_by": t.raised_by, "created_at": timeutil.iso(t.created_at), "conversation_id": t.conversation_id,
         "contact": contact_brief(contacts.get(t.contact_id)) if t.contact_id else None,
+        "phone": contacts[t.contact_id].phone if t.contact_id in contacts and contacts[t.contact_id].phone else None,  # for the Call button
+        "phone": contacts[t.contact_id].phone if t.contact_id in contacts and contacts[t.contact_id].phone else None,  # for the Call button
         "assigned": user_brief(users.get(t.assigned_to)) if t.assigned_to else None,
         "glance": task_view.glance(t.title, t.reason, t.kind, TASK_KIND_LABELS.get(t.kind, t.kind),
                                    contacts[t.contact_id].display_name if t.contact_id in contacts else None),

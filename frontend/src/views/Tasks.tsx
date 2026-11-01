@@ -17,6 +17,8 @@ const PRI: Record<string, string> = { high: 'High', normal: 'Normal', low: 'Low'
 const GROUPS: [Glance['group'], string][] = [['urgent', 'Urgent'], ['missed', 'Missed calls'], ['booking', 'Bookings to confirm'], ['care', 'Pickups, refills, results'], ['text', 'Text replies'], ['admin', 'Records and business'], ['other', 'Other']]
 const CHANNEL: Record<string, [string, string]> = { phone: ['phone', 'Call'], missed: ['phone', 'Missed call'], text: ['chat', 'Text'] }
 const g0 = (t: Task): Glance => t.glance || { label: t.kind_label, group: t.priority === 'high' ? 'urgent' : 'other', tone: 'acc', urgent: t.priority === 'high', who: t.contact?.display_name || '', phone: '', channel: '', when: '', appointment: '', summary: t.reason || '', next_step: '', attempts: 0 }
+/** A number to dial for this task: the contact's own, else the one the caller rang from. */
+export const telFor = (t: Task) => { const n = t.phone || (t.glance?.phone || '').replace(/[^\d+]/g, ''); return n ? 'tel:' + (n.startsWith('+') ? n : n.length === 10 ? '+1' + n : n) : '' }
 const groupOf = (t: Task) => (t.priority === 'high' ? 'urgent' : g0(t).group)
 const errText = (x: unknown) => x instanceof ApiError && x.message && x.message !== 'error' && x.message !== 'network' ? x.message : ''
 
@@ -92,6 +94,22 @@ export function Tasks() {
       return false
     }
   }
+  // after tapping Call, coming back to the app asks once whether that task is done
+  const called = useRef<{ t: Task; at: number } | null>(null)
+  useEffect(() => {
+    const back = () => {
+      const c = called.current
+      if (document.visibilityState !== 'visible' || !c || Date.now() - c.at < 3000) return
+      called.current = null
+      const g = g0(c.t)
+      toast(`Finished with ${g.who || c.t.contact?.display_name || 'that call'}?`, () => { updRef.current(c.t, { status: 'done' }, { status: 'done' }, 'Marked done', { status: c.t.status }, { status: c.t.status }) }, 'Mark done')
+    }
+    document.addEventListener('visibilitychange', back)
+    return () => document.removeEventListener('visibilitychange', back)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  const onCall = (t: Task) => { called.current = { t, at: Date.now() } }
+  const updRef = useRef(update)
+  updRef.current = update
   async function take(t: Task) {
     const me = staff.find(() => false)
     void me
@@ -128,7 +146,7 @@ export function Tasks() {
           <div className="tl-list">
             {list.loading && !list.data ? <SkeletonRows n={7} h={72} /> : list.error && !list.data ? <p className="sub pad">Could not load tasks. It will try again.</p> : items.length === 0 ? (
               <Empty icon="check" title={status === 'done' ? 'Nothing finished yet' : 'You are all caught up'} text={status === 'done' ? 'Finished tasks show up here.' : q || cls || kind || grp || assigned !== 'all' ? 'No tasks match these filters.' : 'There are no tasks in this list. New ones appear here by themselves.'} />
-            ) : items.map((t) => <TaskRow key={t.id} t={t} on={t.id === openId} onOpen={() => set({ open: String(t.id) })}
+            ) : items.map((t) => <TaskRow key={t.id} t={t} on={t.id === openId} onOpen={() => set({ open: String(t.id) })} onCall={onCall}
                 act={can('tasks.work') ? (to) => update(t, { status: to }, { status: to }, to === 'done' ? 'Marked done' : to === 'open' ? 'Reopened' : 'Started', { status: t.status }, { status: t.status }) : undefined} />)}
           </div>
         </section>
@@ -140,7 +158,7 @@ export function Tasks() {
               : <div className="card dempty"><Empty icon="tasks" title="Pick a task" text="Choose a task on the left to see why it was raised and who it is about." /></div>
           ) : (
             <>
-              <Detail t={sel} onBack={narrow ? () => set({ open: null }) : undefined} staff={staff} update={update} take={take} can={can('tasks.work')} />
+              <Detail t={sel} onBack={narrow ? () => set({ open: null }) : undefined} staff={staff} update={update} take={take} can={can('tasks.work')} onCall={onCall} />
               {!wide && sel.contact && <div className="card gcwrap"><GuestCard contactId={sel.contact.id} tab={cardTab} onTab={setCardTab} showOpen /></div>}
             </>
           )}
@@ -156,7 +174,7 @@ export function Tasks() {
   )
 }
 
-function Detail({ t, onBack, staff, update, take, can }: { t: Task; onBack?: () => void; staff: ReturnType<typeof useStaff>; update: (t: Task, body: Record<string, unknown>, local: Partial<Task>, msg?: string, ub?: Record<string, unknown>, ul?: Partial<Task>) => Promise<boolean>; take: (t: Task) => void; can: boolean }) {
+function Detail({ t, onBack, staff, update, take, can, onCall }: { onCall: (t: Task) => void; t: Task; onBack?: () => void; staff: ReturnType<typeof useStaff>; update: (t: Task, body: Record<string, unknown>, local: Partial<Task>, msg?: string, ub?: Record<string, unknown>, ul?: Partial<Task>) => Promise<boolean>; take: (t: Task) => void; can: boolean }) {
   const { me } = useApp()
   const mine = t.assigned?.id === me?.user.id
   const [due, setDue] = useState(t.due_at ? toLocalInput(new Date(t.due_at)) : '')
@@ -214,6 +232,15 @@ function Detail({ t, onBack, staff, update, take, can }: { t: Task; onBack?: () 
         </section>
       )}
       {!can && <p className="mute">You can read this task, but you cannot change it.</p>}
+      {onBack && (
+        <div className="td-bar">
+          {telFor(t) && <a className="btn" href={telFor(t)} onClick={() => onCall(t)}><Icon n="phone" size={18} /> Call</a>}
+          {t.contact && <Link className="btn" to={`/contacts/${t.contact.id}`}><Icon n="chat" size={18} /> Text</Link>}
+          {can && (t.status === 'done'
+            ? <button className="btn" onClick={() => update(t, { status: 'open' }, { status: 'open' }, 'Reopened')}><Icon n="undo" size={18} /> Reopen</button>
+            : <button className="btn okb" onClick={async () => { if (await update(t, { status: 'done' }, { status: 'done' }, 'Marked done', { status: t.status }, { status: t.status })) onBack() }}><Icon n="check" size={18} /> Done</button>)}
+        </div>
+      )}
       {t.contact && <Recent id={t.contact.id} name={t.contact.display_name} />}
     </div>
   )
@@ -290,7 +317,7 @@ function NewTask({ open, onClose, onCreated }: { open: boolean; onClose: () => v
   )
 }
 
-function TaskRow({ t, on, onOpen, act }: { t: Task; on: boolean; onOpen: () => void; act?: (to: Task['status']) => void }) {
+function TaskRow({ t, on, onOpen, act, onCall }: { t: Task; on: boolean; onOpen: () => void; act?: (to: Task['status']) => void; onCall: (t: Task) => void }) {
   const g = g0(t)
   const who = g.who || t.contact?.display_name || ''
   return (
@@ -322,6 +349,7 @@ function TaskRow({ t, on, onOpen, act }: { t: Task; on: boolean; onOpen: () => v
           {t.status === 'done'
             ? <button className="tr-act" onClick={() => act('open')} aria-label={`Reopen: ${g.label}, ${who}`} title="Reopen"><Icon n="undo" size={18} /></button>
             : <button className="tr-act done" onClick={() => act('done')} aria-label={`Mark done: ${g.label}, ${who}`} title="Mark done"><Icon n="check" size={20} /></button>}
+          {t.status !== 'done' && telFor(t) && <a className="tr-act call" href={telFor(t)} onClick={() => onCall(t)} aria-label={`Call ${who || g.label}`} title="Call"><Icon n="phone" size={17} /></a>}
           {t.status === 'open' && <button className="tr-act sm" onClick={() => act('in_progress')} aria-label={`Start: ${g.label}, ${who}`} title="Start (in progress)"><Icon n="play" size={14} /></button>}
         </div>
       )}
