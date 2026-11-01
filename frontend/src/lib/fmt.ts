@@ -112,3 +112,19 @@ export function fromLocalInput(v: string): string | null {
   return isNaN(d.getTime()) ? null : d.toISOString()
 }
 export const hueFor = (n: number) => (n * 67 + 23) % 360
+
+const UNKNOWN = /^(Caller\s*)?\(?\d{3}\)?[ -]?\d{3}-\d{4}$/
+/** A calendar event laid out for small spaces: what (the visit), who, and where the request came from.
+ * Titles are generated like "Nail trim: Caller (604) 555-0100 (agreed on a call)" or "Time_sensitive: Shirley (asked by text)". */
+export function evParts(e: { title: string; kind_label?: string; contact?: { display_name: string } | null }): { what: string; who: string; via: '' | 'call' | 'text' | 'staff' } {
+  const via = /agreed on a call/i.test(e.title) ? 'call' : /staff text/i.test(e.title) ? 'staff' : /by text|\(asked /i.test(e.title) ? 'text' : ''
+  const t = e.title.replace(/\s*\((agreed on a call|asked [^)]*|agreed in a staff text|[^)]*staff text)\)\s*$/i, '').trim()
+  const m = t.match(/^([^:]{2,40}):\s*(.+)$/)
+  let what = (m ? m[1] : t).replace(/_/g, ' ').trim()
+  what = what ? what[0].toUpperCase() + what.slice(1) : e.kind_label || 'Event'
+  let who = e.contact?.display_name || (m ? m[2] : '')
+  if (UNKNOWN.test(who.trim())) who = 'Unknown caller'
+  if (!m && !e.contact) who = ''
+  return { what, who, via }
+}
+export const VIA_LABEL: Record<string, string> = { call: 'Agreed on a call', text: 'Asked by text', staff: 'Agreed in a staff text' }

@@ -3,14 +3,14 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
 import { useApp } from '../ctx'
 import { useLive } from '../live'
-import { Empty, Segmented, Sheet } from '../components/ui'
+import { Empty, Segmented, Sheet, useMedia } from '../components/ui'
 import { Icon } from '../components/icons'
 import { useStaff } from '../lib/store'
-import { fromLocalInput, ls, lsSet, toLocalInput } from '../lib/fmt'
+import { evParts, fromLocalInput, ls, lsSet, toLocalInput } from '../lib/fmt'
 import { EVENT_HUE, EVENT_KINDS, EVENT_LABEL, type Ev, type Row } from '../lib/types'
 
 type View = 'week' | 'day' | 'month'
-const H0 = 7, H1 = 20, ROW = 52 // grid runs 7 am to 8 pm
+const H0 = 7, H1 = 20 // grid runs 7 am to 8 pm
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const pad = (n: number) => String(n).padStart(2, '0')
 const ymd = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
@@ -43,7 +43,9 @@ export function CalendarPage() {
   const { can, toast } = useApp()
   const staff = useStaff()
   const [sp, setSp] = useSearchParams()
-  const view = (sp.get('view') as View) || (ls('wgd.cal.view') as View) || 'week'
+  const narrow = useMedia('(max-width: 780px)')
+  const ROW = useMedia('(min-width: 1600px)') ? 66 : 52  // px per hour: taller on a big screen so half-hour visits have room
+  const view = (sp.get('view') as View) || (narrow ? 'day' : (ls('wgd.cal.view') as View) || 'week')  // a phone opens on one day at full width
   const anchor = sp.get('date') ? new Date(sp.get('date') + 'T12:00:00') : new Date()
   const [kinds, setKinds] = useState<Set<string>>(() => new Set(EVENT_KINDS.map(([k]) => k)))
   const [cls, setCls] = useState<'all' | 'patient' | 'inquiry'>('all')
@@ -118,14 +120,14 @@ export function CalendarPage() {
               return (
                 <div key={ymd(d)} role="gridcell" className={'cm-c' + (d.getMonth() !== anchor.getMonth() ? ' out' : '') + (ymd(d) === todayStr ? ' today' : '')}>
                   <button className="cm-d" onClick={() => go(d, 'day')} aria-label={d.toDateString()}>{d.getDate()}</button>
-                  {es.slice(0, 3).map((e) => <button key={e.id} className={'chip' + (e.status === 'cancelled' ? ' x' : '')} style={{ ['--h' as any]: EVENT_HUE[e.kind] ?? 190 }} onClick={() => setOpen(e)}>{hm(e.starts_at)} {e.title}</button>)}
+                  {es.slice(0, 3).map((e) => <button key={e.id} className={'chip' + (e.status === 'cancelled' ? ' x' : '')} style={{ ['--h' as any]: EVENT_HUE[e.kind] ?? 190 }} onClick={() => setOpen(e)} title={e.title}>{(() => { const p = evParts(e); return <><b>{hm(e.starts_at)}</b> {p.who || p.what}</> })()}</button>)}
                   {es.length > 3 && <button className="more" onClick={() => go(d, 'day')}>+{es.length - 3} more</button>}
                 </div>
               )
             })}
           </div>
         ) : (
-          <div className="cal-grid" style={{ ['--cols' as any]: days.length, ['--row' as any]: ROW + 'px' }}>
+          <div className={'cal-grid' + (days.length === 1 ? ' one' : '')} style={{ ['--cols' as any]: days.length, ['--row' as any]: ROW + 'px' }}>
             <div className="cg-head"><span />{days.map((d) => (
               <button key={ymd(d)} className={'cg-day' + (ymd(d) === todayStr ? ' today' : '')} onClick={() => go(d, 'day')}><span>{DAYS[(d.getDay() + 6) % 7]}</span><b>{d.getDate()}</b></button>
             ))}</div>
@@ -141,12 +143,17 @@ export function CalendarPage() {
                   {layout(byDay(d)).map(([e, col, n]) => {
                     const s = new Date(e.starts_at), en = new Date(e.ends_at || e.starts_at)
                     const top = Math.max(0, ((s.getHours() + s.getMinutes() / 60) - H0) * ROW)
-                    const h = Math.max(24, ((+en - +s) / 3600000) * ROW - 2)
+                    const h = Math.max(26, ((+en - +s) / 3600000) * ROW - 2)
                     if (s.getHours() < H0 || s.getHours() >= H1) return null
                     return (
                       <button key={e.id} className={'ev' + (e.status === 'cancelled' ? ' x' : '') + (e.status === 'done' ? ' done' : '') + (e.status === 'requested' ? ' req' : '')}
-                        style={{ top, height: h, left: `calc(${(col / n) * 100}% + 2px)`, width: `calc(${100 / n}% - 4px)`, ['--h' as any]: EVENT_HUE[e.kind] ?? 190 }} onClick={() => setOpen(e)}>
-                        <b className="ell">{e.title}</b><span className="ell">{hm(e.starts_at)}{e.contact ? ' · ' + e.contact.display_name : ''}</span>
+                        title={`${e.title}, ${hm(e.starts_at)}`} style={{ top, height: h, left: `calc(${(col / n) * 100}% + 2px)`, width: `calc(${100 / n}% - 4px)`, ['--h' as any]: EVENT_HUE[e.kind] ?? 190 }} onClick={() => setOpen(e)}>
+                        {(() => {
+                          const p = evParts(e)
+                          return h < 44
+                            ? <span className="ev-1 ell"><b>{hm(e.starts_at)}</b> {p.who || p.what}{p.who ? <span className="ev-w"> · {p.what}</span> : null}</span>
+                            : <><b className="ell">{p.who || p.what}</b><span className="ell">{hm(e.starts_at)}{p.who ? ' · ' + p.what : ''}{e.status === 'requested' ? ' · Requested' : ''}</span></>
+                        })()}
                       </button>
                     )
                   })}

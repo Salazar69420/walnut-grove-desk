@@ -4,7 +4,7 @@ import { useApp } from '../ctx'
 import { useLive } from '../live'
 import { Avatar, Empty, KindBadge, Segmented, SkeletonRows, Switch, Time, useMedia } from '../components/ui'
 import { Icon } from '../components/icons'
-import { clock, dayKey, dayLabel, hueFor, ls, lsSet } from '../lib/fmt'
+import { clock, dayKey, dayLabel, evParts, hueFor, ls, lsSet, VIA_LABEL } from '../lib/fmt'
 import type { Ev, Row, Task } from '../lib/types'
 
 type HomeData = { people: Row[]; events: Ev[]; tasks: Task[]; counts: { unread_people: number; events_today: number; open_tasks: number; my_tasks: number } }
@@ -121,12 +121,13 @@ function Agenda({ events, mine }: { events: Ev[]; mine: boolean }) {
   )
 }
 function EventItem({ e }: { e: Ev }) {
+  const p = evParts(e)
   const inner = (
     <>
       <span className="ev-t">{clock(e.starts_at)}</span>
       <span className="ev-m">
-        <b>{e.title}</b>
-        <span className="mute">{e.kind_label}{e.contact ? ` · ${e.contact.display_name}` : ''}{e.pet ? ` (${e.pet.name})` : ''}{e.staff ? ` · ${e.staff.display_name}` : ''}</span>
+        <b>{p.who || p.what}</b>
+        <span className="mute">{p.who ? p.what : e.kind_label}{p.via ? ` · ${VIA_LABEL[p.via]}` : ''}{e.pet ? ` (${e.pet.name})` : ''}{e.staff ? ` · ${e.staff.display_name}` : ''}</span>
       </span>
       {e.status !== 'booked' && <span className={'tag ' + (e.status === 'cancelled' ? 'high' : e.status === 'done' ? 'ok' : 'warn')}>{e.status === 'requested' ? 'Requested' : e.status === 'cancelled' ? 'Cancelled' : 'Done'}</span>}
     </>

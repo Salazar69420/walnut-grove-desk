@@ -6,7 +6,7 @@ import { useLive } from '../live'
 import { Avatar, ConsentPill, Empty, KindBadge, Modal, Skeleton, Switch, Time } from './ui'
 import { Icon } from './icons'
 import { useContactDetail, useStaff } from '../lib/store'
-import { ageOf, bytes, clock, dayLabel, exact, hueFor, shortDate, toLocalInput } from '../lib/fmt'
+import { ageOf, bytes, clock, dayLabel, evParts, exact, hueFor, shortDate, toLocalInput } from '../lib/fmt'
 import { CONSENT_LABEL, REL_LABEL, SOURCE_LABEL, VISIT_LABEL, emojiFor, type Consent, type Detail, type Ev, type Pet, type Row, type Visit } from '../lib/types'
 
 export type CardTab = 'contact' | 'pets' | 'calendar' | 'services'
@@ -437,7 +437,7 @@ function EvLine({ e }: { e: Ev }) {
   return (
     <div className={'evl k-' + e.kind + (e.status === 'cancelled' ? ' off' : '')}>
       <div className="evl-d"><b>{dayLabel(e.starts_at)}</b><span>{clock(e.starts_at)}</span></div>
-      <div className="evl-m"><b>{e.title}</b><span className="mute">{e.kind_label}{e.pet ? `, ${e.pet.name}` : ''}{e.staff ? `, ${e.staff.display_name}` : ''}</span></div>
+      <div className="evl-m"><b title={e.title}>{evParts(e).what}</b><span className="mute">{e.kind_label}{e.pet ? `, ${e.pet.name}` : ''}{e.staff ? `, ${e.staff.display_name}` : ''}</span></div>
       {e.status !== 'booked' && <span className={'tag ' + (e.status === 'cancelled' ? 'high' : e.status === 'done' ? 'ok' : 'warn')}>{e.status === 'requested' ? 'Requested' : e.status === 'cancelled' ? 'Cancelled' : 'Done'}</span>}
     </div>
   )

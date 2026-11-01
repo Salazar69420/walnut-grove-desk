@@ -282,7 +282,7 @@ a.playb{color:var(--acc-t)}
 .cm-who{font-size:12px;color:var(--mute);margin:8px 0 2px 4px}
 .cm-b{background:var(--panel2);padding:8px 12px;border-radius:14px 14px 14px 4px;white-space:pre-wrap;word-break:break-word}
 .cm.me .cm-b{background:var(--accent);color:var(--accent-ink);border-radius:14px 14px 4px 14px}
-.cm-c{display:block;font-size:12px;margin-top:4px;color:inherit;text-decoration:underline}
+.cm-link{display:block;font-size:12px;margin-top:4px;color:inherit;text-decoration:underline}
 .cm-t{font-size:11px;color:var(--mute);margin:2px 6px 4px}
 .chat .send{display:flex;gap:8px;padding:10px;border-top:1px solid var(--line)}.chat .send input{flex:1}
 /* Content studio embedded */
@@ -402,3 +402,16 @@ a.playb{color:var(--acc-t)}
   .drawer .send .mic{width:46px;height:46px;border-radius:14px}
   .drawer .send .btn.primary{min-height:46px;padding:0 16px;border-radius:14px}
 }
+
+/* ---------- Calendar events that fit their box ---------- */
+.ev{justify-content:flex-start;gap:1px;padding:4px 6px 3px 7px}
+.ev>b,.ev>span{display:block;width:100%;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ev .ev-1{font-size:12px;line-height:1.3}.ev .ev-1 b{font-weight:700;margin-right:2px}.ev .ev-w{opacity:.8}
+.cal-month .chip{display:block;width:100%;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cal-month .chip b{font-weight:700;margin-right:3px}
+@media (max-width:780px){.ev{padding:3px 5px 2px 6px}.ev .ev-1,.ev>b,.ev>span{font-size:12px}}
+/* month cells on wide screens: room for readable entries */
+@media (min-width:1600px){.cm-c{min-height:124px}.chip{font-size:12.5px;min-height:24px;padding:2px 7px}.more{font-size:12px}}
+/* a single day (Day view) gets the whole width */
+.cal-grid.one .cg-body,.cal-grid.one .cg-head{grid-template-columns:52px minmax(0,1fr)}
+@media (max-width:780px){.cal-grid.one .cg-body,.cal-grid.one .cg-head{grid-template-columns:44px minmax(0,1fr)}}

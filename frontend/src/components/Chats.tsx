@@ -80,7 +80,7 @@ export function Chats() {
           return (
             <div key={m.id} className={'cm' + (m.mine ? ' me' : '')}>
               {showWho && m.who && <span className="cm-who">{m.who.name}</span>}
-              <div className="cm-b">{m.body}{m.contact && <Link className="cm-c" to={`/contacts/${m.contact.id}`}>{m.contact.name}</Link>}</div>
+              <div className="cm-b">{m.body}{m.contact && <Link className="cm-link" to={`/contacts/${m.contact.id}`}>{m.contact.name}</Link>}</div>
               <span className="cm-t">{m.id < 0 ? 'Sending...' : clock(m.at)}</span>
             </div>
           )
