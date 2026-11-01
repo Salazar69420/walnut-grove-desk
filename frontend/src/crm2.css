@@ -379,3 +379,26 @@ a.playb{color:var(--acc-t)}
 .rp-groups .rp-grid{grid-template-columns:1fr}
 @media (max-width:780px){.tglance{flex-wrap:nowrap;overflow-x:auto;padding-bottom:2px}.gchip{flex:none}}
 .kpi-l{text-align:left;font:inherit;color:inherit;cursor:pointer}.kpi-l:hover{border-color:var(--accent)}
+
+/* ---------- Assistant on a phone: floating button, full-screen panel ---------- */
+.asst-fab{position:fixed;right:16px;bottom:calc(16px + env(safe-area-inset-bottom,0px));z-index:40;display:inline-flex;align-items:center;gap:8px;height:52px;padding:0 20px 0 16px;border-radius:999px;border:0;background:var(--accent);color:var(--accent-ink);font-weight:700;font-size:15px;box-shadow:0 6px 20px rgba(20,38,43,.28)}
+.asst-fab:active{transform:scale(.97)}
+@media (max-width:780px){
+  .work{padding-bottom:76px}
+  .drawer{height:100dvh;bottom:auto}
+  .drawer .assist header{padding:16px 60px 12px 16px}
+  .drawer .assist header b{font-size:17px}
+  .drawer .assist header span{display:none}
+  .drawer-x{top:10px;right:10px}
+  .drawer .msgs{padding:14px 16px;gap:12px}
+  .drawer .msg{max-width:88%;font-size:15px;line-height:1.5;border-radius:16px}
+  .drawer .msg.me{border-bottom-right-radius:6px}
+  .drawer .msg:not(.me){border-bottom-left-radius:6px}
+  .drawer .chips{flex-wrap:nowrap;overflow-x:auto;padding:10px 16px;gap:8px;scrollbar-width:none;-webkit-overflow-scrolling:touch;scroll-snap-type:x proximity;scroll-padding-inline:16px}
+  .drawer .chips::-webkit-scrollbar{display:none}
+  .drawer .chips button{flex:none;white-space:nowrap;font-size:14px;min-height:40px;padding:6px 14px;scroll-snap-align:start;background:var(--accent-soft);border-color:transparent;color:var(--acc-t)}
+  .drawer .send{padding:8px 12px calc(10px + env(safe-area-inset-bottom,0px));gap:6px;border-top:1px solid var(--line);align-items:center}
+  .drawer .send input{font-size:16px;min-height:46px;border-radius:14px;padding:10px 14px}
+  .drawer .send .mic{width:46px;height:46px;border-radius:14px}
+  .drawer .send .btn.primary{min-height:46px;padding:0 16px;border-radius:14px}
+}

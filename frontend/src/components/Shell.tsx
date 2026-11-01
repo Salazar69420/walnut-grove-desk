@@ -8,7 +8,7 @@ import { Bell } from './Bell'
 import { Chats, useChatUnread } from './Chats'
 import { Palette } from './Palette'
 import { Icon } from './icons'
-import { Pop, useDialog } from './ui'
+import { Pop, useDialog, useMedia } from './ui'
 import { NAV, isWorkspace } from './nav'
 
 export function Shell() {
@@ -18,6 +18,7 @@ export function Shell() {
   const [pal, setPal] = useState(false)
   const [asst, setAsst] = useState(false)
   const [chats, setChats] = useState(false)
+  const phone = useMedia('(max-width: 780px)')  // on a phone the assistant opens full screen from a floating button
   const cbs = useLive<{ items: any[] }>(can('callbacks.view') ? '/callbacks' : null, ['callbacks'])
   const ov = useLive<{ summary: { pending: number } }>(can('overnight.view') ? '/overnight' : null, ['overnight'])
   const rs = useLive<{ items: any[] }>(can('results.view') ? '/results' : null, ['results'])
@@ -70,7 +71,7 @@ export function Shell() {
           </button>
         )}
         <div className="spacer" />
-        {ws && canAssist && <button className="btn asst-btn" onClick={() => setAsst((a) => !a)} aria-expanded={asst}><Icon n="sparkle" size={16} /><span>Assistant</span></button>}
+        {ws && canAssist && !phone && <button className="btn asst-btn" onClick={() => setAsst((a) => !a)} aria-expanded={asst}><Icon n="sparkle" size={16} /><span>Assistant</span></button>}
         <ChatsButton open={chats} onClick={() => { setChats((c) => !c); setAsst(false) }} />
         <Bell />
         <Pop align="right" button={({ open, toggle }) => (
@@ -119,9 +120,10 @@ export function Shell() {
           })}
         </nav>
         <main className={'work' + (fit ? ' fit' : '')} id="work" tabIndex={-1}><Outlet /></main>
-        {canAssist && !ws && <Assistant />}
+        {canAssist && !ws && !phone && <Assistant />}
       </div>
-      {canAssist && ws && <Drawer open={asst} onClose={() => setAsst(false)}><Assistant /></Drawer>}
+      {canAssist && (ws || phone) && <Drawer open={asst} onClose={() => setAsst(false)}><Assistant /></Drawer>}
+      {canAssist && phone && !asst && !chats && <button className="asst-fab" onClick={() => { setAsst(true); setChats(false) }} aria-label="Open the assistant"><Icon n="sparkle" size={20} /><span>Ask</span></button>}
       <Drawer open={chats} onClose={() => setChats(false)} label="Chats">{chats && <Chats />}</Drawer>
       <Palette open={pal} onClose={() => setPal(false)} />
     </div>
