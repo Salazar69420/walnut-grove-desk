@@ -19,7 +19,8 @@ import { Knowledge } from './views/Knowledge'
 import { Phone } from './views/Phone'
 import { Campaigns } from './views/Campaigns'
 import { Report, Reports } from './views/Reports'
-import { ContentStudio, WebsiteContent, WebsiteSeo } from './views/Website'
+import { WebsiteContent, WebsiteSeo } from './views/Website'
+import { CreativeStudio } from './views/Creatives'
 import { Automations } from './views/Automations'
 
 export function landing(role: string) {
@@ -60,7 +61,8 @@ export function App() {
           <Route path="/automations" element={<Guard perm="automations.view"><Automations /></Guard>} />
           <Route path="/website/content" element={<Guard perm="website.view"><WebsiteContent /></Guard>} />
           <Route path="/website/seo" element={<Guard perm="website.view"><WebsiteSeo /></Guard>} />
-          <Route path="/website/studio" element={<Guard perm="website.run"><ContentStudio /></Guard>} />
+          <Route path="/website/studio" element={<Navigate to="/creatives" replace />} />
+          <Route path="/creatives" element={<Guard perm="creatives.view"><CreativeStudio /></Guard>} />
           <Route path="/brief" element={<Guard perm="brief.view"><Brief /></Guard>} />
           <Route path="/overnight" element={<Guard perm="overnight.view"><Overnight /></Guard>} />
           <Route path="/callbacks" element={<Guard perm="callbacks.view"><Callbacks /></Guard>} />

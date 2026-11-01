@@ -48,6 +48,7 @@ class CampaignIn(Strict):
     segment: Segment = Field(default_factory=Segment)
     subject: str = Field(default="", max_length=150)
     body: str = Field(min_length=2, max_length=1600)
+    creative_id: int | None = None
 
 
 class CampaignPatch(Strict):
@@ -57,6 +58,7 @@ class CampaignPatch(Strict):
     segment: Segment | None = None
     subject: str | None = Field(default=None, max_length=150)
     body: str | None = Field(default=None, min_length=2, max_length=1600)
+    creative_id: int | None = None
 
 
 STATUS_LABELS = {"draft": "Draft", "awaiting_approval": "Waiting for approval", "approved": "Approved", "done_dry_run": "Done (practice mode)", "cancelled": "Cancelled"}
@@ -78,6 +80,7 @@ def camp_dict(db: Session, c: Campaign, who: dict[int, str]) -> dict[str, Any]:
         "id": c.id, "name": c.name, "channel": c.channel, "purpose": c.purpose, "status": c.status, "status_label": STATUS_LABELS.get(c.status, c.status),
         "segment": _seg(c), "subject": c.subject, "body": c.body, "created_by": who.get(c.created_by), "approved_by": who.get(c.approved_by),
         "created_at": timeutil.iso(c.created_at), "approved_at": timeutil.iso(c.approved_at), "ran_at": timeutil.iso(c.ran_at), "counts": counts,
+        "creative": cp.creative_info(db, c.creative_id),
     }
 
 
@@ -105,6 +108,7 @@ class PreviewIn(Strict):
     segment: Segment = Field(default_factory=Segment)
     subject: str = Field(default="", max_length=150)
     body: str = Field(default="", max_length=1600)
+    creative_id: int | None = None
 
 
 @router.post("/campaigns/preview")
@@ -113,7 +117,7 @@ def preview(body: PreviewIn, user: User = Depends(require("campaigns.edit")), db
     seg = cp.clean_segment(body.segment.model_dump(mode="json", exclude_none=True))
     evaluated, _ = cp.evaluate(db, user, body.channel, body.purpose, seg)
     out = cp.tally(evaluated)
-    out["samples"] = cp.samples(db, evaluated, body.body or "Hi {first_name}", body.subject, body.channel, cp.clinic_name(db)) if body.body else []
+    out["samples"] = cp.samples(db, evaluated, body.body or "Hi {first_name}", body.subject, body.channel, cp.clinic_name(db), creative_id=body.creative_id) if body.body else []
     out["quiet_hours"] = cp.in_quiet_hours()
     return out
 
@@ -124,7 +128,7 @@ def create_campaign(body: CampaignIn, user: User = Depends(require("campaigns.ed
     if body.channel == "email" and not body.subject.strip():
         raise HTTPException(status_code=400, detail="An email needs a subject line.")
     c = Campaign(name=body.name, channel=body.channel, purpose=body.purpose, segment_json=_seg_json(body.segment), subject=body.subject if body.channel == "email" else "",
-                 body=body.body, status="draft", created_by=user.id)
+                 body=body.body, status="draft", created_by=user.id, creative_id=cp.check_creative(db, body.creative_id))
     db.add(c)
     db.flush()
     ev.record(db, ev.CAMPAIGNS, "campaign_created", f"{user.display_name} started a campaign: {c.name}", user, "campaign", c.id)
@@ -157,6 +161,8 @@ def patch_campaign(camp_id: int, body: CampaignPatch, user: User = Depends(requi
     for key in ("name", "channel", "purpose", "subject", "body"):
         if key in ch and ch[key] is not None:
             setattr(c, key, ch[key])
+    if "creative_id" in ch:
+        c.creative_id = cp.check_creative(db, ch["creative_id"])
     if c.channel == "sms":
         c.subject = ""
     elif not c.subject.strip():

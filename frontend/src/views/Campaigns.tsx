@@ -59,6 +59,7 @@ function CampCard({ c, onEdit, onChanged, quiet }: { c: Camp; onEdit: () => void
       <header><div><h3>{c.name}</h3><p className="mute small">{c.channel === 'sms' ? 'Text message' : 'Email'} · {c.purpose === 'promo' ? 'Promotion (full consent only)' : 'Care message'} · by {c.created_by || 'someone'} <Time iso={c.created_at} /></p></div>
         <span className={'cst s-' + c.status}>{c.status_label}</span></header>
       <p className="cmp-body">{c.body}</p>
+      {c.creative && <p className="small mute">With {c.creative.kind === 'video' ? 'video' : 'image'}: {c.creative.share_url ? <a href={c.creative.share_url} target="_blank" rel="noreferrer">{c.creative.title}</a> : c.creative.title}</p>}
       {k.matched !== undefined && <p className="small"><b>{k.sent}</b> would be sent, <b>{skipped}</b> left out, of {k.matched} matched. {c.ran_at && <span className="mute">Ran <Time iso={c.ran_at} /></span>}</p>}
       <footer>
         <button className="btn small ghost" onClick={details}>Details</button><span className="spacer" />
@@ -88,6 +89,8 @@ function Builder({ start, mergeFields, onClose, onSaved }: { start: Camp | null;
   const [seg, setSeg] = useState<Seg>(start ? fromSegment(start.segment) : { ...EMPTY, kind: 'patient' })
   const [subject, setSubject] = useState(start?.subject || '')
   const [body, setBody] = useState(start?.body || 'Hi {first_name}, ')
+  const [creative, setCreative] = useState<number | null>(start?.creative?.id ?? null)
+  const [made, setMade] = useState<{ id: number; title: string; kind: string; sms_text: string }[]>([])
   const [pv, setPv] = useState<Preview | null>(null)
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
@@ -95,12 +98,16 @@ function Builder({ start, mergeFields, onClose, onSaved }: { start: Camp | null;
   const sset = (k: keyof Seg, v: string) => setSeg((s) => ({ ...s, [k]: v }))
 
   useEffect(() => {
+    api<{ items: { id: number; title: string; kind: string; status: string; sms_text: string }[] }>('/creatives', { quiet: true })
+      .then((r) => setMade(r.items.filter((i) => i.status === 'done'))).catch(() => {})
+  }, [])
+  useEffect(() => {
     const t = window.setTimeout(async () => {
-      try { setPv(await api<Preview>('/campaigns/preview', { method: 'POST', body: { channel, purpose, segment: toSegment(seg), subject, body }, quiet: true })); setErr('') }
+      try { setPv(await api<Preview>('/campaigns/preview', { method: 'POST', body: { channel, purpose, segment: toSegment(seg), subject, body, creative_id: creative }, quiet: true })); setErr('') }
       catch (x) { setPv(null); setErr(errText(x) || '') }
     }, 350)
     return () => clearTimeout(t)
-  }, [channel, purpose, seg, subject, body])
+  }, [channel, purpose, seg, subject, body, creative])
 
   function insert(f: string) {
     const el = area.current, tok = `{${f}}`
@@ -111,7 +118,7 @@ function Builder({ start, mergeFields, onClose, onSaved }: { start: Camp | null;
   }
   async function save() {
     setBusy(true); setErr('')
-    const payload = { name, channel, purpose, segment: toSegment(seg), subject: channel === 'email' ? subject : '', body }
+    const payload = { name, channel, purpose, segment: toSegment(seg), subject: channel === 'email' ? subject : '', body, creative_id: creative }
     try {
       if (start) await api(`/campaigns/${start.id}`, { method: 'PATCH', body: payload, quiet: true })
       else await api('/campaigns', { method: 'POST', body: payload, quiet: true })
@@ -148,6 +155,17 @@ function Builder({ start, mergeFields, onClose, onSaved }: { start: Camp | null;
           {channel === 'email' && <label>Subject<input value={subject} onChange={(e) => setSubject(e.target.value)} maxLength={150} /></label>}
           <label>Text<textarea ref={area} value={body} onChange={(e) => setBody(e.target.value)} rows={6} maxLength={1600} /></label>
           <div className="quick2" aria-label="Insert a field">{mergeFields.map((f) => <button key={f} type="button" onClick={() => insert(f)}>{`{${f}}`}</button>)}</div>
+          {(made.length > 0 || creative) && <label>Image or video (from Creative studio)<select value={creative ?? ''} onChange={(e) => {
+            const id = e.target.value ? Number(e.target.value) : null
+            setCreative(id)
+            const m = made.find((x) => x.id === id)
+            if (m?.sms_text && body.trim() === 'Hi {first_name},') setBody(`Hi {first_name}, ${m.sms_text}`)
+          }}>
+            <option value="">None</option>
+            {creative && !made.some((m) => m.id === creative) && <option value={creative}>{start?.creative?.title || 'Attached'}</option>}
+            {made.map((m) => <option key={m.id} value={m.id}>{m.title} ({m.kind === 'video' ? 'video' : 'image'})</option>)}
+          </select></label>}
+          {creative && <p className="note">{channel === 'sms' ? 'Its link goes on its own line at the end of the text.' : 'The email ends with a link to see it.'}</p>}
           <p className="note">{channel === 'sms' ? '"Reply STOP to opt out." is added to every text.' : 'An unsubscribe line is added to every email.'}</p>
           <h3>Who would get it</h3>
           {pv ? (

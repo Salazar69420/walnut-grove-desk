@@ -148,6 +148,8 @@ class Campaign(Base):
     counts_json: Mapped[str] = mapped_column(Text, default="{}")
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     is_demo: Mapped[bool] = mapped_column(Boolean, default=False)
+    # an image or video from Creative studio: texts carry its link, emails show it
+    creative_id: Mapped[int | None] = mapped_column(Integer)
 
 
 class CampaignRecipient(Base):

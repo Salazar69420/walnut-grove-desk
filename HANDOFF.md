@@ -274,7 +274,16 @@ Backlog lives in section 7 (known gaps) and section 8 (next steps).
 
 ### 11.4 Journal (newest first)
 
-**2026-10-31 UTC, session 3 (latest): live TELUS calls, transcripts for every new call, callback tasks, assistant memory**
+**2026-11-01 UTC, session 3 (latest): Creative studio replaces the embedded Contento**
+- The owner asked for Contento's idea as a native feature, not Contento copied in. Contento (a recipe-video machine) works as: an adaptive one-question-at-a-time multiple-choice interview that pushes past vague answers and never asks technical questions, format doctrines, one writer call with a planning field (hook, arc, checks) before the prompt, and WaveSpeed for images (gpt-image-2) and video (Seedance 2.5). Creative studio keeps exactly that pipeline, rebuilt for a vet clinic.
+- `app/services/creatives.py`, `app/api/creatives.py`, model `Creative`, migration 0015 (table `creatives`, `campaigns.creative_id`). Formats: images (service spotlight, seasonal reminder, tip card, offer or news, pet of the month) and videos (clinic walkthrough, 15-second tip, myth busted, behind the scenes, happy visit, cinematic service ad). The interviewer already knows the clinic facts (approved knowledge, hours, website home text) and the clinic safety rules (no doses, no "your pet is fine", no invented prices or hospitals). At most 6 questions; "write it now" skips ahead.
+- The writer returns the image or video description, a social caption, a short campaign text and a title, all editable. Options: image quality and shape, video size and length; optional real clinic photo as a reference (edit / image-to-video models).
+- Making it costs money: owners only (`creatives.make`), the price is shown before confirming, and a monthly budget (Studio settings, default 50 USD) blocks anything over it. The WaveSpeed key is stored encrypted in settings (`creative_studio`). The loop polls WaveSpeed every 20 s, downloads the file to `<db dir>/creatives/` and gives it a public share page `/c/{token}` (media at `/c/{token}/media`).
+- Campaigns: a finished creative can be attached; texts get the share link on its own line, emails end with "See it here: <link>".
+- Contento removed from Walnut Desk (iframe page, SSO, `services/studio.py`, CSP frame-src). `/website/studio` redirects to `/creatives`. Contento itself still runs standalone (contento.77-42-69-194.sslip.io, unit `contento`); its `walnut-desk-link` branch is not merged and `WALNUT_CONTENTO_SECRET` in app.env is unused.
+- Tests: `tests/test_creatives.py` (fake OpenRouter and WaveSpeed: interview, writer, generate, download, share page, campaign link, budget cap, permissions).
+
+**2026-10-31 UTC, session 3: live TELUS calls, transcripts for every new call, callback tasks, assistant memory**
 - Read-only TELUS app set up by the owner (`telus-check`: 4 read scopes, no write scopes); texting keeps the full app in `credentials-send.env`. `walnut-telus-calls.timer` installed (every 3 min). Phone page badge "TELUS live" (`GET /api/phone/live`, `<bridge>/calls/status.json`).
 - Numbers for contacts from recordings: `telus-numbers` + `pipeline.app_numbers` run (104 contacts got a number, 18 shared numbers and 3 conflicting contacts left blank, consent stays "none").
 - Calls linked to a contact now always show in its conversation (`calls_live.ensure_call_messages`), with play and transcript buttons.

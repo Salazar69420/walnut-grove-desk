@@ -5,25 +5,10 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.services.events import current_ip
 
-import os
-from urllib.parse import urlparse
-
-
-def _studio_origin() -> str:
-    """Content studio (Contento) is shown inside the Content studio page: allow exactly its origin in frames, nothing else."""
-    explicit = os.environ.get("WALNUT_CONTENTO_URL", "").strip()
-    if explicit:
-        u = urlparse(explicit)
-        return f"{u.scheme}://{u.netloc}" if u.scheme == "https" and u.netloc else ""
-    host = urlparse(os.environ.get("WALNUT_PUBLIC_URL", "")).netloc
-    return f"https://contento.{host}" if host else ""
-
-
-STUDIO_ORIGIN = _studio_origin()
 CSP = (
     "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
     "script-src 'self'; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; "
-    f"frame-src 'self'{(' ' + STUDIO_ORIGIN) if STUDIO_ORIGIN else ''}; media-src 'self' blob:; "
+    "frame-src 'self'; media-src 'self' blob:; "
     "base-uri 'none'; form-action 'self'"
 )
 

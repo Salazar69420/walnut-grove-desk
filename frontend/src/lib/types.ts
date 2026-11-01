@@ -86,5 +86,6 @@ export type Camp = {
   created_at: string; approved_at: string | null; ran_at: string | null
   counts: { matched?: number; sent?: number; skipped?: Record<string, number> }
   recipients?: { contact: { id: number; display_name: string }; state: string; skipped_label: string }[]
+  creative?: { id: number; title: string; kind: 'image' | 'video'; status: string; share_url: string | null; media_url: string | null } | null
 }
 export type Preview = { matched: number; eligible: number; skipped: Record<string, number>; skipped_list: { reason: string; label: string; count: number }[]; samples: { contact: { id: number; display_name: string }; subject: string; text: string }[]; quiet_hours: boolean }

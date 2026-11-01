@@ -49,7 +49,11 @@ PERMS: dict[str, set[str]] = {
     "website.run": {"owner"},
     # Automations: "when this happens / at this time, do that"
     "automations.view": {"desk", "owner"},
-    "automations.edit": {"owner"},  # run an audit, ask the AI for a fix plan or for knowledge from the site
+    "automations.edit": {"owner"},
+    # Creative studio: images and short videos for campaigns
+    "creatives.view": {"desk", "owner"},
+    "creatives.draft": {"desk", "owner"},  # run the interview and edit the wording
+    "creatives.make": {"owner"},  # generate (spends money) and delete  # run an audit, ask the AI for a fix plan or for knowledge from the site
 }
 ADMIN_PERMS: set[str] = {"admin.users", "admin.audit", "admin.settings", "admin.import", "admin.reset_demo", "admin.telus", "admin.contacts_erase", "admin.access_log"}  # require is_admin
 

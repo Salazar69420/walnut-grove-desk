@@ -163,62 +163,6 @@ export function WebsiteSeo() {
   )
 }
 
-type StudioSummary = { videos: { id: number; title: string; status: string; resolution: string; duration_sec: number; video_url: string | null; created_at: string; client: string | null; username: string }[]; counts: { clients: number; credit_cents: number }; totals: { videos: number; finished: number }; keys: { key: string; set: boolean; source: string; hint: string | null }[] }
-type Studio = { up: boolean; linked: boolean; url: string; embed_url: string | null; summary: StudioSummary | null }
-const KEY_LABEL: Record<string, string> = { OPENROUTER_API_KEY: 'OpenRouter (writing)', WAVESPEED_API_KEY: 'WaveSpeed (video)', FAL_API_KEY: 'fal (images)', ELEVENLABS_API_KEY: 'ElevenLabs (voice)' }
-
-/** Content studio: Contento (AI videos and image ads) shown inside Walnut Desk, signed in with your Walnut Desk account. */
-export function ContentStudio() {
-  const { toast, can } = useApp()
-  const [st, setSt] = useState<Studio | null>(null)
-  const [tab, setTab] = useState<'studio' | 'videos'>('studio')
-  const load = () => api<Studio>('/website/studio', { quiet: true }).then(setSt).catch(() => setSt({ up: false, linked: false, url: '', embed_url: null, summary: null }))
-  useEffect(() => { load() }, [])
-  async function share() {
-    try { await api('/website/studio/share-key', { method: 'POST', body: {}, quiet: true }); toast('Content studio now uses the same OpenRouter key as Walnut Desk.'); load() }
-    catch (x) { toast(err(x, 'Could not share the key.')) }
-  }
-  async function openTab() {
-    try { const r = await api<Studio>('/website/studio', { quiet: true }); window.open(r.embed_url || r.url, '_blank', 'noopener') } catch { /* stays here */ }
-  }
-  if (!st) return <div className="php"><SkeletonRows n={4} /></div>
-  if (!st.up) return (
-    <div className="php web"><div className="hd2"><div><h1>Content studio</h1><p className="lead">AI videos and image ads for the clinic.</p></div></div>
-      <section className="card pad"><p><b>Content studio is not running right now.</b> It restarts by itself; if this stays, an admin can run <code>sudo systemctl restart contento</code> on the server.</p><button className="btn" onClick={load}>Check again</button></section></div>
-  )
-  const keys = st.summary?.keys || []
-  const orKey = keys.find((k) => k.key === 'OPENROUTER_API_KEY')
-  const videos = st.summary?.videos || []
-  return (
-    <div className="php web studio">
-      <div className="hd2">
-        <div><h1>Content studio</h1><p className="lead">Make short videos and image ads for the clinic with AI. Signed in as you; everything you make is listed here.</p></div>
-        <div className="rowbtn">
-          <div className="seg" role="tablist" aria-label="View">{([['studio', 'Studio'], ['videos', `Videos (${st.summary?.totals.videos ?? 0})`]] as const).map(([k, l]) => <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>)}</div>
-          <button className="btn" onClick={openTab}>Open full screen</button>
-        </div>
-      </div>
-      {keys.length > 0 && <div className="studio-keys">
-        {keys.filter((k) => KEY_LABEL[k.key]).map((k) => <span key={k.key} className={'tag ' + (k.set ? 'ok' : '')}>{KEY_LABEL[k.key]}: {k.set ? 'set' : 'not set'}</span>)}
-        {orKey && !orKey.set && can('admin.settings') && <button className="btn small primary" onClick={share}>Use Walnut Desk's OpenRouter key</button>}
-        {!st.linked && <span className="mute small">Sign-in link not configured on the server.</span>}
-      </div>}
-      {tab === 'studio' ? (
-        st.embed_url ? <iframe className="studio-frame" src={st.embed_url} title="Content studio" allow="microphone; clipboard-write; fullscreen" />
-          : <section className="card pad"><p>Content studio is running. <a href={st.url} target="_blank" rel="noreferrer">Open it</a> and sign in.</p></section>
-      ) : (
-        <section className="card">
-          <table className="tbl"><thead><tr><th>Video</th><th>For</th><th>Status</th><th>Made</th></tr></thead><tbody>
-            {videos.map((v) => <tr key={v.id}><td><b>{v.title}</b><div className="mute small">{v.resolution}, {v.duration_sec} s</div></td><td>{v.client || v.username}</td>
-              <td>{v.video_url ? <a href={v.video_url} target="_blank" rel="noreferrer">{v.status}, watch</a> : v.status}</td><td>{when(v.created_at)}</td></tr>)}
-            {!videos.length && <tr><td colSpan={4} className="mute">No videos yet. Make the first one in the Studio tab.</td></tr>}
-          </tbody></table>
-        </section>
-      )}
-    </div>
-  )
-}
-
 // ---------------------------------------------------------------- deployment agent
 type Change = { id: number; status: string; mode: 'auto' | 'approve'; created_at: string; created_by: string; pr_url: string; preview_url: string; summary: string; error: string; merged_at: string | null; issues: string[]; diff?: string }
 type DeployView = { settings: { repo: string; branch: string; mode: 'auto' | 'approve'; has_token: boolean; token_last4: string | null }; changes: Change[]; can_run: boolean }

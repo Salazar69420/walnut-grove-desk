@@ -17,6 +17,7 @@ from app.models.crm import (
     Visit,
 )
 from app.models.automation import Automation, AutomationRun
+from app.models.creative import Creative
 from app.models.chat import ChatMember, ChatMessage, ChatThread
 from app.models.booking import Product, SmsOffer, UpsellLog, WebsiteAudit, WebsiteChange
 from app.models.clinic import Campaign, CampaignRecipient, Fee, KnowledgeEntry, PhoneCall

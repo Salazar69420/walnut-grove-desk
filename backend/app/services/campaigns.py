@@ -74,10 +74,34 @@ def filters_from(seg: dict[str, Any]):
     )
 
 
-def render(db: Session, text: str, contact: Contact, clinic_name: str, channel: str, *, footer: bool) -> str:
+def creative_info(db: Session, creative_id: int | None) -> dict[str, Any] | None:
+    """The image or video attached to a campaign (from Creative studio), with its share link."""
+    if not creative_id:
+        return None
+    from app.models import Creative
+    from app.services import creatives
+    c = db.get(Creative, creative_id)
+    if c is None:
+        return None
+    return {"id": c.id, "title": c.title, "kind": c.kind, "status": c.status, "share_url": creatives.share_url(c),
+            "media_url": f"/c/{c.public_token}/media" if c.public_token and c.file_name else None}
+
+
+def check_creative(db: Session, creative_id: int | None) -> int | None:
+    if creative_id is None:
+        return None
+    info = creative_info(db, creative_id)
+    if info is None or info["status"] != "done" or not info["share_url"]:
+        raise crm.CrmError(400, "Pick a finished image or video from Creative studio.")
+    return creative_id
+
+
+def render(db: Session, text: str, contact: Contact, clinic_name: str, channel: str, *, footer: bool, link: str | None = None) -> str:
     pet = db.scalar(select(Pet.name).where(Pet.contact_id == contact.id, Pet.status == "active").order_by(Pet.id).limit(1))
     first = (contact.display_name.split() or [""])[0]
     out = text.replace("{first_name}", first).replace("{pet_name}", pet or "your pet").replace("{clinic_name}", clinic_name)
+    if link and link not in out:
+        out += ("\n" if channel == "sms" else "\n\nSee it here: ") + link
     if footer:
         if channel == "sms" and "stop" not in out.lower():
             out += "\nReply STOP to opt out."
@@ -131,13 +155,14 @@ def tally(evaluated: list[tuple[Contact, str | None]]) -> dict[str, Any]:
             "skipped_list": [{"reason": k, "label": SKIP_LABELS[k], "count": v} for k, v in sorted(skipped.items(), key=lambda kv: -kv[1])]}
 
 
-def samples(db: Session, evaluated, body: str, subject: str, channel: str, clinic_name: str, n: int = 3) -> list[dict[str, Any]]:
+def samples(db: Session, evaluated, body: str, subject: str, channel: str, clinic_name: str, n: int = 3, creative_id: int | None = None) -> list[dict[str, Any]]:
     out = []
+    link = (creative_info(db, creative_id) or {}).get("share_url")
     for c, reason in evaluated:
         if reason is None:
             out.append({"contact": {"id": c.id, "display_name": c.display_name},
                         "subject": render(db, subject, c, clinic_name, channel, footer=False) if channel == "email" else "",
-                        "text": render(db, body, c, clinic_name, channel, footer=True)})
+                        "text": render(db, body, c, clinic_name, channel, footer=True, link=link)})
             if len(out) >= n:
                 break
     return out
@@ -159,6 +184,7 @@ def run_dry(db: Session, camp: Campaign, user: User) -> dict[str, Any]:
     segment = json.loads(camp.segment_json or "{}")
     evaluated, _ = evaluate(db, user, camp.channel, camp.purpose, segment)
     name = clinic_name(db)
+    link = (creative_info(db, camp.creative_id) or {}).get("share_url")
     sent = 0
     skipped: dict[str, int] = {}
     for c, reason in evaluated:
@@ -167,7 +193,7 @@ def run_dry(db: Session, camp: Campaign, user: User) -> dict[str, Any]:
         if reason is None:
             try:
                 msg = sender.send_to_contact(
-                    db, c, user, channel=camp.channel, body=render(db, camp.body, c, name, camp.channel, footer=True),
+                    db, c, user, channel=camp.channel, body=render(db, camp.body, c, name, camp.channel, footer=True, link=link),
                     subject=render(db, camp.subject, c, name, camp.channel, footer=False) if camp.channel == "email" else "",
                     force_practice=True,  # campaigns never send for real
                 )

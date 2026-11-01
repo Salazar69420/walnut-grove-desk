@@ -10,6 +10,7 @@ export const NAV: { group: string; items: NavItem[] }[] = [
     { to: '/knowledge', label: 'Knowledge & Fees', perm: 'knowledge.view', icon: 'sparkle' },
     { to: '/phone', label: 'Phone', perm: 'phone.view', icon: 'phone' },
     { to: '/campaigns', label: 'Campaigns', perm: 'campaigns.view', icon: 'mail' },
+    { to: '/creatives', label: 'Creative studio', perm: 'creatives.view', icon: 'play' },
     { to: '/reports', label: 'Reports', perm: 'reports.view', icon: 'list' },
     { to: '/automations', label: 'Automations', perm: 'automations.view', icon: 'clock' },
   ] },
@@ -17,7 +18,6 @@ export const NAV: { group: string; items: NavItem[] }[] = [
     { to: '/website/content', label: 'Website content', perm: 'website.view', icon: 'list' },
     { to: '/website/seo', label: 'SEO agent', perm: 'website.view', icon: 'sparkle' },
     // Contento runs as its own app on this server (its own logins and credits); it opens in a new tab
-    { to: '/website/studio', label: 'Content studio', perm: 'website.run', icon: 'play' },
   ] },
   { group: 'Clinic', items: [
     { to: '/brief', label: 'Brief', perm: 'brief.view', icon: 'sparkle' },
@@ -32,4 +32,4 @@ export const NAV: { group: string; items: NavItem[] }[] = [
     { to: '/admin', label: 'Admin', admin: true, icon: 'user' },
   ] },
 ]
-export const isWorkspace = (p: string) => /^\/(home|tasks|contacts|calendar|knowledge|phone|campaigns|reports|website|automations)(\/|$)/.test(p)
+export const isWorkspace = (p: string) => /^\/(home|tasks|contacts|calendar|knowledge|phone|campaigns|reports|website|automations|creatives)(\/|$)/.test(p)
