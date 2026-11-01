@@ -10,6 +10,7 @@ import { BookDialog } from '../components/BookDialog'
 import { useApp } from '../ctx'
 import { clock, dayLabel, firstName, ls, lsSet } from '../lib/fmt'
 import { VISIT_LABEL } from '../lib/types'
+import { RequestBar } from './CalendarPage'
 
 const TABS: CardTab[] = ['contact', 'pets', 'calendar', 'services']
 type Ch = 'all' | 'sms' | 'email' | 'call' | 'note'
@@ -87,6 +88,7 @@ export function ContactPage() {
         {(stacked ? view === 'card' : open) && <aside className="side-card" id="gc-side" aria-label={`Guest Card for ${c ? firstName(c.display_name) : 'contact'}`}>{card}</aside>}
       </div>
       {c && <BookDialog open={booking} onClose={() => setBooking(false)} contact={c} pets={det.data?.pets || []} />}
+      {Number(sp.get('req')) > 0 && <RequestBar id={Number(sp.get('req'))} onDone={back} />}
     </div>
   )
 }

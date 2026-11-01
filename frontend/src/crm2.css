@@ -536,3 +536,14 @@ a.playb{color:var(--acc-t)}
   body:not(:has(.stats)) .asst-fab{width:52px;height:52px;padding:0;justify-content:center}
   body:not(:has(.stats)) .asst-fab span{display:none}
 }
+/* booking cards: who and when, a way into the conversation, then the answer */
+.rq-top{display:flex;align-items:flex-start;gap:10px}.rq-top .rq-m{flex:1;min-width:0}
+.rq-conv{flex:none;display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:0 12px;border-radius:12px;border:1px solid var(--accent);color:var(--acc-t);font-weight:600;font-size:14px;text-decoration:none;background:var(--panel)}
+/* the same request, shown on the conversation it came from */
+.reqbar{position:fixed;left:50%;transform:translateX(-50%);bottom:16px;z-index:34;width:min(560px,calc(100vw - 24px));display:flex;flex-direction:column;gap:8px;
+        padding:12px 14px;border-radius:16px;background:var(--panel);border:1px solid var(--line);box-shadow:0 10px 30px rgba(20,38,43,.22)}
+.reqbar-m{display:flex;flex-direction:column}.reqbar-m b{font-size:15px}.reqbar-m span{color:var(--mute);font-size:13px}
+.reqbar .ck{font-size:13px}
+body:has(.reqbar) .asst-fab{display:none}
+body:has(.reqbar) .work{padding-bottom:230px}
+@media (max-width:780px){.reqbar{bottom:calc(64px + env(safe-area-inset-bottom,0px));width:calc(100vw - 16px)}}

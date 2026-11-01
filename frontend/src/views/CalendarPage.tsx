@@ -327,12 +327,7 @@ function Requests({ onChanged }: { onChanged: () => void }) {
   if (!items.length) return null
   async function decide(e: Ev, action: 'confirm' | 'decline') {
     setBusy(e.id)
-    try {
-      const out = await api<{ texted: string | null }>(`/calendar/events/${e.id}/${action}`, { method: 'POST', body: { notify }, quiet: true })
-      const word = action === 'confirm' ? 'Confirmed' : 'Declined'
-      toast(out.texted && out.texted.startsWith('not sent') ? `${word}. The text was ${out.texted}` : notify && e.contact ? `${word} and the client was texted` : word)
-      r.reload(); onChanged()
-    } catch (x) { toast(x instanceof ApiError && x.message && x.message !== 'error' ? x.message : 'That did not work. Try again.') }
+    if (await decideRequest(e, action, notify, toast)) { r.reload(); onChanged() }
     setBusy(0)
   }
   return (
@@ -342,10 +337,13 @@ function Requests({ onChanged }: { onChanged: () => void }) {
         const p = evParts(e)
         return (
           <div key={e.id} className="rq-c">
-            <div className="rq-m">
-              <b>{p.who || p.what}</b>
-              <span>{dayLabel(e.starts_at)}, {clock(e.starts_at)}{p.who ? ` · ${p.what}` : ''}</span>
-              {p.via && <small>{VIA_LABEL[p.via]}</small>}
+            <div className="rq-top">
+              <div className="rq-m">
+                <b>{p.who || p.what}</b>
+                <span>{dayLabel(e.starts_at)}, {clock(e.starts_at)}{p.who ? ` · ${p.what}` : ''}</span>
+                {p.via && <small>{VIA_LABEL[p.via]}</small>}
+              </div>
+              {e.contact && <Link className="rq-conv" to={`/contacts/${e.contact.id}?req=${e.id}`}><Icon n="chat" size={16} /> Conversation</Link>}
             </div>
             {r.data?.can_decide && <div className="rq-a">
               <button className="btn" disabled={busy === e.id} onClick={() => decide(e, 'decline')}>Decline</button>
@@ -356,5 +354,44 @@ function Requests({ onChanged }: { onChanged: () => void }) {
       })}
       {r.data?.can_decide && <label className="ck rq-n"><input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} /> Text the client the answer</label>}
     </section>
+  )
+}
+
+/** Confirm or decline a requested appointment; true when it went through. Used by the calendar and the conversation page. */
+export async function decideRequest(e: Ev, action: 'confirm' | 'decline', notify: boolean, toast: (m: string) => void): Promise<boolean> {
+  try {
+    const out = await api<{ texted: string | null }>(`/calendar/events/${e.id}/${action}`, { method: 'POST', body: { notify }, quiet: true })
+    const word = action === 'confirm' ? 'Confirmed' : 'Declined'
+    toast(out.texted && out.texted.startsWith('not sent') ? `${word}. The text was ${out.texted}` : notify && e.contact ? `${word} and the client was texted` : word)
+    return true
+  } catch (x) {
+    toast(x instanceof ApiError && x.message && x.message !== 'error' ? x.message : 'That did not work. Try again.')
+    return false
+  }
+}
+
+/** On a conversation opened from a booking request: the request with its answer buttons, so you can read and decide in one place. */
+export function RequestBar({ id, onDone }: { id: number; onDone: () => void }) {
+  const { toast } = useApp()
+  const r = useLive<{ items: Ev[]; can_decide: boolean }>('/calendar/requests', ['events_cal'])
+  const [notify, setNotify] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const e = r.data?.items.find((x) => x.id === id)
+  if (!e) return null
+  const p = evParts(e)
+  async function go(action: 'confirm' | 'decline') {
+    setBusy(true)
+    const ok = await decideRequest(e!, action, notify, toast)
+    setBusy(false)
+    if (ok) onDone()
+  }
+  return (
+    <div className="reqbar" role="region" aria-label="Booking request">
+      <div className="reqbar-m"><b>Asked for {dayLabel(e.starts_at)}, {clock(e.starts_at)}</b><span>{p.what}{p.via ? ` · ${VIA_LABEL[p.via]}` : ''}</span></div>
+      {r.data?.can_decide && <>
+        <label className="ck"><input type="checkbox" checked={notify} onChange={(x) => setNotify(x.target.checked)} /> Text the answer</label>
+        <div className="rq-a"><button className="btn" disabled={busy} onClick={() => go('decline')}>Decline</button><button className="btn okb" disabled={busy} onClick={() => go('confirm')}>Confirm</button></div>
+      </>}
+    </div>
   )
 }
