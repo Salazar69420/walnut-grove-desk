@@ -128,7 +128,8 @@ export function Tasks() {
           <div className="tl-list">
             {list.loading && !list.data ? <SkeletonRows n={7} h={72} /> : list.error && !list.data ? <p className="sub pad">Could not load tasks. It will try again.</p> : items.length === 0 ? (
               <Empty icon="check" title={status === 'done' ? 'Nothing finished yet' : 'You are all caught up'} text={status === 'done' ? 'Finished tasks show up here.' : q || cls || kind || grp || assigned !== 'all' ? 'No tasks match these filters.' : 'There are no tasks in this list. New ones appear here by themselves.'} />
-            ) : items.map((t) => <TaskRow key={t.id} t={t} on={t.id === openId} onOpen={() => set({ open: String(t.id) })} />)}
+            ) : items.map((t) => <TaskRow key={t.id} t={t} on={t.id === openId} onOpen={() => set({ open: String(t.id) })}
+                act={can('tasks.work') ? (to) => update(t, { status: to }, { status: to }, to === 'done' ? 'Marked done' : to === 'open' ? 'Reopened' : 'Started', { status: t.status }, { status: t.status }) : undefined} />)}
           </div>
         </section>
       )}
@@ -289,11 +290,12 @@ function NewTask({ open, onClose, onCreated }: { open: boolean; onClose: () => v
   )
 }
 
-function TaskRow({ t, on, onOpen }: { t: Task; on: boolean; onOpen: () => void }) {
+function TaskRow({ t, on, onOpen, act }: { t: Task; on: boolean; onOpen: () => void; act?: (to: Task['status']) => void }) {
   const g = g0(t)
   const who = g.who || t.contact?.display_name || ''
   return (
-    <button className={'trow t-' + g.tone + (on ? ' on' : '')} aria-current={on ? 'true' : undefined} onClick={onOpen}>
+    <div className={'trow t-' + g.tone + (on ? ' on' : '') + (t.status === 'done' ? ' isdone' : '')}>
+      <button className="tr-open" aria-current={on ? 'true' : undefined} onClick={onOpen}>
       <div className="tr-m">
         <div className="tr-top">
           <span className={'lab t-' + g.tone}>{g.label}</span>
@@ -311,10 +313,19 @@ function TaskRow({ t, on, onOpen }: { t: Task; on: boolean; onOpen: () => void }
           <span>{t.classification === 'patient' ? 'Patient' : 'Inquiry'}</span>
           {t.raised_by === 'ai' && <span className="ai">AI</span>}
           <span className="spacer" />
-          {t.assigned ? <span className="asg"><Avatar name={t.assigned.display_name} initials={t.assigned.initials} hue={hueFor(t.assigned.id)} size={18} />{t.assigned.display_name.split(' ')[0]}</span> : <span className="unasg">Unassigned</span>}
+          {t.assigned ? <span className="asg"><Avatar name={t.assigned.display_name} initials={t.assigned.initials} hue={hueFor(t.assigned.id)} size={18} />{/^(Dr|Mr|Mrs|Ms)\.?$/.test(t.assigned.display_name.split(' ')[0]) ? t.assigned.display_name : t.assigned.display_name.split(' ')[0]}</span> : <span className="unasg">Unassigned</span>}
         </div>
       </div>
-    </button>
+      </button>
+      {act && (
+        <div className="tr-acts">
+          {t.status === 'done'
+            ? <button className="tr-act" onClick={() => act('open')} aria-label={`Reopen: ${g.label}, ${who}`} title="Reopen"><Icon n="undo" size={18} /></button>
+            : <button className="tr-act done" onClick={() => act('done')} aria-label={`Mark done: ${g.label}, ${who}`} title="Mark done"><Icon n="check" size={20} /></button>}
+          {t.status === 'open' && <button className="tr-act sm" onClick={() => act('in_progress')} aria-label={`Start: ${g.label}, ${who}`} title="Start (in progress)"><Icon n="play" size={14} /></button>}
+        </div>
+      )}
+    </div>
   )
 }
 
