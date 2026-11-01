@@ -274,7 +274,13 @@ Backlog lives in section 7 (known gaps) and section 8 (next steps).
 
 ### 11.4 Journal (newest first)
 
-**2026-11-01 UTC, session 3 (latest): SEO of the live site, shipped through Vercel**
+**2026-11-01 UTC, session 3 (latest): Website analytics dashboard**
+- New page Website, Website analytics (`/website/analytics`, perm `website.view`; `views/WebAnalytics.tsx`, `GET /api/website/analytics?days=7|30|90`, `app/services/web_analytics.py`). Reads Vercel Web Analytics through the deployment agent's Vercel connection: visitors, page views, pages per visitor, change against the period before, visitors per day (chart with hover and a table view), top pages (Sanity /studio left out), referrers, countries, devices, browsers, operating systems, inbound calls in the same days, SEO score history. Cached 10 minutes.
+- Vercel's free plan keeps 30 days, 50k events a month, no custom events or UTM. Daily totals are copied into `web_analytics_days` every three hours (migration 0017), so 90-day trends work.
+- Staff assistant tool `website_traffic`.
+- The site needs the Vercel tracking scripts: deployment change 6 ("Turns on visitor statistics", `/_vercel/insights/script.js` and `/_vercel/speed-insights/script.js` in app/layout.tsx, no new packages) built as a preview and is waiting for the owner's Approve in SEO agent (an automatic production deploy was not allowed). Until then the page says no visits are recorded yet.
+
+**2026-11-01 UTC, session 3: SEO of the live site, shipped through Vercel**
 - Audit of https://www.walnutgroveanimalclinic.com (audit 5): score 48 (Google 64, Maps 88, AI 96). Fixes written and reviewed by Claude (not the in-app model, at the owner's request), on top of the live commit bd16e31 of the public repo: the earlier fork commit c04f831 (one www address in canonicals/sitemap/robots, VeterinaryCare JSON-LD in the HTML, a title, description and single H1 per page, FAQPage JSON-LD, public/llms.txt) plus: sitemap `revalidate = 3600` and the built-in blog articles listed, blog titles kept to 60 characters.
 - Shipped as deployment-agent changes 4 and 5 (Vercel preview built, then production). A local build was not allowed on the server (third-party install scripts), so Vercel's build was the gate, plus a before/after snapshot of all 41 pages: all 200, text at least 97% identical, every sitemap URL 200. Rollback point: production deployment dpl_9wqxnMLD87BE4kCAetwiTw6vCP4V (the old GitHub build).
 - Result (audit 8): score 96 (Google 96, Maps 100, AI 100). Left: 15 titles a little over 60 characters (set in the CMS by the clinic), 3 short pages (Contact, How-to videos, Pet food recalls) that need real content.

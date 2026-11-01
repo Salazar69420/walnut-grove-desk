@@ -336,3 +336,21 @@ def blog_settings(body: CmsIn, user: User = Depends(require("admin.settings")), 
     ev.record(db, ev.ADMIN, "website_cms_settings", f"{user.display_name} connected the website CMS", user, "setting", blog.KEY)
     db.commit()
     return {"cms": blog.public(cfg)}
+
+
+# ---------------------------------------------------------------- website analytics (Vercel Web Analytics)
+from app.services import web_analytics  # noqa: E402
+
+
+@router.get("/analytics")
+def analytics(days: int = 30, user: User = Depends(require("website.view")), db: Session = Depends(get_db)):
+    if days not in (7, 30, 90):
+        raise HTTPException(status_code=400, detail="Pick 7, 30 or 90 days.")
+    try:
+        return {"connected": True, **web_analytics.dashboard(db, days)}
+    except web_analytics.NotConnected:
+        return {"connected": False}
+    except deploy_agent.VercelError as e:
+        raise HTTPException(status_code=502, detail=f"Vercel did not answer: {e.message or e}")
+    except httpx.HTTPError:
+        raise HTTPException(status_code=502, detail="Could not reach Vercel. Try again in a minute.")

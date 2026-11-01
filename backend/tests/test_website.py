@@ -114,6 +114,15 @@ class FakeWorld:
                                                         "package.json": b"{}", ".env": b"SECRET=1", "node_modules/x/index.js": b"x"}))
         if r.headers.get("authorization") != "Bearer vcp_" + "x" * 30:
             return httpx.Response(403, json={"error": {"code": "forbidden", "message": "Not authorized"}})
+        if p == "/v1/query/web-analytics/visits/aggregate":
+            by = r.url.params.get("by")
+            if by == "day":
+                from datetime import date, timedelta
+                today = date.today()
+                return httpx.Response(200, json={"data": [{"timestamp": f"{(today - timedelta(days=i)).isoformat()}T00:00:00.000Z", "pageviews": 10 + i, "visitors": 5} for i in range(40)]})
+            rows = {"requestPath": [{"requestPath": "/", "pageviews": 50, "visitors": 30}, {"requestPath": "/studio/desk", "pageviews": 99, "visitors": 2}, {"requestPath": "/contact", "pageviews": 20, "visitors": 15}],
+                    "referrerHostname": [{"referrerHostname": "google.com", "pageviews": 40, "visitors": 25}, {"referrerHostname": None, "pageviews": 30, "visitors": 20}]}.get(by, [])
+            return httpx.Response(200, json={"data": rows})
         if p in ("/v9/projects/prj_1", "/v9/projects/walnut-grove"):
             return httpx.Response(200, json={"id": "prj_1", "name": "walnut-grove", "framework": "nextjs"})
         if p == "/v9/projects/prj_1/domains":
@@ -225,6 +234,33 @@ def test_the_agent_deploys_a_preview_with_only_safe_edits_and_ships_it_after_app
         last = s.scalars(select(WebsiteChange).order_by(WebsiteChange.id.desc())).first()
         assert last.status == "failed" and "could be applied safely" in last.error
     assert world.downloads == 1 and len(world.deploys) == 2
+
+
+@pytest.fixture()
+def vercel_only(monkeypatch):
+    """Fake Vercel without running background threads inline (the analytics page has none, and several users call it)."""
+    w = FakeWorld()
+    monkeypatch.setattr(deploy_agent, "TRANSPORT", httpx.MockTransport(w.gh))
+    from app.services import web_analytics
+    web_analytics._cache.clear()
+    return w
+
+
+def test_website_analytics_dashboard_and_daily_copy(env, garg, priya, anita, vercel_only):
+    assert garg.get("/api/website/analytics").json() == {"connected": False}
+    _connect(garg)
+    assert garg.get("/api/website/analytics?days=12").status_code == 400
+    d = garg.get("/api/website/analytics?days=7").json()
+    assert d["connected"] and d["site"] == "www.walnutgroveanimalclinic.com" and len(d["series"]) == 7
+    assert d["totals"]["visitors"] == 35 and d["totals"]["pageviews"] == sum(10 + i for i in range(7)) and d["previous"]["visitors"] == 35
+    assert [x["name"] for x in d["top"]["pages"]] == ["/", "/contact"]  # Sanity Studio (staff) is not a visitor page
+    assert d["top"]["referrers"][1]["name"] == "Direct or unknown"
+    assert priya.get("/api/website/analytics").status_code == 200 and anita.get("/api/website/analytics").status_code == 403
+    from app.models import WebAnalyticsDay
+    from app.services import web_analytics
+    with env.session() as s:
+        assert web_analytics.sync(s) > 30 and s.scalar(select(WebAnalyticsDay).limit(1)) is not None
+    assert garg.get("/api/website/analytics?days=90").json()["series"][-1]["known"]
 
 
 def test_auto_mode_ships_when_the_preview_builds_and_a_failed_build_never_does(env, garg, world):

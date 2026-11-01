@@ -294,6 +294,19 @@ def t_audit(db: Session, user: User, limit: int = 25, contains: str = "", **_) -
 
 
 # ---------------------------------------------------------------- changes the model may propose (executed only on Confirm)
+def t_website_traffic(db: Session, user: User, days: int = 30, **_) -> dict:
+    """Visitors and page views of the clinic website (Vercel Web Analytics), with top pages, sources, countries and devices."""
+    from app.services import web_analytics
+    d = int(days or 30)
+    d = 7 if d <= 7 else 30 if d <= 30 else 90
+    try:
+        out = web_analytics.dashboard(db, d)
+    except web_analytics.NotConnected:
+        return {"error": "the website's Vercel project is not connected (SEO agent, Deployment agent)"}
+    out.pop("series", None)
+    return out
+
+
 def t_people_waiting(db: Session, user: User, limit: int = 20, **_) -> dict:
     """Contacts whose latest message in is not read yet (the Home page's "people waiting")."""
     from app.api.home import _unread_flag
@@ -647,6 +660,7 @@ TOOLS: list[tuple[str, str, Callable, dict]] = [
     ("website.view", "website", t_website, _fn("website", "The clinic website: latest SEO audit with scores for Google, Maps and AI search, issues to fix, Google PageSpeed, and the deployment agent's recent changes (Vercel previews and what went live).")),
     ("website.view", "blog_posts", t_blog, _fn("blog_posts", "The blog posts on the clinic website.")),
     ("home.view", "my_chats", t_chats, _fn("my_chats", "This person's own team chats (Everyone, direct, groups): unread counts and latest messages. Only conversations they are in.")),
+    ("website.view", "website_traffic", t_website_traffic, _fn("website_traffic", "Website visitors and page views for the last 7, 30 or 90 days compared with the period before, top pages, where visitors came from, countries, devices and browsers, inbound calls in the same days, and the SEO score history.", {"days": {"type": "integer"}})),
     ("home.view", "people_waiting", t_people_waiting, _fn("people_waiting", "People whose latest text or email to the clinic has not been read yet, newest first, with what they wrote.", {"limit": {"type": "integer"}})),
     ("contacts.view", "contacts_summary", t_contacts_summary, _fn("contacts_summary", "How many patients and inquiries there are, how many contacts are new in the last N days (default 7), by kind and by where they came from.", {"days": {"type": "integer"}})),
     ("phone.transcript", "call_transcript", t_call_transcript, _fn("call_transcript", "The transcript of ONE call (get the call id from phone_calls or contact_details first). Only when the question needs what was actually said; quote briefly.", {"call_id": {"type": "integer"}}, ["call_id"])),

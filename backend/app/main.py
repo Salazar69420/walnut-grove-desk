@@ -66,6 +66,12 @@ async def _inbound_loop() -> None:
                 await asyncio.to_thread(_deploy_tick)
             except Exception:  # noqa: BLE001 - keep looping
                 log.error("deploy agent loop error")
+        if n % 2160 == 40:  # about every three hours (and soon after start): keep a copy of the website's daily traffic
+            try:
+                from app.services import web_analytics
+                await asyncio.to_thread(web_analytics.tick)
+            except Exception:  # noqa: BLE001 - keep looping
+                log.error("web analytics loop error")
         if (n := n + 1) % 6 == 0:  # about every 30 seconds
             try:
                 from app.services import transcribe

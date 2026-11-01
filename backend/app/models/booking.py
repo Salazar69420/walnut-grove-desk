@@ -106,3 +106,14 @@ class UpsellLog(Base):
     product_id: Mapped[int | None] = mapped_column(ForeignKey("products.id", ondelete="SET NULL"))
     at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     is_demo: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class WebAnalyticsDay(Base):
+    """One day of website traffic copied from Vercel Web Analytics (the free plan keeps a month; this keeps it longer)."""
+
+    __tablename__ = "web_analytics_days"
+
+    day: Mapped[str] = mapped_column(String(10), primary_key=True)  # YYYY-MM-DD, UTC as Vercel reports it
+    pageviews: Mapped[int] = mapped_column(Integer, default=0)
+    visitors: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)

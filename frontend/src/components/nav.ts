@@ -16,6 +16,7 @@ export const NAV: { group: string; items: NavItem[] }[] = [
   ] },
   { group: 'Website', items: [
     { to: '/website/content', label: 'Website content', perm: 'website.view', icon: 'list' },
+    { to: '/website/analytics', label: 'Website analytics', perm: 'website.view', icon: 'eye' },
     { to: '/website/seo', label: 'SEO agent', perm: 'website.view', icon: 'sparkle' },
     // Contento runs as its own app on this server (its own logins and credits); it opens in a new tab
   ] },
